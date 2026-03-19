@@ -1,4 +1,4 @@
-﻿__pycache__/
+__pycache__/
 *.py[cod]
 .pytest_cache/
 .pytest_cache_local/
@@ -24,3 +24,5 @@ dist/
 
 adm1-theme-probe.png
 dynamic_out.csv
+
+documentation/Biological Wastewater Treatment - Principles - Modelling - Design.pdf
