@@ -1,0 +1,23 @@
+﻿# Fase 1: RAG + Obsidian
+chromadb>=0.5
+docling>=2.0
+mcp[cli]>=1.0
+ollama>=0.4
+pydantic>=2,<3
+pymupdf>=1.24
+pyyaml>=6.0
+
+# Fase 2 em diante: simulacao e visualizacao
+matplotlib>=3.8
+numpy>=1.26,<3
+pandas>=2.0
+plotly>=5.18
+scipy>=1.12
+streamlit>=1.33
+pytest>=8.0
+
+# Dependencias opcionais: instalacao nao obrigatoria para o fluxo principal.
+# OMPython e necessario apenas para validacao via OpenModelica (Fase 3, run_phase3_validation).
+# Instale separadamente se o OpenModelica estiver disponivel:
+#   pip install OMPython
+# OMPython

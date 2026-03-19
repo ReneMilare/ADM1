@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adm1-workbench"
+version = "0.1.0"
+description = "ADM1 simulation workbench with RAG-assisted consultation and Streamlit interface."
+requires-python = ">=3.11"
+dependencies = [
+    "chromadb>=0.5",
+    "docling>=2.0",
+    "mcp[cli]>=1.0",
+    "matplotlib>=3.8",
+    "numpy>=1.26,<3",
+    "ollama>=0.4",
+    "pandas>=2.0",
+    "plotly>=5.18",
+    "pydantic>=2,<3",
+    "pymupdf>=1.24",
+    "pyyaml>=6.0",
+    "scipy>=1.12",
+    "streamlit>=1.33",
+]
+
+[project.optional-dependencies]
+# Required only for OpenModelica validation (run_phase3_validation with include_openmodelica=True).
+openmodelica = ["OMPython"]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+adm1-simulate = "simulator.mcp_server:mcp.run"
+adm1-rag = "rag.mcp_server:mcp.run"
+
+[tool.pytest.ini_options]
+testpaths = ["simulator/tests"]
+python_files = ["test_*.py"]
+python_classes = ["*Test", "Test*"]
+python_functions = ["test_*"]

@@ -1,0 +1,3 @@
+﻿[submodule "vendor/PyADM1"]
+	path = vendor/PyADM1
+	url = https://github.com/CaptainFerMag/PyADM1.git

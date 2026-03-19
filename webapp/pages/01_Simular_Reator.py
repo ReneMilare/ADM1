@@ -1,0 +1,428 @@
+from __future__ import annotations
+
+from _bootstrap import ensure_project_root
+
+ensure_project_root()
+
+import streamlit as st
+
+from webapp.components.charts import render_core_profile_charts
+from webapp.components.status_cards import (
+    render_issue_messages,
+    render_sidebar_panel,
+    render_simulation_kpis,
+    render_summary_cards,
+    render_usage_guide,
+    render_workflow_links,
+)
+from webapp.components.tables import render_frame, render_input_table, render_series_preview, render_summary_table
+from webapp.services.health import collect_health_snapshot
+from webapp.services.preferences_service import (
+    delete_simulation_preset,
+    get_preferences,
+    list_simulation_presets,
+    record_recent_simulation,
+    save_simulation_preset,
+)
+from webapp.services.simulation_service import (
+    apply_user_simulation_preset,
+    build_feed_and_operating,
+    build_user_simulation_preset_payload,
+    format_simulation_error,
+    get_backend_options,
+    get_reactor_options,
+    resolve_requested_backend,
+    run_simulation,
+    series_csv_bytes,
+    summary_csv_bytes,
+    summary_json_bytes,
+    validate_simulation_inputs,
+)
+from webapp.state.session_state import ensure_session_state
+from webapp.utils.page_config import configure_page, render_page_header
+from webapp.utils.presets import get_manual_defaults, get_preset_bundle, get_substrate_options, preset_rows
+
+FLASH_KEY = "simular_reator_flash"
+
+
+def _queue_flash(message: str) -> None:
+    st.session_state[FLASH_KEY] = message
+
+
+def _render_flash() -> None:
+    message = st.session_state.pop(FLASH_KEY, None)
+    if message:
+        st.toast(message)
+
+
+configure_page("Simular Reator")
+ensure_session_state()
+snapshot = collect_health_snapshot()
+st.session_state["recent_page"] = "simular_reator"
+render_sidebar_panel(snapshot, current_page="Simular Reator")
+render_page_header(
+    eyebrow="Fase W2 + W7",
+    title="Simular Reator",
+    description="Fluxo principal da interface: configurar o caso, validar rapidamente os inputs, salvar presets do usuario e rodar a simulacao ADM1 sem sair da web UI.",
+)
+_render_flash()
+
+if snapshot["issues"]:
+    render_issue_messages(snapshot)
+render_summary_cards(snapshot)
+render_workflow_links(
+    title="Fluxos relacionados",
+    items=[
+        {"path": "pages/02_Comparar_Cenarios.py", "label": "Comparar Cenarios", "caption": "Usar depois de persistir mais de um caso."},
+        {"path": "pages/04_Validacao.py", "label": "Validacao", "caption": "Checar aderencia do backend antes de estudos mais sensiveis."},
+        {"path": "pages/05_Consulta_Tecnica.py", "label": "Consulta Tecnica", "caption": "Consultar literatura e mapear parametros do caso."},
+    ],
+)
+render_usage_guide(
+    title="Como usar esta tela",
+    summary="A tela foi refinada para primeiro uso: escolha um preset tecnico, valide o caso, rode a simulacao e, se fizer sentido, salve a configuracao como preset do usuario.",
+    steps=[
+        "Escolha o reator, o modo de alimentacao e o backend desejado.",
+        "Revise volume, temperatura, HRT e a composicao da alimentacao.",
+        "Use os avisos tecnicos abaixo para detectar casos que merecem revisao antes da corrida.",
+        "Execute a simulacao e persista o cenario se quiser compara-lo em outra tela.",
+    ],
+    tips=[
+        "Para CSTR, o padrao do projeto continua sendo `pyadm1`.",
+        "Se estiver explorando um caso recorrente, salve-o como preset do usuario para reutilizacao futura.",
+    ],
+)
+
+preferences = get_preferences()
+reactor_options = get_reactor_options()
+backend_options = get_backend_options()
+substrate_options = get_substrate_options()
+default_preset_id = next(iter(substrate_options)) if substrate_options else None
+
+session_defaults = {
+    "sim_reactor_type": preferences.get("default_reactor", "cstr"),
+    "sim_substrate_mode": "preset",
+    "sim_preset_id": default_preset_id,
+    "sim_backend_choice": preferences.get("default_backend", "pyadm1"),
+    "duration_days": 45.0,
+    "evaluation_points": 181,
+    "solver_choice": "BDF",
+    "persist_case": bool(preferences.get("persist_scenarios_by_default", True)),
+    "volume_active": 3000.0,
+    "temperature_active": 35.0,
+    "hrt_active": 20.0,
+}
+for key, value in session_defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+saved_presets = list_simulation_presets()
+if saved_presets:
+    with st.expander("Presets do usuario", expanded=False):
+        preset_names = [str(item.get("name")) for item in saved_presets]
+        selected_user_preset = st.selectbox("Preset salvo", options=preset_names, key="user_simulation_preset")
+        preset_rows_user = []
+        for item in saved_presets:
+            summary = item.get("summary", {}) if isinstance(item.get("summary"), dict) else {}
+            preset_rows_user.append(
+                {
+                    "preset": item.get("name"),
+                    "reator": summary.get("reactor_type"),
+                    "modo": summary.get("substrate_mode"),
+                    "substrato": summary.get("preset_id") or "manual",
+                    "backend": summary.get("backend_choice"),
+                    "duracao_d": summary.get("duration_days"),
+                    "atualizado_em": item.get("updated_at"),
+                }
+            )
+        render_frame(preset_rows_user)
+        preset_col1, preset_col2 = st.columns(2)
+        with preset_col1:
+            if st.button("Aplicar preset salvo", use_container_width=True):
+                preset_payload = next(item.get("payload") for item in saved_presets if str(item.get("name")) == selected_user_preset)
+                apply_user_simulation_preset(st.session_state, preset_payload)
+                st.session_state["sim_skip_base_reset"] = True
+                _queue_flash(f"Preset `{selected_user_preset}` aplicado.")
+                st.rerun()
+        with preset_col2:
+            if st.button("Excluir preset salvo", use_container_width=True):
+                delete_simulation_preset(selected_user_preset)
+                _queue_flash(f"Preset `{selected_user_preset}` excluido.")
+                st.rerun()
+
+selector_col1, selector_col2, selector_col3 = st.columns((1.05, 1.0, 0.95))
+with selector_col1:
+    reactor_type = st.selectbox(
+        "Tipo de reator",
+        options=list(reactor_options),
+        format_func=lambda value: reactor_options[value],
+        key="sim_reactor_type",
+    )
+with selector_col2:
+    substrate_mode_label = st.radio(
+        "Modo de alimentacao",
+        options=["preset", "manual"],
+        horizontal=True,
+        format_func=lambda value: "Preset" if value == "preset" else "Manual",
+        key="sim_substrate_mode",
+    )
+with selector_col3:
+    backend_choice = st.selectbox(
+        "Backend",
+        options=list(backend_options),
+        format_func=lambda value: backend_options[value],
+        key="sim_backend_choice",
+    )
+
+preset_id = None
+if substrate_mode_label == "preset":
+    preset_id = st.selectbox(
+        "Preset de substrato",
+        options=list(substrate_options),
+        format_func=lambda value: substrate_options[value],
+        key="sim_preset_id",
+    )
+    base_feed, base_operating, preset_link = get_preset_bundle(preset_id)
+else:
+    base_feed, base_operating = get_manual_defaults()
+    preset_link = None
+
+source_signature = f"{substrate_mode_label}:{preset_id or 'manual'}"
+skip_base_reset = bool(st.session_state.pop("sim_skip_base_reset", False))
+if st.session_state.get("sim_base_signature") != source_signature and not skip_base_reset:
+    st.session_state["volume_active"] = float(base_operating.volume_m3)
+    st.session_state["temperature_active"] = float(base_operating.temperature_c)
+    st.session_state["hrt_active"] = float(base_operating.hrt_days)
+    if substrate_mode_label == "manual":
+        st.session_state["manual_feed_name"] = base_feed.name
+        st.session_state["manual_particulate_cod"] = float(base_feed.particulate_cod)
+        st.session_state["manual_soluble_cod"] = float(base_feed.soluble_cod)
+        st.session_state["manual_acetate"] = float(base_feed.acetate)
+        st.session_state["manual_propionate"] = float(base_feed.propionate)
+        st.session_state["manual_hydrogen"] = float(base_feed.hydrogen)
+        st.session_state["manual_inorganic_nitrogen"] = float(base_feed.inorganic_nitrogen)
+        st.session_state["manual_alkalinity"] = float(base_feed.alkalinity)
+        st.session_state["manual_feed_ph"] = float(base_feed.ph)
+    st.session_state["sim_base_signature"] = source_signature
+
+predicted_backend, backend_note = resolve_requested_backend(reactor_type, backend_choice)
+if backend_note:
+    if predicted_backend != backend_choice:
+        st.warning(backend_note)
+    else:
+        st.info(backend_note)
+
+st.subheader("Configuracao do caso")
+config_col, context_col = st.columns((1.35, 0.95))
+with context_col:
+    st.markdown("### Contexto do substrato")
+    if substrate_mode_label == "preset":
+        st.markdown(f"- Preset: `{substrate_options[preset_id]}`")
+        st.markdown(f"- Nota tecnica: {preset_link}")
+        render_frame(
+            [
+                {"parametro": "Feed", "valor": base_feed.name},
+                {"parametro": "Particulate COD", "valor": f"{base_feed.particulate_cod:.3f} kgCOD/m3"},
+                {"parametro": "Soluble COD", "valor": f"{base_feed.soluble_cod:.3f} kgCOD/m3"},
+                {"parametro": "Acetate", "valor": f"{base_feed.acetate:.3f} kgCOD/m3"},
+                {"parametro": "Propionate", "valor": f"{base_feed.propionate:.3f} kgCOD/m3"},
+                {"parametro": "Influent pH", "valor": f"{base_feed.ph:.2f}"},
+            ]
+        )
+    else:
+        st.markdown("- Modo manual ativo.")
+        st.caption("Os campos de alimentacao abaixo controlam diretamente a composicao simplificada usada pelo backend local.")
+
+with config_col:
+    with st.form("simulation_form"):
+        left, right = st.columns(2)
+        with left:
+            st.number_input(
+                "Volume do reator [m3]",
+                min_value=10.0,
+                value=float(st.session_state.get("volume_active", base_operating.volume_m3)),
+                step=50.0,
+                key="volume_active",
+            )
+            st.number_input(
+                "Temperatura [C]",
+                min_value=15.0,
+                max_value=60.0,
+                value=float(st.session_state.get("temperature_active", base_operating.temperature_c)),
+                step=0.5,
+                key="temperature_active",
+            )
+            st.number_input(
+                "HRT [dias]",
+                min_value=0.5,
+                value=float(st.session_state.get("hrt_active", base_operating.hrt_days)),
+                step=0.5,
+                key="hrt_active",
+            )
+            st.number_input(
+                "Duracao da simulacao [dias]",
+                min_value=1.0,
+                value=float(st.session_state.get("duration_days", 45.0)),
+                step=1.0,
+                key="duration_days",
+            )
+        with right:
+            if substrate_mode_label == "manual":
+                st.text_input("Nome da alimentacao", value=st.session_state.get("manual_feed_name", base_feed.name), key="manual_feed_name")
+                st.number_input("Particulate COD [kgCOD/m3]", min_value=0.0, value=float(st.session_state.get("manual_particulate_cod", base_feed.particulate_cod)), step=0.1, key="manual_particulate_cod")
+                st.number_input("Soluble COD [kgCOD/m3]", min_value=0.0, value=float(st.session_state.get("manual_soluble_cod", base_feed.soluble_cod)), step=0.1, key="manual_soluble_cod")
+                st.number_input("Acetate [kgCOD/m3]", min_value=0.0, value=float(st.session_state.get("manual_acetate", base_feed.acetate)), step=0.05, key="manual_acetate")
+                st.number_input("Propionate [kgCOD/m3]", min_value=0.0, value=float(st.session_state.get("manual_propionate", base_feed.propionate)), step=0.05, key="manual_propionate")
+                st.number_input("Hydrogen [kgCOD/m3]", min_value=0.0, value=float(st.session_state.get("manual_hydrogen", base_feed.hydrogen)), step=0.001, format="%.4f", key="manual_hydrogen")
+                st.number_input("Inorganic nitrogen [kgN/m3]", min_value=0.0, value=float(st.session_state.get("manual_inorganic_nitrogen", base_feed.inorganic_nitrogen)), step=0.05, key="manual_inorganic_nitrogen")
+                st.number_input("Alkalinity [kmol/m3 eq.]", min_value=0.1, value=float(st.session_state.get("manual_alkalinity", base_feed.alkalinity)), step=0.05, key="manual_alkalinity")
+                st.number_input("Influent pH", min_value=5.0, max_value=8.5, value=float(st.session_state.get("manual_feed_ph", base_feed.ph)), step=0.05, key="manual_feed_ph")
+            else:
+                st.markdown("**Preset carregado**")
+                st.caption("Nesta versao, o preset define a composicao da alimentacao. Use o modo manual para ajustar a composicao campo a campo.")
+                render_frame(preset_rows())
+
+        with st.expander("Opcoes avancadas", expanded=False):
+            adv_col1, adv_col2, adv_col3 = st.columns(3)
+            with adv_col1:
+                st.number_input("Pontos de avaliacao", min_value=21, max_value=601, value=int(st.session_state.get("evaluation_points", 181)), step=10, key="evaluation_points")
+            with adv_col2:
+                st.selectbox("Solver", options=["BDF", "Radau"], index=["BDF", "Radau"].index(str(st.session_state.get("solver_choice", "BDF"))), key="solver_choice")
+            with adv_col3:
+                st.checkbox("Salvar cenario em simulator/runs", value=bool(st.session_state.get("persist_case", preferences.get("persist_scenarios_by_default", True))), key="persist_case")
+
+        submitted = st.form_submit_button("Executar simulacao")
+
+manual_feed_values = {}
+if substrate_mode_label == "manual":
+    manual_feed_values = {
+        "name": st.session_state.get("manual_feed_name", base_feed.name),
+        "particulate_cod": st.session_state.get("manual_particulate_cod", base_feed.particulate_cod),
+        "soluble_cod": st.session_state.get("manual_soluble_cod", base_feed.soluble_cod),
+        "acetate": st.session_state.get("manual_acetate", base_feed.acetate),
+        "propionate": st.session_state.get("manual_propionate", base_feed.propionate),
+        "hydrogen": st.session_state.get("manual_hydrogen", base_feed.hydrogen),
+        "inorganic_nitrogen": st.session_state.get("manual_inorganic_nitrogen", base_feed.inorganic_nitrogen),
+        "alkalinity": st.session_state.get("manual_alkalinity", base_feed.alkalinity),
+        "ph": st.session_state.get("manual_feed_ph", base_feed.ph),
+    }
+
+validation = validate_simulation_inputs(
+    reactor_type=reactor_type,
+    substrate_mode=substrate_mode_label,
+    manual_feed_values=manual_feed_values,
+    operating_values={
+        "volume_m3": st.session_state.get("volume_active", base_operating.volume_m3),
+        "temperature_c": st.session_state.get("temperature_active", base_operating.temperature_c),
+        "hrt_days": st.session_state.get("hrt_active", base_operating.hrt_days),
+    },
+    duration_days=float(st.session_state.get("duration_days", 45.0)),
+    evaluation_points=int(st.session_state.get("evaluation_points", 181)),
+    solver=str(st.session_state.get("solver_choice", "BDF")),
+    backend=backend_choice,
+)
+
+with st.expander("Checklist tecnico do caso", expanded=False):
+    if validation["errors"]:
+        st.markdown("**Bloqueios antes da corrida**")
+        for item in validation["errors"]:
+            st.markdown(f"- {item}")
+    else:
+        st.markdown("Nenhum bloqueio estrutural foi detectado pela validacao rapida da interface.")
+    if validation["warnings"]:
+        st.markdown("**Avisos para interpretacao**")
+        for item in validation["warnings"]:
+            st.markdown(f"- {item}")
+
+with st.expander("Salvar preset do usuario", expanded=False):
+    st.caption("Salve a configuracao atual para reutilizar o mesmo caso sem reconfigurar a tela manualmente.")
+    preset_name = st.text_input("Nome do preset", key="save_user_preset_name")
+    if st.button("Salvar configuracao atual", use_container_width=True):
+        try:
+            payload = build_user_simulation_preset_payload(st.session_state)
+            save_simulation_preset(preset_name, payload)
+            _queue_flash("Preset do usuario salvo com sucesso.")
+            st.rerun()
+        except Exception as exc:
+            st.error(format_simulation_error(exc))
+
+if submitted:
+    try:
+        if validation["errors"]:
+            raise ValueError("Corrija os bloqueios do checklist tecnico antes de executar a simulacao.")
+        loading_backend = backend_options.get(predicted_backend, predicted_backend.upper())
+        loading_message = f"Executando a simulacao ADM1 com {loading_backend} e consolidando os perfis temporais..."
+        st.session_state["latest_error"] = None
+        with st.spinner(loading_message):
+            result = run_simulation(
+                reactor_type=reactor_type,
+                substrate_mode=substrate_mode_label,
+                preset_id=preset_id,
+                manual_feed_values=manual_feed_values,
+                operating_values={
+                    "volume_m3": st.session_state.get("volume_active", base_operating.volume_m3),
+                    "temperature_c": st.session_state.get("temperature_active", base_operating.temperature_c),
+                    "hrt_days": st.session_state.get("hrt_active", base_operating.hrt_days),
+                },
+                duration_days=float(st.session_state.get("duration_days", 45.0)),
+                evaluation_points=int(st.session_state.get("evaluation_points", 181)),
+                solver=str(st.session_state.get("solver_choice", "BDF")),
+                backend=backend_choice,
+                persist=bool(st.session_state.get("persist_case", True)),
+            )
+        st.session_state["latest_simulation"] = result
+        st.session_state["latest_error"] = None
+        record_recent_simulation(result)
+    except Exception as exc:
+        st.session_state["latest_simulation"] = None
+        st.session_state["latest_error"] = format_simulation_error(exc)
+
+if st.session_state.get("latest_error"):
+    st.error(st.session_state["latest_error"])
+
+result = st.session_state.get("latest_simulation")
+if result is not None:
+    st.subheader("Resultado da simulacao")
+    render_simulation_kpis(result)
+
+    export_col1, export_col2, export_col3 = st.columns(3)
+    with export_col1:
+        st.download_button(
+            label="Baixar resumo JSON",
+            data=summary_json_bytes(result),
+            file_name=f"{result.simulation_id}_summary.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+    with export_col2:
+        st.download_button(
+            label="Baixar resumo CSV",
+            data=summary_csv_bytes(result),
+            file_name=f"{result.simulation_id}_summary.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    with export_col3:
+        st.download_button(
+            label="Baixar perfis CSV",
+            data=series_csv_bytes(result),
+            file_name=f"{result.simulation_id}_profiles.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
+    st.subheader("KPIs e snapshot de entrada")
+    table_col1, table_col2 = st.columns((1.0, 1.1))
+    with table_col1:
+        render_summary_table(result)
+    with table_col2:
+        render_input_table(result)
+
+    st.subheader("Perfis principais")
+    st.caption("Use a barra de ferramentas dos graficos para exportar PNG, aplicar zoom ou inspecionar pontos especificos.")
+    render_core_profile_charts(result)
+
+    st.subheader("Preview da serie temporal")
+    render_series_preview(result)
+else:
+    st.info("Configure o caso e clique em `Executar simulacao` para gerar os primeiros resultados na interface.")
