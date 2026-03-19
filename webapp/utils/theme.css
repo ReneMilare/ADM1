@@ -1,0 +1,261 @@
+:root {
+  color-scheme: light;
+  --adm1-ink: #142230;
+  --adm1-muted: #51616c;
+  --adm1-accent: #006d67;
+  --adm1-accent-strong: #0b5b56;
+  --adm1-accent-soft: #dcefeb;
+  --adm1-warm: #c66c2b;
+  --adm1-surface: rgba(255, 255, 255, 0.88);
+  --adm1-surface-strong: #ffffff;
+  --adm1-subtle: #eef4f1;
+  --adm1-line: rgba(20, 34, 48, 0.14);
+  --adm1-shadow: 0 18px 40px rgba(20, 34, 48, 0.08);
+}
+
+html, body, [class*="css"] {
+  font-family: "Aptos", "Bahnschrift", "Trebuchet MS", sans-serif;
+  color: var(--adm1-ink);
+}
+
+body,
+[data-testid="stAppViewContainer"],
+[data-testid="stMainBlockContainer"],
+[data-testid="stMain"] {
+  color: var(--adm1-ink);
+}
+
+[data-testid="stAppViewContainer"] {
+  background:
+    radial-gradient(circle at top left, rgba(0, 109, 103, 0.08), transparent 32%),
+    radial-gradient(circle at top right, rgba(198, 108, 43, 0.12), transparent 26%),
+    linear-gradient(180deg, #f2efe6 0%, #eef4f1 38%, #fbfaf7 100%);
+}
+
+[data-testid="stHeader"] {
+  background: rgba(251, 250, 247, 0.7);
+}
+
+[data-testid="stToolbar"] {
+  color: var(--adm1-ink);
+}
+
+[data-testid="stSidebar"] {
+  background: linear-gradient(180deg, #11202d 0%, #173245 100%);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+[data-testid="stSidebar"] * {
+  color: #f6f5f0;
+}
+
+.block-container {
+  padding-top: 2.1rem;
+  padding-bottom: 2rem;
+}
+
+.adm1-hero {
+  background: linear-gradient(135deg, rgba(255,255,255,0.95), rgba(220,239,235,0.86));
+  border: 1px solid var(--adm1-line);
+  border-radius: 18px;
+  padding: 1.2rem 1.35rem;
+  box-shadow: var(--adm1-shadow);
+}
+
+.adm1-hero h1, .adm1-hero h2, .adm1-hero h3 {
+  margin: 0;
+  color: var(--adm1-ink);
+}
+
+.adm1-kicker {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  color: var(--adm1-accent);
+  font-weight: 700;
+}
+
+.adm1-note {
+  color: var(--adm1-muted);
+  font-size: 0.96rem;
+}
+
+.adm1-chip {
+  display: inline-block;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  border: 1px solid var(--adm1-line);
+  margin-right: 0.35rem;
+}
+
+.adm1-chip-ok {
+  background: rgba(0, 109, 103, 0.12);
+  color: #00514c;
+}
+
+.adm1-chip-warn {
+  background: rgba(198, 108, 43, 0.12);
+  color: #8c4a1d;
+}
+
+.adm1-chip-error {
+  background: rgba(156, 52, 52, 0.12);
+  color: #8a1e1e;
+}
+
+[data-testid="stMarkdownContainer"],
+[data-testid="stMarkdownContainer"] *,
+[data-testid="stText"],
+[data-testid="stCaptionContainer"],
+label,
+p,
+span,
+li,
+h1,
+h2,
+h3,
+h4,
+h5 {
+  color: var(--adm1-ink);
+}
+
+section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"],
+section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] *,
+section[data-testid="stSidebar"] [data-testid="stText"],
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] p,
+section[data-testid="stSidebar"] span,
+section[data-testid="stSidebar"] li,
+section[data-testid="stSidebar"] h1,
+section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3,
+section[data-testid="stSidebar"] h4 {
+  color: #f6f5f0;
+}
+
+section[data-testid="stSidebar"] code,
+section[data-testid="stSidebar"] code *,
+section[data-testid="stSidebar"] pre,
+section[data-testid="stSidebar"] pre * {
+  color: #f6f5f0 !important;
+  background: rgba(255, 255, 255, 0.12) !important;
+  border-radius: 8px;
+}
+
+section[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 12px;
+}
+
+section[data-testid="stSidebar"] [data-testid="stPageLink"],
+section[data-testid="stSidebar"] [data-testid="stPageLink"] *,
+section[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"],
+section[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"] * {
+  color: #f6f5f0 !important;
+}
+
+section[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:hover,
+section[data-testid="stSidebar"] [data-testid="stPageLink-NavLink"]:focus-visible {
+  background: rgba(255, 255, 255, 0.16) !important;
+}
+
+[data-testid="stMetric"] {
+  background: var(--adm1-surface);
+  border: 1px solid var(--adm1-line);
+  border-radius: 16px;
+  padding: 0.7rem 0.85rem;
+  box-shadow: 0 8px 20px rgba(20, 34, 48, 0.05);
+}
+
+[data-testid="stMetricLabel"],
+[data-testid="stMetricValue"],
+[data-testid="stMetricDelta"] {
+  color: var(--adm1-ink);
+}
+
+.stAlert {
+  border-radius: 14px;
+}
+
+.stDataFrame,
+div[data-testid="stDataFrame"] {
+  background: var(--adm1-surface);
+  border-radius: 14px;
+}
+
+.stDataFrame * {
+  color: var(--adm1-ink);
+}
+
+div[data-baseweb="input"] > div,
+div[data-baseweb="select"] > div,
+[data-testid="stNumberInput"] input,
+[data-testid="stTextInput"] input,
+[data-testid="stTextArea"] textarea,
+textarea,
+input {
+  background: var(--adm1-surface-strong) !important;
+  color: var(--adm1-ink) !important;
+  border-color: rgba(20, 34, 48, 0.18) !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #71818d !important;
+}
+
+div[data-baseweb="select"] span,
+div[data-baseweb="select"] div,
+[data-baseweb="radio"] label,
+[data-testid="stWidgetLabel"] *,
+.stRadio label,
+.stSelectbox label,
+.stNumberInput label,
+.stTextInput label,
+.stTextArea label,
+.stCheckbox label {
+  color: var(--adm1-ink) !important;
+}
+
+[data-testid="stExpander"] {
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--adm1-line);
+  border-radius: 14px;
+}
+
+[data-testid="stExpander"] summary,
+[data-testid="stExpander"] summary * {
+  color: var(--adm1-ink) !important;
+}
+
+.stButton > button,
+.stDownloadButton > button,
+[data-testid="stFormSubmitButton"] button {
+  background: linear-gradient(135deg, var(--adm1-accent) 0%, var(--adm1-accent-strong) 100%);
+  color: #f7faf8 !important;
+  border: 0;
+  border-radius: 12px;
+  box-shadow: 0 10px 24px rgba(0, 109, 103, 0.18);
+}
+
+.stButton > button *,
+.stDownloadButton > button *,
+[data-testid="stFormSubmitButton"] button * {
+  color: #f7faf8 !important;
+}
+
+.stButton > button:hover,
+.stDownloadButton > button:hover,
+[data-testid="stFormSubmitButton"] button:hover {
+  background: linear-gradient(135deg, #0c7d75 0%, #0c655f 100%);
+}
+
+code,
+pre,
+.stCodeBlock {
+  color: #10202e;
+}

@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.pytest_cache_local/
+pytest-cache-files-*/
+
+simulator/.pyadm1_runtime/
+simulator/tests/.tmp/
+simulator/tests/tmp_literature_validation/
+
+rag/db/
+rag/extracted/
+webapp/user_data/
+
+dynamic_out.csv
+
+documentation/Biological Wastewater Treatment - Principles - Modelling - Design.pdf
