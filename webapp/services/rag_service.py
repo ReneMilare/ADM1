@@ -126,6 +126,46 @@ PARAMETER_BRIDGES = [
         "when_to_review": "quando a referencia discutir captura de gas, perdas, stripping ou desempenho do headspace.",
         "keywords": ["gas", "biogas", "methane", "metano", "capture", "stripping"],
     },
+    {
+        "priority": 74,
+        "group": "Cinetica",
+        "parameter_path": "KineticParameters.ammonia_inhibition_mode",
+        "ui_location": "Simular Reator > Parâmetros Cinéticos Avançados > Modo de Inibição por Amônia",
+        "when_to_review": "quando a referencia tratar de inibição diferencial por amônia livre (FAN), modo Anthonisen, equilíbrio NH3/NH4+.",
+        "keywords": ["ammonia inhibition", "inibicao por amonia", "amônia livre", "free ammonia", "FAN", "TAN", "Anthonisen"],
+    },
+    {
+        "priority": 73,
+        "group": "Reator",
+        "parameter_path": "ReactorConfig / TwoPhaseConfig",
+        "ui_location": "Simular Reator > Tipo de Reator > Duas Fases (AD) > Configuração da Variante",
+        "when_to_review": "quando a literatura tratar de digestão em duas fases, separação acidogênese/metanogênese, fase ácida.",
+        "keywords": ["duas fases", "two-phase", "two phase", "acidogenese", "fase acida", "acidogenesis"],
+    },
+    {
+        "priority": 72,
+        "group": "Reator",
+        "parameter_path": "ReactorConfig / TPADConfig",
+        "ui_location": "Simular Reator > Tipo de Reator > TPAD > Configuração da Variante",
+        "when_to_review": "quando a referencia tratar de TPAD, digestão termofílica-mesofílica, temperatura em dois estágios.",
+        "keywords": ["tpad", "termofilico", "termofílico", "thermophilic", "mesofilico", "mesofílico", "temperatura dupla"],
+    },
+    {
+        "priority": 71,
+        "group": "Reator",
+        "parameter_path": "ReactorConfig / BatchConfig",
+        "ui_location": "Simular Reator > Tipo de Reator > Batelada (BMP) > Configuração da Variante",
+        "when_to_review": "quando a literatura descrever ensaios BMP, batelada, potencial bioquímico de metano, inoculo.",
+        "keywords": ["batelada", "batch", "BMP", "inoculo", "inóculo", "biochemical methane potential"],
+    },
+    {
+        "priority": 70,
+        "group": "Feed",
+        "parameter_path": "CoDigestionBlend",
+        "ui_location": "Simular Reator > Modo de Alimentação > Co-digestão > Preset de co-digestão",
+        "when_to_review": "quando a referencia tratar de co-digestão, misturas de substratos, razão C/N, sinergismo de substratos.",
+        "keywords": ["co-digestao", "co-digestão", "codigestion", "mistura", "blend", "razao cn", "razão c/n", "C/N"],
+    },
 ]
 
 

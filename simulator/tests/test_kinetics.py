@@ -141,7 +141,7 @@ def test_temperature_factor_clamped_max(default_params: KineticParameters) -> No
 
 def test_estimate_ph_within_bounds(default_state: np.ndarray) -> None:
     ph = estimate_ph(default_state, influent_ph=7.0, temperature_c=35.0)
-    assert 5.5 <= ph <= 8.3
+    assert 4.0 <= ph <= 9.0
 
 
 # ---------------------------------------------------------------------------

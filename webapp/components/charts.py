@@ -19,7 +19,14 @@ SERIES_PLOT_OPTIONS = {
     "biogas_m3_day": {"label": "Biogas", "title": "Producao de biogas", "y_axis_title": "m3/d"},
     "ph": {"label": "pH", "title": "Perfil de pH", "y_axis_title": "pH"},
     "vfa_total": {"label": "VFA total", "title": "Perfil de VFA total", "y_axis_title": "kgCOD/m3"},
+    "free_ammonia_kgN_m3": {"label": "Amonia livre (FAN)", "title": "Amonia livre (FAN)", "y_axis_title": "kgN/m3"},
 }
+_INHIBITION_SERIES = [
+    "inh_nh3_acidogens",
+    "inh_nh3_propionate",
+    "inh_nh3_acetoclastic",
+    "inh_nh3_hydrogenotrophic",
+]
 _COMPONENT_ORDER = ["methane", "stability", "effluent", "vfa", "ph"]
 _COMPONENT_COLORS = {
     "methane": "#006d67",
@@ -92,6 +99,8 @@ def _comparison_figure(
     metadata = SERIES_PLOT_OPTIONS[series_key]
     figure = go.Figure()
     for index, result in enumerate(results):
+        if series_key not in result.series:
+            continue
         trace_name = labels.get(result.simulation_id, result.simulation_id) if labels else result.simulation_id
         figure.add_trace(
             go.Scatter(
@@ -290,3 +299,73 @@ def render_phase3_validation_charts(report: dict[str, Any]) -> None:
 
 def render_literature_validation_charts(report: dict[str, Any]) -> None:
     _render_figure(_literature_error_figure(report))
+
+
+def render_ammonia_charts(result: SimulationResult) -> None:
+    """Render FAN timeseries and NH3 inhibition factor profiles (only when ammonia mode is 'fan')."""
+    if "free_ammonia_kgN_m3" not in result.series:
+        return
+    col1, col2 = st.columns(2)
+    with col1:
+        _render_figure(
+            _line_chart(
+                result,
+                series_names=["free_ammonia_kgN_m3"],
+                title="Amonia livre (FAN)",
+                y_axis_title="kgN/m3",
+                color_key="vfa",
+            )
+        )
+    with col2:
+        available_inhibition = [s for s in _INHIBITION_SERIES if s in result.series]
+        if available_inhibition:
+            _render_figure(
+                _line_chart(
+                    result,
+                    series_names=available_inhibition,
+                    title="Fatores de inibicao por NH3",
+                    y_axis_title="[-]",
+                    color_key="methane",
+                )
+            )
+
+
+def render_phase_profile_charts(result: SimulationResult) -> None:
+    """Render per-phase pH and methane profiles for two_phase and tpad reactors."""
+    reactor_type = result.reactor.reactor_type
+    if reactor_type == "two_phase":
+        phase_prefixes = ["phase1", "phase2"]
+    elif reactor_type == "tpad":
+        phase_prefixes = ["thermo", "meso"]
+    else:
+        return
+
+    ph_series = [f"{p}_ph" for p in phase_prefixes if f"{p}_ph" in result.series]
+    methane_series = [f"{p}_methane_rate_m3_day" for p in phase_prefixes if f"{p}_methane_rate_m3_day" in result.series]
+
+    if not ph_series and not methane_series:
+        return
+
+    col1, col2 = st.columns(2)
+    with col1:
+        if ph_series:
+            _render_figure(
+                _line_chart(
+                    result,
+                    series_names=ph_series,
+                    title="pH por fase",
+                    y_axis_title="pH",
+                    color_key="ph",
+                )
+            )
+    with col2:
+        if methane_series:
+            _render_figure(
+                _line_chart(
+                    result,
+                    series_names=methane_series,
+                    title="Producao de metano por fase",
+                    y_axis_title="m3/d",
+                    color_key="methane",
+                )
+            )

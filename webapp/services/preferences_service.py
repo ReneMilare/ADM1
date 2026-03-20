@@ -26,6 +26,7 @@ DEFAULT_WORKBENCH_STATE = {
         "persist_scenarios_by_default": True,
         "show_home_onboarding": True,
         "auto_expand_top_result": True,
+        "ammonia_inhibition_mode_default": "simple",
     },
     "simulation_presets": [],
     "favorite_queries": [],

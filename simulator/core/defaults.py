@@ -24,7 +24,7 @@ def make_default_initial_state(feed: FeedDefinition | None = None) -> InitialSta
         soluble_cod=max(base.soluble_cod * 0.72, 0.1),            # ~72% of feed (partial acidogenesis)
         acetate=max(base.acetate * 1.8, 0.05),                    # ×1.8 vs feed (VFA accumulation)
         propionate=max(base.propionate * 2.4, 0.05),              # ×2.4 vs feed (slower oxidation)
-        hydrogen=max(base.hydrogen * 12.0, 0.002),                # ×12 vs feed (dissolved H2 pool)
+        hydrogen=max(base.hydrogen * 4.0, 0.001),                 # ×4 vs feed (dissolved H2 pool at new k_m_h2 SS)
         inorganic_nitrogen=max(base.inorganic_nitrogen * 1.08, 0.1),  # slight N accumulation
         alkalinity=max(base.alkalinity * 1.06, 0.5),              # slight alkalinity build-up
     )

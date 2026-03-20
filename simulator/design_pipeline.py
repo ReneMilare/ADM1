@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from simulator.core.models import FeedDefinition, OperatingConditions, SimulationConfig
+from simulator.core.models import CoDigestionBlend, FeedDefinition, OperatingConditions, SimulationConfig, SubstrateFraction
 from simulator.service import ADM1SimulationService
 
 DEFAULT_NOTE_ROOT = Path(__file__).resolve().parent.parent / "vaultObsidian" / "Projeto"
@@ -62,6 +62,44 @@ SUBSTRATE_PRESETS: dict[str, dict[str, Any]] = {
         "operating": OperatingConditions(volume_m3=3200.0, temperature_c=34.0, hrt_days=24.0),
     },
 }
+CODIGESTION_PRESETS: dict[str, dict[str, Any]] = {
+    "lodo_mais_alimentar": {
+        "label": "Lodo de Esgoto + Resíduos Alimentares",
+        "note_link": "[[Co-digestão Lodo + Alimentar]]",
+        "blend": CoDigestionBlend(
+            name="Lodo + Alimentar 70/30",
+            components=[
+                SubstrateFraction(feed=SUBSTRATE_PRESETS["lodo_de_esgoto"]["feed"], volume_fraction=0.70),
+                SubstrateFraction(feed=SUBSTRATE_PRESETS["residuos_alimentares"]["feed"], volume_fraction=0.30),
+            ],
+        ),
+        "operating": OperatingConditions(volume_m3=3000.0, temperature_c=35.0, hrt_days=20.0),
+    },
+    "lodo_mais_agricola": {
+        "label": "Lodo de Esgoto + Resíduos Agrícolas",
+        "note_link": "[[Co-digestão Lodo + Agrícola]]",
+        "blend": CoDigestionBlend(
+            name="Lodo + Agrícola 60/40",
+            components=[
+                SubstrateFraction(feed=SUBSTRATE_PRESETS["lodo_de_esgoto"]["feed"], volume_fraction=0.60),
+                SubstrateFraction(feed=SUBSTRATE_PRESETS["residuos_agricolas"]["feed"], volume_fraction=0.40),
+            ],
+        ),
+        "operating": OperatingConditions(volume_m3=3200.0, temperature_c=35.0, hrt_days=22.0),
+    },
+    "alimentar_mais_agricola": {
+        "label": "Resíduos Alimentares + Agrícolas",
+        "note_link": "[[Co-digestão Alimentar + Agrícola]]",
+        "blend": CoDigestionBlend(
+            name="Alimentar + Agrícola 50/50",
+            components=[
+                SubstrateFraction(feed=SUBSTRATE_PRESETS["residuos_alimentares"]["feed"], volume_fraction=0.50),
+                SubstrateFraction(feed=SUBSTRATE_PRESETS["residuos_agricolas"]["feed"], volume_fraction=0.50),
+            ],
+        ),
+        "operating": OperatingConditions(volume_m3=3000.0, temperature_c=35.0, hrt_days=20.0),
+    },
+}
 SUBSTRATE_ALIASES = {
     "lodo de esgoto": "lodo_de_esgoto",
     "sewage sludge": "lodo_de_esgoto",
@@ -72,6 +110,12 @@ SUBSTRATE_ALIASES = {
     "residuos agricolas": "residuos_agricolas",
     "resíduos agrícolas": "residuos_agricolas",
     "agricultural residues": "residuos_agricolas",
+    "lodo mais alimentar": "lodo_mais_alimentar",
+    "lodo + alimentar": "lodo_mais_alimentar",
+    "lodo mais agricola": "lodo_mais_agricola",
+    "lodo + agricola": "lodo_mais_agricola",
+    "alimentar mais agricola": "alimentar_mais_agricola",
+    "alimentar + agricola": "alimentar_mais_agricola",
 }
 GOAL_WEIGHTS = {
     "balanced": {"methane": 0.35, "stability": 0.2, "effluent": 0.2, "vfa": 0.1, "ph": 0.15},
@@ -114,6 +158,7 @@ class ADM1DesignPipeline:
             }
         )
         feed = preset["feed"].model_copy(deep=True)
+        blend = preset.get("blend")
         reactors = reactor_candidates or DEFAULT_REACTORS
         simulation = SimulationConfig(
             duration_days=duration_days,
@@ -128,6 +173,7 @@ class ADM1DesignPipeline:
                 reactor,
                 operating_conditions=operating,
                 feed=feed,
+                blend=blend,
                 simulation=simulation,
                 metadata={
                     "design_goal": design_goal,
@@ -141,6 +187,7 @@ class ADM1DesignPipeline:
                     "backend_used": result.metadata.get("backend_used"),
                     "summary": result.summary.model_dump(),
                     "simulation_id": result.simulation_id,
+                    "free_ammonia_final": result.series["free_ammonia_kgN_m3"][-1] if result.series.get("free_ammonia_kgN_m3") else 0.0,
                 }
             )
 
@@ -164,6 +211,8 @@ class ADM1DesignPipeline:
                 "preset_id": preset_id,
                 "label": preset["label"],
                 "note_link": preset["note_link"],
+                "blend_name": blend.name if blend is not None else None,
+                "cn_ratio": float(blend.cn_ratio()) if blend is not None else None,
             },
             "design_goal": design_goal,
             "backend_strategy": backend,
@@ -178,10 +227,19 @@ class ADM1DesignPipeline:
     def _resolve_substrate(self, substrate: str) -> tuple[str, dict[str, Any]]:
         normalized = _normalize_key(substrate)
         preset_id = SUBSTRATE_ALIASES.get(normalized, normalized)
-        if preset_id not in SUBSTRATE_PRESETS:
-            known = ", ".join(sorted(SUBSTRATE_PRESETS))
-            raise ValueError(f"Unsupported substrate '{substrate}'. Expected one of: {known}")
-        return preset_id, SUBSTRATE_PRESETS[preset_id]
+        if preset_id in SUBSTRATE_PRESETS:
+            return preset_id, SUBSTRATE_PRESETS[preset_id]
+        if preset_id in CODIGESTION_PRESETS:
+            codigestion = CODIGESTION_PRESETS[preset_id]
+            return preset_id, {
+                "label": codigestion["label"],
+                "note_link": codigestion["note_link"],
+                "feed": codigestion["blend"].blend(),
+                "operating": codigestion["operating"],
+                "blend": codigestion["blend"],
+            }
+        known = ", ".join(sorted({*SUBSTRATE_PRESETS.keys(), *CODIGESTION_PRESETS.keys()}))
+        raise ValueError(f"Unsupported substrate '{substrate}'. Expected one of: {known}")
 
     def _score_candidates(self, candidates: list[dict[str, Any]], design_goal: str) -> list[dict[str, Any]]:
         weights = GOAL_WEIGHTS[design_goal]
@@ -201,11 +259,13 @@ class ADM1DesignPipeline:
                 "ph": _ph_score(summary["ph_final"]),
             }
             total_score = sum(weights[key] * component_scores[key] for key in weights)
-            scored.append({
-                **candidate,
-                "score": float(total_score),
-                "component_scores": {key: float(value) for key, value in component_scores.items()},
-            })
+            scored.append(
+                {
+                    **candidate,
+                    "score": float(total_score),
+                    "component_scores": {key: float(value) for key, value in component_scores.items()},
+                }
+            )
         ranked = sorted(scored, key=lambda item: item["score"], reverse=True)
         for rank, candidate in enumerate(ranked, start=1):
             candidate["rank"] = rank
@@ -288,6 +348,7 @@ def _render_note(
     scored_candidates: list[dict[str, Any]],
     recommended: dict[str, Any],
 ) -> str:
+    blend = preset.get("blend")
     lines = [
         "---",
         "tags: [projeto, design, simulacao]",
@@ -305,18 +366,37 @@ def _render_note(
         f"- Volume: `{operating.volume_m3:.1f} m3`",
         f"- Temperatura: `{operating.temperature_c:.1f} C`",
         f"- HRT: `{operating.hrt_days:.1f} d`",
-        "",
-        "## Recomendação",
-        "",
-        f"- Reator recomendado: `{recommended['reactor_type']}`",
-        f"- Backend usado: `{recommended['backend_used']}`",
-        f"- Justificativa: {recommended['reason']}",
-        "",
-        "## Comparação",
-        "",
-        "| Reator | Backend | Score | Methane final | pH final | VFA final | Effluent COD |",
-        "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
     ]
+    if blend is not None:
+        component_names = ", ".join(component.feed.name for component in blend.components)
+        lines.extend(
+            [
+                f"- Mistura: `{blend.name}` ({component_names})",
+                f"- Razão C/N: `{blend.cn_ratio():.3f}`",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "## Recomendação",
+            "",
+            f"- Reator recomendado: `{recommended['reactor_type']}`",
+            f"- Backend usado: `{recommended['backend_used']}`",
+            f"- Justificativa: {recommended['reason']}",
+        ]
+    )
+    fan_final = recommended.get("free_ammonia_final") or 0.0
+    if fan_final > 0:
+        lines.append(f"- Amônia livre final (FAN): {fan_final:.4f} kgN/m³")
+    lines.extend(
+        [
+            "",
+            "## Comparação",
+            "",
+            "| Reator | Backend | Score | Methane final | pH final | VFA final | Effluent COD |",
+            "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
+        ]
+    )
     for candidate in scored_candidates:
         summary = candidate["summary"]
         lines.append(

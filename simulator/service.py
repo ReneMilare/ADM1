@@ -21,6 +21,7 @@ from simulator.core.defaults import (
 from simulator.core.models import (
     CalibrationPoint,
     CalibrationResult,
+    CoDigestionBlend,
     FeedDefinition,
     InitialState,
     KineticParameters,
@@ -60,14 +61,28 @@ class ADM1SimulationService:
         *,
         operating_conditions: OperatingConditions | None = None,
         feed: FeedDefinition | None = None,
+        blend: CoDigestionBlend | None = None,
         initial_state: InitialState | None = None,
         parameters: KineticParameters | None = None,
         simulation: SimulationConfig | None = None,
         metadata: dict[str, object] | None = None,
     ) -> SimulationResult:
         reactor_config = self._resolve_reactor(reactor)
+        request_metadata = dict(metadata or {})
         operating = (operating_conditions or make_default_operating_conditions()).model_copy(deep=True)
-        feed_model = (feed or make_default_feed()).model_copy(deep=True)
+        if blend is not None:
+            feed_model = blend.blend().model_copy(deep=True)
+            request_metadata.update(
+                {
+                    "codigestion": True,
+                    "blend_name": blend.name,
+                    "blend_components": [component.feed.name for component in blend.components],
+                    "blend_fractions": [float(component.volume_fraction) for component in blend.components],
+                    "cn_ratio": float(blend.cn_ratio()),
+                }
+            )
+        else:
+            feed_model = (feed or make_default_feed()).model_copy(deep=True)
         if feed_model.flow_rate_m3_day is None:
             feed_model = feed_model.model_copy(update={"flow_rate_m3_day": operating.volume_m3 / operating.hrt_days})
         initial = (initial_state or make_default_initial_state(feed_model)).model_copy(deep=True)
@@ -96,15 +111,15 @@ class ADM1SimulationService:
                 simulation=sim_config,
             )
 
-        summary = self._build_summary(time_days=time_days, series=profiles)
         simulation_id = self._new_simulation_id(reactor_config.reactor_type)
-        result_metadata = dict(metadata or {})
+        result_metadata = dict(request_metadata)
         result_metadata.update(execution_metadata)
         result_metadata["backend_requested"] = backend.requested
         result_metadata["backend_used"] = backend.used
         if backend.fallback_reason is not None:
             result_metadata["backend_fallback_reason"] = backend.fallback_reason
 
+        summary = self._build_summary(time_days=time_days, series=profiles, metadata=result_metadata)
         result = SimulationResult(
             simulation_id=simulation_id,
             created_at=datetime.now(UTC).isoformat(timespec="seconds"),
@@ -129,6 +144,7 @@ class ADM1SimulationService:
         *,
         operating_conditions: OperatingConditions | None = None,
         feed: FeedDefinition | None = None,
+        blend: CoDigestionBlend | None = None,
         initial_state: InitialState | None = None,
         parameters: KineticParameters | None = None,
         duration_days: float = 180.0,
@@ -139,6 +155,7 @@ class ADM1SimulationService:
             reactor,
             operating_conditions=operating_conditions,
             feed=feed,
+            blend=blend,
             initial_state=initial_state,
             parameters=parameters,
             simulation=simulation,
@@ -198,6 +215,7 @@ class ADM1SimulationService:
         reactor: ReactorConfig | str = "cstr",
         operating_conditions: OperatingConditions | None = None,
         feed: FeedDefinition | None = None,
+        blend: CoDigestionBlend | None = None,
         initial_state: InitialState | None = None,
         parameters: KineticParameters | None = None,
         simulation: SimulationConfig | None = None,
@@ -206,7 +224,10 @@ class ADM1SimulationService:
         base_reactor = self._resolve_reactor(reactor)
         base_operating = (operating_conditions or make_default_operating_conditions()).model_copy(deep=True)
         base_feed = (feed or make_default_feed()).model_copy(deep=True)
-        base_initial = (initial_state or make_default_initial_state(base_feed)).model_copy(deep=True)
+        # When a blend is provided, the effective feed for initial state is the blended result —
+        # matching how simulate() itself resolves the feed when blend is not None.
+        _effective_feed_for_init = blend.blend() if blend is not None else base_feed
+        base_initial = (initial_state or make_default_initial_state(_effective_feed_for_init)).model_copy(deep=True)
         base_parameters = (parameters or make_default_kinetics()).model_copy(deep=True)
         base_simulation = (simulation or make_default_simulation_config()).model_copy(update={"persist": False}, deep=True)
 
@@ -215,6 +236,7 @@ class ADM1SimulationService:
             base_reactor,
             operating_conditions=base_operating,
             feed=base_feed,
+            blend=blend,
             initial_state=base_initial,
             parameters=base_parameters,
             simulation=base_simulation,
@@ -229,6 +251,7 @@ class ADM1SimulationService:
                 reactor_cfg,
                 operating_conditions=operating_cfg,
                 feed=feed_cfg,
+                blend=blend,
                 initial_state=base_initial,
                 parameters=param_cfg,
                 simulation=base_simulation,
@@ -254,6 +277,7 @@ class ADM1SimulationService:
         *,
         operating_conditions: OperatingConditions | None = None,
         feed: FeedDefinition | None = None,
+        blend: CoDigestionBlend | None = None,
         initial_state: InitialState | None = None,
         parameters: KineticParameters | None = None,
         simulation: SimulationConfig | None = None,
@@ -265,6 +289,7 @@ class ADM1SimulationService:
                 reactor,
                 operating_conditions=operating_conditions,
                 feed=feed,
+                blend=blend,
                 initial_state=initial_state,
                 parameters=parameters,
                 simulation=base_simulation,
@@ -328,6 +353,7 @@ class ADM1SimulationService:
         reactor: ReactorConfig | str = "cstr",
         operating_conditions: OperatingConditions | None = None,
         feed: FeedDefinition | None = None,
+        blend: CoDigestionBlend | None = None,
         initial_state: InitialState | None = None,
         parameters: KineticParameters | None = None,
         simulation: SimulationConfig | None = None,
@@ -356,6 +382,7 @@ class ADM1SimulationService:
                 reactor_cfg,
                 operating_conditions=operating_cfg,
                 feed=feed_cfg,
+                blend=blend,
                 initial_state=base_initial,
                 parameters=param_cfg,
                 simulation=base_simulation,
@@ -381,6 +408,7 @@ class ADM1SimulationService:
             final_reactor,
             operating_conditions=final_operating,
             feed=final_feed,
+            blend=blend,
             initial_state=base_initial,
             parameters=final_parameters,
             simulation=(simulation or make_default_simulation_config()).model_copy(deep=True),
@@ -406,6 +434,7 @@ class ADM1SimulationService:
         reactor: ReactorConfig | str = "cstr",
         operating_conditions: OperatingConditions | None = None,
         feed: FeedDefinition | None = None,
+        blend: CoDigestionBlend | None = None,
         initial_state: InitialState | None = None,
         parameters: KineticParameters | None = None,
         simulation: SimulationConfig | None = None,
@@ -437,6 +466,7 @@ class ADM1SimulationService:
                 reactor_cfg,
                 operating_conditions=operating_cfg,
                 feed=feed_cfg,
+                blend=blend,
                 initial_state=base_initial,
                 parameters=param_cfg,
                 simulation=base_simulation,
@@ -460,6 +490,7 @@ class ADM1SimulationService:
             final_reactor,
             operating_conditions=final_operating,
             feed=final_feed,
+            blend=blend,
             initial_state=base_initial,
             parameters=final_parameters,
             simulation=default_simulation.model_copy(update={"duration_days": base_simulation.duration_days}, deep=True),
@@ -491,7 +522,10 @@ class ADM1SimulationService:
     ) -> tuple[np.ndarray, dict[str, list[float]], dict[str, object]]:
         reactor_model = build_reactor(reactor)
         time_grid = np.linspace(0.0, simulation.duration_days, simulation.evaluation_points)
-        initial_vector = reactor_model.initial_vector(initial_state)
+        if hasattr(reactor_model, "build_batch_initial_vector"):
+            initial_vector = reactor_model.build_batch_initial_vector(feed, initial_state)
+        else:
+            initial_vector = reactor_model.initial_vector(initial_state)
         solution = solve_ivp(
             lambda t, y: reactor_model.rhs(
                 t,
@@ -526,7 +560,13 @@ class ADM1SimulationService:
             "final_internal_state": [float(item) for item in state_matrix[-1].tolist()],
         }
 
-    def _build_summary(self, *, time_days: np.ndarray, series: dict[str, list[float]]) -> SimulationSummary:
+    def _build_summary(
+        self,
+        *,
+        time_days: np.ndarray,
+        series: dict[str, list[float]],
+        metadata: dict[str, object] | None = None,
+    ) -> SimulationSummary:
         methane = np.asarray(series["methane_m3_day"], dtype=float)
         biogas = np.asarray(series["biogas_m3_day"], dtype=float)
         final_states = {state_name: float(series[state_name][-1]) for state_name in STATE_NAMES}
@@ -545,6 +585,8 @@ class ADM1SimulationService:
             effluent_particulate_final=float(series["particulate_cod"][-1]),
             volatile_solids_proxy=float(series["volatile_solids_proxy"][-1]),
             stability_index=stability_index,
+            cn_ratio=float(metadata["cn_ratio"]) if metadata and metadata.get("cn_ratio") is not None else None,
+            blend_components=list(metadata["blend_components"]) if metadata and metadata.get("blend_components") else None,
             final_states=final_states,
         )
 
@@ -643,6 +685,7 @@ class ADM1SimulationService:
 
     def _resolve_backend(self, reactor: ReactorConfig, simulation: SimulationConfig) -> _ResolvedBackend:
         requested = simulation.backend
+        reduced_only_reactors = {"two_phase", "tpad", "batch", "uasb", "plug_flow"}
         if requested == "reduced":
             return _ResolvedBackend(requested=requested, used="reduced")
         if requested == "pyadm1":
@@ -650,17 +693,18 @@ class ADM1SimulationService:
                 return _ResolvedBackend(
                     requested=requested,
                     used="reduced",
-                    fallback_reason="Original PyADM1 integration currently supports only cstr; using the reduced backend for this reactor.",
+                    fallback_reason=f"PyADM1 não suporta {reactor.reactor_type}; usando reduced.",
                 )
             return _ResolvedBackend(requested=requested, used="pyadm1")
         if requested == "auto":
             if reactor.reactor_type == "cstr":
                 return _ResolvedBackend(requested=requested, used="pyadm1")
-            return _ResolvedBackend(
-                requested=requested,
-                used="reduced",
-                fallback_reason="Auto backend keeps the reduced model for non-cstr reactors until a native PyADM1 variant exists.",
-            )
+            if reactor.reactor_type in reduced_only_reactors:
+                return _ResolvedBackend(
+                    requested=requested,
+                    used="reduced",
+                    fallback_reason=f"Auto backend mantém o modelo reduced para {reactor.reactor_type}.",
+                )
         raise ValueError(f"Unsupported backend '{requested}'")
 
     def _tail_convergence_metric(self, result: SimulationResult) -> float:
@@ -673,3 +717,7 @@ class ADM1SimulationService:
         delta_state = np.abs(np.diff(state_tail, axis=1))
         scale = np.maximum(np.abs(state_tail[:, :-1]), 1e-6)
         return float(np.max((delta_state / scale) / delta_time[None, :]))
+
+
+
+

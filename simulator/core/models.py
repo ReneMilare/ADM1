@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import math
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -17,7 +18,7 @@ STATE_NAMES = (
     "inorganic_nitrogen",
     "alkalinity",
 )
-REACTOR_TYPES = ("cstr", "uasb", "plug_flow")
+REACTOR_TYPES = ("cstr", "uasb", "plug_flow", "two_phase", "tpad", "batch")
 SIMULATION_BACKENDS = ("reduced", "pyadm1", "auto")
 OBJECTIVE_NAMES = (
     "methane_final_m3_day",
@@ -65,6 +66,53 @@ class FeedDefinition(StrictModel):
         ]
 
 
+class SubstrateFraction(StrictModel):
+    feed: FeedDefinition
+    volume_fraction: float = Field(gt=0.0, le=1.0, description="Fração volumétrica do substrato na mistura.")
+
+
+class CoDigestionBlend(StrictModel):
+    name: str = Field(default="Co-digestion blend")
+    components: list[SubstrateFraction] = Field(min_length=2, max_length=10)
+
+    @model_validator(mode="after")
+    def validate_fractions_sum_to_one(self) -> "CoDigestionBlend":
+        total = sum(component.volume_fraction for component in self.components)
+        if abs(total - 1.0) > 0.01:
+            raise ValueError(f"As frações volumétricas devem somar 1.0, obtido {total:.4f}")
+        return self
+
+    def blend(self) -> FeedDefinition:
+        numeric_fields = (
+            "particulate_cod",
+            "soluble_cod",
+            "acetate",
+            "propionate",
+            "hydrogen",
+            "inorganic_nitrogen",
+            "alkalinity",
+        )
+        blended: dict[str, float | str | None] = {"name": self.name}
+        for field in numeric_fields:
+            blended[field] = sum(component.volume_fraction * getattr(component.feed, field) for component in self.components)
+        blended_h_plus = sum(component.volume_fraction * 10.0 ** (-component.feed.ph) for component in self.components)
+        blended["ph"] = -math.log10(max(blended_h_plus, 1e-14))
+        flow_terms = [
+            component.volume_fraction * component.feed.flow_rate_m3_day
+            for component in self.components
+            if component.feed.flow_rate_m3_day is not None
+        ]
+        blended["flow_rate_m3_day"] = sum(flow_terms) if flow_terms and len(flow_terms) == len(self.components) else None
+        return FeedDefinition(**blended)
+
+    def cn_ratio(self) -> float:
+        blended = self.blend()
+        total_cod = blended.particulate_cod + blended.soluble_cod + blended.acetate + blended.propionate
+        if blended.inorganic_nitrogen <= 1e-9:
+            return float("inf")
+        return total_cod / blended.inorganic_nitrogen
+
+
 class InitialState(StrictModel):
     particulate_cod: float = Field(default=11.0, ge=0.0)
     soluble_cod: float = Field(default=4.0, ge=0.0)
@@ -94,13 +142,35 @@ class InitialState(StrictModel):
         ]
 
 
+class TwoPhaseConfig(StrictModel):
+    phase1_volume_fraction: float = Field(default=0.3, gt=0.1, lt=0.6)
+    phase1_hrt_fraction: float = Field(default=0.2, gt=0.05, lt=0.5)
+    phase1_ph_setpoint: float = Field(default=5.5, ge=4.5, le=6.5)
+    phase2_ph_setpoint: float = Field(default=7.2, ge=6.5, le=8.0)
+
+
+class TPADConfig(StrictModel):
+    thermo_temperature_c: float = Field(default=55.0, ge=45.0, le=65.0)
+    thermo_hrt_days: float = Field(default=3.0, gt=0.5, le=10.0)
+    thermo_volume_fraction: float = Field(default=0.25, gt=0.1, lt=0.5)
+    meso_temperature_c: float = Field(default=35.0, ge=25.0, le=42.0)
+    meso_hrt_days: float = Field(default=15.0, gt=5.0, le=40.0)
+
+
+class BatchConfig(StrictModel):
+    inoculum_fraction: float = Field(default=0.3, gt=0.05, le=0.8, description="Fração do volume total ocupada pelo inoculo.")
+
+
 class ReactorConfig(StrictModel):
-    reactor_type: Literal["cstr", "uasb", "plug_flow"] = Field(default="cstr")
+    reactor_type: Literal["cstr", "uasb", "plug_flow", "two_phase", "tpad", "batch"] = Field(default="cstr")
     name: str | None = Field(default=None)
     segments: int = Field(default=6, ge=1, le=20, description="Only used for plug-flow approximated as tanks in series.")
     biomass_washout_factor: float | None = Field(default=None, gt=0.0, le=1.0)
     gas_capture_efficiency: float | None = Field(default=None, ge=0.0, le=1.0)
     hydrolysis_multiplier: float | None = Field(default=None, gt=0.1, le=3.0)
+    two_phase: TwoPhaseConfig | None = Field(default=None)
+    tpad: TPADConfig | None = Field(default=None)
+    batch: BatchConfig | None = Field(default=None)
 
     @model_validator(mode="before")
     @classmethod
@@ -114,6 +184,12 @@ class ReactorConfig(StrictModel):
             data["segments"] = 1
         elif segments < 2:
             raise ValueError("plug_flow reactors require at least 2 segments")
+        if reactor_type == "two_phase" and data.get("two_phase") is None:
+            data["two_phase"] = {}
+        if reactor_type == "tpad" and data.get("tpad") is None:
+            data["tpad"] = {}
+        if reactor_type == "batch" and data.get("batch") is None:
+            data["batch"] = {}
         if not data.get("name"):
             data["name"] = reactor_type.upper().replace("_", "-")
         return data
@@ -129,13 +205,55 @@ class OperatingConditions(StrictModel):
 class KineticParameters(StrictModel):
     k_hyd: float = Field(default=0.45, gt=0.0)
     k_m_su: float = Field(default=0.85, gt=0.0)
-    k_m_pro: float = Field(default=0.42, gt=0.0)
-    k_m_ac: float = Field(default=0.35, gt=0.0)
-    k_m_h2: float = Field(default=1.05, gt=0.0)
+    k_m_pro: float = Field(
+        default=5.0,
+        gt=0.0,
+        description=(
+            "Max specific propionate uptake rate [d⁻¹]. Must satisfy "
+            "Y_pro × k_m_pro × Monod × H2_inhibition > decay + 1/HRT for biomass viability. "
+            "At typical operating conditions (H2_inh≈0.72, Monod≈0.67, HRT=20d), "
+            "minimum viable k_m_pro ≈ 3.7 d⁻¹. "
+            "ADM1 reference: 13 d⁻¹; reduced-model value lower due to lumped-pathway approximation."
+        ),
+    )
+    k_m_ac: float = Field(
+        default=1.5,
+        gt=0.0,
+        description=(
+            "Max specific acetate uptake rate [d⁻¹]. Must satisfy "
+            "Y_ac × k_m_ac > decay + 1/HRT for biomass viability. "
+            "Minimum for HRT=20d: (0.015 + 0.05)/0.055 ≈ 1.18 d⁻¹. "
+            "ADM1 reference: 8 d⁻¹; reduced-model value lower due to lumped-pathway approximation."
+        ),
+    )
+    k_m_h2: float = Field(
+        default=3.5,
+        gt=0.0,
+        description=(
+            "Max specific H2 uptake rate for hydrogenotrophic methanogenesis [d⁻¹]. "
+            "Calibrated so that H2 production (from acidogenesis + propionate oxidation) "
+            "is consumed fast enough to prevent runaway accumulation. "
+            "NOTE: direct comparison with ADM1 k_m,h2=35 d⁻¹ is misleading — the "
+            "'hydrogen' state in this model is a lumped proxy running at ~1000× the "
+            "concentration of ADM1 dissolved H2. The effective first-order coefficient "
+            "k_m_h2/k_s_h2 = 3.5/0.03 ≈ 117 m³/kgCOD/d governs the dynamics."
+        ),
+    )
     k_s_su: float = Field(default=1.1, gt=0.0)
     k_s_pro: float = Field(default=0.25, gt=0.0)
     k_s_ac: float = Field(default=0.15, gt=0.0)
-    k_s_h2: float = Field(default=0.03, gt=0.0)
+    k_s_h2: float = Field(
+        default=0.03,
+        gt=0.0,
+        description=(
+            "Half-saturation constant for H2 in hydrogenotrophic methanogenesis [kgCOD/m³]. "
+            "The 'hydrogen' state is a proxy (~1000× the concentration of actual dissolved H2 "
+            "in ADM1 — Batstone et al. 2002 uses K_S,h2=7×10⁻⁶ kgCOD/m³ for dissolved H2). "
+            "This value is correctly scaled for the proxy, so comparison with ADM1 absolute "
+            "values is not meaningful. At typical steady-state (H2_proxy≈0.005), the model "
+            "operates in the sub-saturated regime (h2/K_s ≈ 0.17), matching ADM1 kinetic regime."
+        ),
+    )
     acidogen_yield: float = Field(default=0.12, gt=0.0, le=1.0)
     propionate_yield: float = Field(default=0.04, gt=0.0, le=1.0)
     acetoclastic_yield: float = Field(default=0.055, gt=0.0, le=1.0)
@@ -149,10 +267,37 @@ class KineticParameters(StrictModel):
     gas_stripping_h2: float = Field(default=0.06, gt=0.0)
     ph_optimum: float = Field(default=7.05, ge=5.0, le=8.5)
     ph_tolerance: float = Field(default=0.55, gt=0.05)
+    ammonia_inhibition_mode: Literal["simple", "fan"] = Field(
+        default="simple",
+        description="'simple' usa TAN com threshold; 'fan' usa amônia livre com equilíbrio pH/temperatura.",
+    )
     ammonia_inhibition_k: float = Field(default=2.8, gt=0.01)
     nitrogen_inhibition_threshold: float = Field(default=1.8, gt=0.0)
+    ki_nh3_acidogens: float = Field(default=0.20, gt=0.0)
+    ki_nh3_propionate: float = Field(default=0.10, gt=0.0)
+    ki_nh3_acetoclastic: float = Field(default=0.015, gt=0.0)
+    ki_nh3_hydrogenotrophic: float = Field(default=0.06, gt=0.0)
     hydrogen_inhibition_k: float = Field(default=0.08, gt=0.001)
-    temperature_coefficient: float = Field(default=1.03, ge=1.0, le=1.2)
+    temperature_coefficient: float = Field(
+        default=1.03,
+        ge=1.0,
+        le=1.2,
+        description=(
+            "Arrhenius Q10 per °C for acidogenic and methanogenic processes. "
+            "ADM1 (Batstone et al. 2002) uses θ≈1.03 for acetoclastic/hydrogenotrophic methanogenesis."
+        ),
+    )
+    hydrolysis_temperature_coefficient: float = Field(
+        default=1.04,
+        ge=1.0,
+        le=1.2,
+        description=(
+            "Arrhenius Q10 per °C applied exclusively to hydrolysis. "
+            "ADM1 (Batstone et al. 2002) uses θ≈1.04 for disintegration/hydrolysis, "
+            "which is distinct from the methanogenic coefficient. Critical for TPAD "
+            "where the thermophilic stage temperature differs from 35 °C."
+        ),
+    )
     gas_yield_ch4: float = Field(default=0.35, gt=0.0)
     gas_yield_co2: float = Field(default=0.38, gt=0.0)
     gas_yield_h2: float = Field(default=0.08, gt=0.0)
@@ -180,6 +325,8 @@ class SimulationSummary(StrictModel):
     effluent_particulate_final: float
     volatile_solids_proxy: float
     stability_index: float
+    cn_ratio: float | None = Field(default=None)
+    blend_components: list[str] | None = Field(default=None)
     final_states: dict[str, float]
 
 
