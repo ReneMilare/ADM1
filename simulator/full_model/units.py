@@ -1,0 +1,15 @@
+﻿from __future__ import annotations
+
+DIMENSIONLESS = "-"
+KG_COD_M3 = "kgCOD/m3"
+KMOL_M3 = "kmol/m3"
+DAY_INV = "d^-1"
+MOLAR = "M"
+BAR = "bar"
+KELVIN = "K"
+M3 = "m3"
+BAR_PER_MOLAR_KELVIN = "bar*M^-1*K^-1"
+M3_DAY_BAR = "m3*d^-1*bar^-1"
+MOLAR_INV_DAY = "M^-1*d^-1"
+KMOL_C_PER_KG_COD = "kmolC/kgCOD"
+KMOL_N_PER_KG_COD = "kmolN/kgCOD"
