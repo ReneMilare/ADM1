@@ -19,6 +19,9 @@ def ensure_session_state() -> None:
         "latest_technical_error": None,
         "technical_query_draft": "",
         "recent_page": "home",
+        "ammonia_inhibition_mode": "simple",
+        "codigestion_preset": None,
+        "variant_config": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:

@@ -5,6 +5,8 @@ from _bootstrap import ensure_project_root
 ensure_project_root()
 
 import streamlit as st
+
+from webapp.components.charts import SERIES_PLOT_OPTIONS, render_comparison_overlay_charts
 from webapp.components.status_cards import render_issue_messages, render_sidebar_panel, render_summary_cards
 from webapp.components.tables import render_frame
 from webapp.services.health import collect_health_snapshot

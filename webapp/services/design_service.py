@@ -28,6 +28,9 @@ REACTOR_OPTIONS = {
     "cstr": "CSTR",
     "uasb": "UASB",
     "plug_flow": "Plug-Flow",
+    "two_phase": "Duas Fases (AD)",
+    "tpad": "TPAD",
+    "batch": "Batelada (BMP)",
 }
 
 

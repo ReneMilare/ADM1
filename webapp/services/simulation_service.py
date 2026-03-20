@@ -7,20 +7,35 @@ from typing import Any, Mapping
 import pandas as pd
 
 from simulator.core.defaults import make_default_simulation_config
-from simulator.core.models import FeedDefinition, KineticParameters, OperatingConditions, SimulationConfig, SimulationResult
+from simulator.core.models import (
+    BatchConfig,
+    CoDigestionBlend,
+    FeedDefinition,
+    KineticParameters,
+    OperatingConditions,
+    ReactorConfig,
+    SimulationConfig,
+    SimulationResult,
+    TPADConfig,
+    TwoPhaseConfig,
+)
 from simulator.service import ADM1SimulationService
-from webapp.utils.presets import get_manual_defaults, get_preset_bundle
+from webapp.utils.presets import get_codigestion_blend, get_manual_defaults, get_preset_bundle
 
 REACTOR_OPTIONS = {
     "cstr": "CSTR",
     "uasb": "UASB",
     "plug_flow": "Plug-Flow",
+    "two_phase": "Duas Fases (AD)",
+    "tpad": "TPAD",
+    "batch": "Batelada (BMP)",
 }
 BACKEND_OPTIONS = {
     "pyadm1": "PyADM1 original",
     "auto": "Auto",
     "reduced": "Reduced",
 }
+_VARIANT_REACTOR_TYPES = {"two_phase", "tpad", "batch"}
 
 
 def get_reactor_options() -> dict[str, str]:
@@ -34,6 +49,8 @@ def get_backend_options() -> dict[str, str]:
 
 
 def resolve_requested_backend(reactor_type: str, backend: str) -> tuple[str, str | None]:
+    if reactor_type in _VARIANT_REACTOR_TYPES:
+        return "reduced", f"O reator `{reactor_type}` utiliza o backend `reduced`. O backend `PyADM1` não suporta esta variante."
     if backend == "pyadm1" and reactor_type != "cstr":
         return "reduced", "PyADM1 currently supports only CSTR in this project. The execution will fall back to the reduced backend."
     if backend == "auto" and reactor_type != "cstr":
@@ -50,10 +67,14 @@ def build_feed_and_operating(
     preset_id: str | None,
     manual_feed_values: dict[str, float | str],
     operating_values: dict[str, float],
+    blend: CoDigestionBlend | None = None,
 ) -> tuple[FeedDefinition, OperatingConditions, str | None]:
-    if substrate_mode == "preset":
+    if blend is not None:
+        feed = blend.blend()
+        base_operating, note_link = _operating_from_preset(preset_id)
+    elif substrate_mode in ("preset", "codigestion"):
         if not preset_id:
-            raise ValueError("preset_id is required when substrate_mode='preset'")
+            raise ValueError("preset_id is required when substrate_mode='preset' or 'codigestion'")
         feed, base_operating, note_link = get_preset_bundle(preset_id)
     else:
         feed, base_operating = get_manual_defaults()
@@ -82,6 +103,17 @@ def build_feed_and_operating(
     return feed, operating, note_link
 
 
+def _operating_from_preset(preset_id: str | None) -> tuple[OperatingConditions, str | None]:
+    if preset_id:
+        try:
+            _, operating, note_link = get_preset_bundle(preset_id)
+            return operating, note_link
+        except ValueError:
+            pass
+    from simulator.core.defaults import make_default_operating_conditions
+    return make_default_operating_conditions(), None
+
+
 
 def build_simulation_config(
     *,
@@ -90,6 +122,7 @@ def build_simulation_config(
     solver: str,
     backend: str,
     persist: bool,
+    ammonia_inhibition_mode: str = "simple",
 ) -> SimulationConfig:
     base = make_default_simulation_config()
     return base.model_copy(
@@ -114,6 +147,9 @@ def validate_simulation_inputs(
     evaluation_points: int,
     solver: str,
     backend: str,
+    variant_config: dict[str, Any] | None = None,
+    ammonia_inhibition_mode: str = "simple",
+    feed_nitrogen: float = 0.0,
 ) -> dict[str, list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
@@ -124,8 +160,10 @@ def validate_simulation_inputs(
 
     if volume_m3 <= 0.0:
         errors.append("O volume do reator precisa ser maior que zero.")
-    if hrt_days <= 0.0:
-        errors.append("O HRT precisa ser maior que zero.")
+
+    if reactor_type != "batch":
+        if hrt_days <= 0.0:
+            errors.append("O HRT precisa ser maior que zero.")
     if duration_days <= 0.0:
         errors.append("A duracao da simulacao precisa ser maior que zero.")
     if evaluation_points < 21:
@@ -134,21 +172,36 @@ def validate_simulation_inputs(
     if solver not in {"BDF", "Radau"}:
         errors.append("Solver invalido. Use `BDF` ou `Radau`.")
 
-    if backend == "pyadm1" and reactor_type != "cstr":
-        warnings.append("PyADM1 nao suporta esse reator neste projeto; o backend efetivo caira para `reduced`.")
-    if backend == "auto" and reactor_type != "cstr":
-        warnings.append("No modo `auto`, reatores nao CSTR continuam no backend `reduced`.")
+    if reactor_type not in _VARIANT_REACTOR_TYPES:
+        if backend == "pyadm1" and reactor_type != "cstr":
+            warnings.append("PyADM1 nao suporta esse reator neste projeto; o backend efetivo caira para `reduced`.")
+        if backend == "auto" and reactor_type != "cstr":
+            warnings.append("No modo `auto`, reatores nao CSTR continuam no backend `reduced`.")
 
-    if duration_days < hrt_days:
+    if reactor_type != "batch" and duration_days > 0 and hrt_days > 0 and duration_days < hrt_days:
         warnings.append("A duracao da simulacao esta menor que o HRT. O transiente pode ficar curto demais para analise tecnica.")
+
     if evaluation_points < 81:
         warnings.append("A discretizacao esta enxuta. Use mais pontos de avaliacao se quiser curvas mais suaves para export ou comparacao.")
-    if temperature_c < 30.0 or temperature_c > 40.0:
+    if temperature_c > 0 and (temperature_c < 30.0 or temperature_c > 40.0):
         warnings.append("A temperatura esta fora da faixa mesofilica classica. Verifique se isso e intencional para o estudo.")
-    if hrt_days < 5.0:
+    if reactor_type != "batch" and hrt_days > 0 and hrt_days < 5.0:
         warnings.append("HRT muito baixo tende a aumentar risco de washout e instabilidade. Revise o caso antes de interpretar o resultado.")
-    if reactor_type == "plug_flow" and hrt_days < 8.0:
+    if reactor_type == "plug_flow" and hrt_days > 0 and hrt_days < 8.0:
         warnings.append("Plug-Flow com HRT muito baixo pode reduzir a utilidade comparativa do caso frente aos outros reatores.")
+
+    # Variant-specific validation
+    vc = variant_config or {}
+    if reactor_type == "two_phase":
+        p1_ph = float(vc.get("phase1_ph_setpoint", 5.5))
+        p2_ph = float(vc.get("phase2_ph_setpoint", 7.2))
+        if p1_ph >= p2_ph:
+            errors.append("Two-Phase: o pH da fase 1 (acidogênica) deve ser menor que o da fase 2 (metanogênica).")
+    if reactor_type == "tpad":
+        thermo_t = float(vc.get("thermo_temperature_c", 55.0))
+        meso_t = float(vc.get("meso_temperature_c", 35.0))
+        if thermo_t <= meso_t:
+            errors.append("TPAD: a temperatura termofílica deve ser maior que a mesofílica.")
 
     if substrate_mode == "manual":
         particulate_cod = float(manual_feed_values.get("particulate_cod", 0.0) or 0.0)
@@ -167,6 +220,14 @@ def validate_simulation_inputs(
             warnings.append("Alcalinidade de entrada baixa pode comprometer a capacidade tampao do caso simulado.")
         if inorganic_nitrogen > 4.0:
             warnings.append("Nitrogenio inorganico alto pode aproximar o caso de regimes com sensibilidade a amonia.")
+        feed_nitrogen = max(feed_nitrogen, inorganic_nitrogen)
+
+    # Recommendation: fan mode
+    if ammonia_inhibition_mode == "simple" and (feed_nitrogen > 2.0 or substrate_mode == "codigestion"):
+        warnings.append(
+            "💡 Recomendado: modo `fan` para este cenário (nitrogênio alto ou co-digestão). "
+            "A inibição diferencial por grupo trófico fornece resultados mais realistas."
+        )
 
     return {"errors": errors, "warnings": warnings}
 
@@ -190,6 +251,9 @@ def build_user_simulation_preset_payload(session_values: Mapping[str, Any]) -> d
         "substrate_mode": str(session_values.get("sim_substrate_mode", "preset")),
         "preset_id": session_values.get("sim_preset_id"),
         "backend_choice": str(session_values.get("sim_backend_choice", "pyadm1")),
+        "ammonia_inhibition_mode": str(session_values.get("ammonia_inhibition_mode", "simple")),
+        "codigestion_preset": session_values.get("codigestion_preset"),
+        "variant_config": session_values.get("variant_config"),
         "operating": {
             "volume_m3": float(session_values.get("volume_active", 3000.0)),
             "temperature_c": float(session_values.get("temperature_active", 35.0)),
@@ -221,6 +285,10 @@ def apply_user_simulation_preset(session_state: Any, payload: Mapping[str, Any])
     session_state["sim_substrate_mode"] = str(payload.get("substrate_mode", "preset"))
     session_state["sim_preset_id"] = payload.get("preset_id")
     session_state["sim_backend_choice"] = str(payload.get("backend_choice", "pyadm1"))
+    # New extension fields — backward compatible: default to safe values if absent
+    session_state["ammonia_inhibition_mode"] = str(payload.get("ammonia_inhibition_mode", "simple"))
+    session_state["codigestion_preset"] = payload.get("codigestion_preset", None)
+    session_state["variant_config"] = payload.get("variant_config", None)
 
     operating = payload.get("operating", {}) if isinstance(payload.get("operating"), dict) else {}
     simulation = payload.get("simulation", {}) if isinstance(payload.get("simulation"), dict) else {}
@@ -249,6 +317,39 @@ def apply_user_simulation_preset(session_state: Any, payload: Mapping[str, Any])
 
 
 
+def _build_reactor_config(reactor_type: str, variant_config: dict[str, Any] | None) -> ReactorConfig:
+    vc = variant_config or {}
+    if reactor_type == "two_phase":
+        return ReactorConfig(
+            reactor_type="two_phase",
+            two_phase=TwoPhaseConfig(
+                phase1_volume_fraction=float(vc.get("phase1_volume_fraction", 0.30)),
+                phase1_hrt_fraction=float(vc.get("phase1_hrt_fraction", 0.20)),
+                phase1_ph_setpoint=float(vc.get("phase1_ph_setpoint", 5.5)),
+                phase2_ph_setpoint=float(vc.get("phase2_ph_setpoint", 7.2)),
+            ),
+        )
+    if reactor_type == "tpad":
+        return ReactorConfig(
+            reactor_type="tpad",
+            tpad=TPADConfig(
+                thermo_temperature_c=float(vc.get("thermo_temperature_c", 55.0)),
+                thermo_hrt_days=float(vc.get("thermo_hrt_days", 3.0)),
+                thermo_volume_fraction=float(vc.get("thermo_volume_fraction", 0.25)),
+                meso_temperature_c=float(vc.get("meso_temperature_c", 35.0)),
+                meso_hrt_days=float(vc.get("meso_hrt_days", 15.0)),
+            ),
+        )
+    if reactor_type == "batch":
+        return ReactorConfig(
+            reactor_type="batch",
+            batch=BatchConfig(
+                inoculum_fraction=float(vc.get("inoculum_fraction", 0.30)),
+            ),
+        )
+    return ReactorConfig(reactor_type=reactor_type)  # type: ignore[arg-type]
+
+
 def run_simulation(
     *,
     reactor_type: str,
@@ -261,12 +362,20 @@ def run_simulation(
     solver: str,
     backend: str,
     persist: bool,
+    ammonia_inhibition_mode: str = "simple",
+    variant_config: dict[str, Any] | None = None,
+    blend: CoDigestionBlend | None = None,
 ) -> SimulationResult:
+    # If blend not provided explicitly, auto-derive from co-digestion preset
+    if blend is None and substrate_mode == "codigestion" and preset_id:
+        blend = get_codigestion_blend(preset_id)
+
     feed, operating, note_link = build_feed_and_operating(
         substrate_mode=substrate_mode,
         preset_id=preset_id,
         manual_feed_values=manual_feed_values,
         operating_values=operating_values,
+        blend=blend,
     )
     simulation = build_simulation_config(
         duration_days=duration_days,
@@ -274,22 +383,31 @@ def run_simulation(
         solver=solver,
         backend=backend,
         persist=persist,
+        ammonia_inhibition_mode=ammonia_inhibition_mode,
     )
+    reactor_config = _build_reactor_config(reactor_type, variant_config)
+    kinetics = KineticParameters(ammonia_inhibition_mode=ammonia_inhibition_mode)  # type: ignore[arg-type]
+
     service = ADM1SimulationService()
     metadata: dict[str, Any] = {
         "ui_origin": "streamlit_w2_w7",
         "substrate_mode": substrate_mode,
+        "ammonia_inhibition_mode": ammonia_inhibition_mode,
     }
     if preset_id:
         metadata["substrate_preset"] = preset_id
     if note_link:
         metadata["substrate_note_link"] = note_link
+    if variant_config:
+        metadata["variant_config"] = variant_config
+
     return service.simulate(
-        reactor_type,
+        reactor_config,
         feed=feed,
+        blend=blend,
         operating_conditions=operating,
         simulation=simulation,
-        parameters=KineticParameters(),
+        parameters=kinetics,
         metadata=metadata,
     )
 
@@ -297,7 +415,7 @@ def run_simulation(
 
 def simulation_summary_rows(result: SimulationResult) -> list[dict[str, Any]]:
     metadata = result.metadata
-    return [
+    rows = [
         {"metric": "Metano final", "value": f"{result.summary.methane_final_m3_day:.3f} m3/d"},
         {"metric": "Biogas final", "value": f"{result.summary.biogas_final_m3_day:.3f} m3/d"},
         {"metric": "Fracao CH4 final", "value": f"{result.summary.ch4_fraction_final:.3f}"},
@@ -307,11 +425,26 @@ def simulation_summary_rows(result: SimulationResult) -> list[dict[str, Any]]:
         {"metric": "Backend usado", "value": str(metadata.get("backend_used", result.simulation.backend))},
         {"metric": "Simulation ID", "value": result.simulation_id},
     ]
+    # Conditional metrics
+    fan_series = result.series.get("free_ammonia_kgN_m3")
+    if fan_series:
+        rows.append({"metric": "Amônia livre final (FAN)", "value": f"{fan_series[-1]:.4f} kgN/m³"})
+    inh_ac = result.series.get("inh_nh3_acetoclastic")
+    if inh_ac:
+        rows.append({"metric": "Inibição acetoclástica (NH₃)", "value": f"{inh_ac[-1]:.1%}"})
+    cn_ratio = result.summary.cn_ratio if result.summary.cn_ratio is not None else metadata.get("cn_ratio")
+    if cn_ratio is not None:
+        rows.append({"metric": "Razão C/N", "value": f"{float(cn_ratio):.1f}"})
+    blend_name = metadata.get("blend_name")
+    if blend_name:
+        components = metadata.get("blend_components", [])
+        rows.append({"metric": "Blend", "value": f"{blend_name} ({', '.join(str(c) for c in components)})"})
+    return rows
 
 
 
 def simulation_input_rows(result: SimulationResult) -> list[dict[str, Any]]:
-    return [
+    rows = [
         {"group": "Reator", "parameter": "Tipo", "value": result.reactor.reactor_type},
         {"group": "Operacao", "parameter": "Volume", "value": f"{result.operating_conditions.volume_m3:.2f} m3"},
         {"group": "Operacao", "parameter": "Temperatura", "value": f"{result.operating_conditions.temperature_c:.2f} C"},
@@ -325,6 +458,32 @@ def simulation_input_rows(result: SimulationResult) -> list[dict[str, Any]]:
         {"group": "Feed", "parameter": "Propionate", "value": f"{result.feed.propionate:.3f} kgCOD/m3"},
         {"group": "Feed", "parameter": "Influent pH", "value": f"{result.feed.ph:.2f}"},
     ]
+    # Extensions group
+    inh_mode = result.parameters.ammonia_inhibition_mode if result.parameters else result.metadata.get("ammonia_inhibition_mode", "simple")
+    rows.append({"group": "Extensões", "parameter": "Modo inibição NH₃", "value": str(inh_mode)})
+    if result.reactor.two_phase is not None:
+        cfg = result.reactor.two_phase
+        rows.extend([
+            {"group": "Extensões", "parameter": "Fração vol. fase 1", "value": f"{cfg.phase1_volume_fraction:.2f}"},
+            {"group": "Extensões", "parameter": "Fração HRT fase 1", "value": f"{cfg.phase1_hrt_fraction:.2f}"},
+            {"group": "Extensões", "parameter": "pH setpoint fase 1", "value": f"{cfg.phase1_ph_setpoint:.1f}"},
+            {"group": "Extensões", "parameter": "pH setpoint fase 2", "value": f"{cfg.phase2_ph_setpoint:.1f}"},
+        ])
+    if result.reactor.tpad is not None:
+        cfg = result.reactor.tpad
+        rows.extend([
+            {"group": "Extensões", "parameter": "Temp. termofílica [C]", "value": f"{cfg.thermo_temperature_c:.1f}"},
+            {"group": "Extensões", "parameter": "HRT termofílico [d]", "value": f"{cfg.thermo_hrt_days:.1f}"},
+            {"group": "Extensões", "parameter": "Fração vol. termofílica", "value": f"{cfg.thermo_volume_fraction:.2f}"},
+            {"group": "Extensões", "parameter": "Temp. mesofílica [C]", "value": f"{cfg.meso_temperature_c:.1f}"},
+            {"group": "Extensões", "parameter": "HRT mesofílico [d]", "value": f"{cfg.meso_hrt_days:.1f}"},
+        ])
+    if result.reactor.batch is not None:
+        rows.append({"group": "Extensões", "parameter": "Fração inóculo", "value": f"{result.reactor.batch.inoculum_fraction:.2f}"})
+    blend_name = result.metadata.get("blend_name")
+    if blend_name:
+        rows.append({"group": "Extensões", "parameter": "Blend (co-digestão)", "value": str(blend_name)})
+    return rows
 
 
 
@@ -362,3 +521,6 @@ def series_csv_bytes(result: SimulationResult) -> bytes:
     buffer = StringIO()
     result_series_frame(result).to_csv(buffer, index=False)
     return buffer.getvalue().encode("utf-8")
+
+
+

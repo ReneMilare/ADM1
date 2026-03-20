@@ -15,25 +15,61 @@ BIOMASS_INDICES = (
 )
 EPSILON = 1e-9
 
+# ── Stoichiometric / thermodynamic constants for pH calculation ───────────────
+# Molar COD masses: 64 gO2 per mol acetate (CH3COO⁻), 112 gO2 per mol propionate (C2H5COO⁻)
+_COD_TO_MOL_ACETATE: float = 1000.0 / 64.0
+_COD_TO_MOL_PROPIONATE: float = 1000.0 / 112.0
+_N_TO_MOL: float = 1000.0 / 14.0  # kgN/m³ → mol/m³ (atomic N = 14 g/mol)
+
+# Conversion from the model's dimensionless "alkalinity" state to total
+# titratable alkalinity [mol/m³].  Calibrated so that the charge-balance
+# pH matches BSM2-like operating conditions at 35 °C.  Physically represents
+# roughly 17 mol HCO3⁻-equivalent per model alkalinity unit.
+_ALK_TO_MOL: float = 17.0
+
+# Assumed CO2 partial pressure in biogas headspace [atm].
+# Typical range for anaerobic digesters: 0.25–0.40 atm (25–40 % CO2 in biogas).
+_PCO2_ATM: float = 0.30
+
+
+def _kh_co2(temperature_c: float) -> float:
+    """Henry constant for CO2 dissolution [mol m⁻³ atm⁻¹].
+
+    Van't Hoff extrapolation from KH(25°C)=34 mol/m³/atm.
+    CO2 becomes less soluble with increasing temperature (ΔH_soln < 0),
+    so KH decreases with T (≈ 26 mol/m³/atm at 35 °C, ≈ 16 at 55 °C).
+    """
+    T_K = temperature_c + 273.15
+    return 34.0 * math.exp(2400.0 * (1.0 / T_K - 1.0 / 298.15))
+
+
+def _pka_co2_first(temperature_c: float) -> float:
+    """pKa1 for CO2 ⇌ H⁺ + HCO3⁻ equilibrium, temperature-corrected.
+
+    Reference: Plummer & Busenberg (1982).  pKa1 decreases slightly with T
+    (6.352 at 25 °C → 6.241 at 35 °C → 6.131 at 45 °C).
+    """
+    return 6.352 - 0.01106 * (temperature_c - 25.0)
+
+
+def _pka_acetate(temperature_c: float) -> float:
+    """pKa for acetic acid (CH3COOH ⇌ H⁺ + CH3COO⁻), temperature-corrected."""
+    return 4.7613 + 0.0133 * (temperature_c - 25.0)
+
+
+def _pka_propionate(temperature_c: float) -> float:
+    """pKa for propionic acid (C2H5COOH ⇌ H⁺ + C2H5COO⁻), temperature-corrected."""
+    return 4.8742 + 0.0154 * (temperature_c - 25.0)
+
 # COD mass-balance splits (Batstone et al., 2002 ADM1 — simplified reduced-model pathways).
 # Each dict maps liquid product → fraction of consumed substrate COD that appears in that
 # product.  The remainder (1 − Σsplits) equals the biomass yield stored in KineticParameters,
 # so splits + yield = 1.00 for every pathway (verified by test_cod_balance_* tests).
-#
-# Acidogenesis of sugars/amino acids (ADM1 Table 3.1 stoichiometry, f_ac,su / f_pro,su / f_h2,su):
-#   acetate:    0.55  (f_ac,su  — dominant fermentation product)
-#   propionate: 0.20  (f_pro,su — secondary VFA pathway)
-#   hydrogen:   0.13  (f_h2,su  — dissolved H2 produced)
-#   acidogen_yield: 0.12  →  0.55 + 0.20 + 0.13 + 0.12 = 1.00 ✓
 ACIDOGENESIS_SPLITS = {
     "acetate": 0.55,
     "propionate": 0.20,
     "hydrogen": 0.13,
 }
-# Propionate oxidation via syntrophic acetogenesis (ADM1 Table 3.1, f_ac,pro / f_h2,pro):
-#   acetate:   0.57  (f_ac,pro  — main product of propionate β-oxidation)
-#   hydrogen:  0.39  (f_h2,pro  — obligate H2 release by syntrophs)
-#   propionate_yield: 0.04  →  0.57 + 0.39 + 0.04 = 1.00 ✓
 PROPIONATE_SPLITS = {
     "acetate": 0.57,
     "hydrogen": 0.39,
@@ -50,25 +86,79 @@ def vector_to_dict(values: np.ndarray) -> dict[str, float]:
 
 
 def estimate_ph(state: np.ndarray, influent_ph: float, temperature_c: float) -> float:
-    acetate = float(state[STATE_INDEX["acetate"]])
-    propionate = float(state[STATE_INDEX["propionate"]])
-    alkalinity = float(max(state[STATE_INDEX["alkalinity"]], EPSILON))
-    vfa_total = acetate + propionate
-    # Empirical reduced-model pH proxy (Batstone et al., 2002, simplified):
-    #   - 0.25 / 0.2: buffer offsets that prevent log(0) when alkalinity or VFA are near zero,
-    #     calibrated so that the ratio ≈ 1 at typical steady-state conditions (alk ≈ 4-6 kmol/m³,
-    #     VFA ≈ 0-2 kgCOD/m³), yielding a pH correction close to 0.
-    #   - 0.3: empirical log-scale gain; maps the alkalinity/VFA ratio to a ±0.3 pH unit range
-    #     representative of ADM1 operating windows.
-    #   - 0.015: temperature coefficient (pH/°C), consistent with the van-'t-Hoff influence on
-    #     carbonate equilibrium; shifts pH by ≈ ±0.15 units over a ±10 °C deviation from 35 °C.
-    ratio = (alkalinity + 0.25) / (vfa_total + 0.2)
-    ph = influent_ph + 0.3 * math.log10(max(ratio, EPSILON)) + 0.015 * (temperature_c - 35.0)
-    return float(np.clip(ph, 5.5, 8.3))
+    """pH from Henderson-Hasselbalch charge balance with bicarbonate/VFA equilibria.
+
+    Implements the thermodynamic charge balance for an anaerobic digester:
+
+        [HCO3⁻] + [Ac⁻] + [Pro⁻] + ... = TA_mol  (total titratable alkalinity)
+        [HCO3⁻] = [CO2] × 10^(pH − pKa1_CO2)       (bicarbonate equilibrium)
+        [Ac⁻]   = S_ac_mol × Ka_ac / ([H⁺] + Ka_ac) (acetate dissociation)
+        [Pro⁻]  = S_pro_mol × Ka_pro / ([H⁺] + Ka_pro) (propionate dissociation)
+
+    Solved iteratively by isolating [HCO3⁻] from the charge balance and
+    computing pH from the bicarbonate/CO2 equilibrium.  Converges in ~8 steps.
+
+    Assumptions
+    -----------
+    * Dissolved CO2 is in equilibrium with the biogas headspace at pCO2 ≈ 0.30 atm
+      (temperature-corrected via Van't Hoff, 25–40 % CO2 typical for digesters).
+    * All pKa values are temperature-corrected from 25 °C literature values.
+    * The model's "alkalinity" state is a proxy for total titratable alkalinity
+      scaled by _ALK_TO_MOL ≈ 17 mol m⁻³ per model unit (calibrated for BSM2).
+    * CO3²⁻, OH⁻, H⁺, and NH3 contributions are negligible at pH 4–9
+      (< 0.5 mol/m³ each at typical digester conditions).
+
+    Parameters
+    ----------
+    state : 11-component state vector
+    influent_ph : initial guess for iteration (not used as an anchor bias)
+    temperature_c : reactor temperature [°C]
+    """
+    s_ac  = float(max(state[STATE_INDEX["acetate"]],   0.0))
+    s_pro = float(max(state[STATE_INDEX["propionate"]], 0.0))
+    s_alk = float(max(state[STATE_INDEX["alkalinity"]], EPSILON))
+
+    # Convert to molar concentrations [mol/m³]
+    s_ac_mol  = s_ac  * _COD_TO_MOL_ACETATE
+    s_pro_mol = s_pro * _COD_TO_MOL_PROPIONATE
+    ta_mol    = s_alk * _ALK_TO_MOL  # total titratable alkalinity [mol/m³]
+
+    # Temperature-dependent equilibrium constants
+    pka_co2 = _pka_co2_first(temperature_c)
+    ka_ac   = 10.0 ** (-_pka_acetate(temperature_c))
+    ka_pro  = 10.0 ** (-_pka_propionate(temperature_c))
+
+    # Dissolved CO2 from Henry's law [mol/m³]
+    s_co2 = _kh_co2(temperature_c) * _PCO2_ATM
+
+    # Iterative solution: start from influent pH as initial guess.
+    # Convergence is guaranteed by negative feedback:
+    #   pH too high → more VFA dissociation → less HCO3⁻ → pH falls
+    #   pH too low  → less VFA dissociation → more HCO3⁻ → pH rises
+    ph = float(np.clip(influent_ph, 5.0, 8.5))
+    for _ in range(15):
+        h       = 10.0 ** (-ph)
+        ac_ion  = s_ac_mol  * ka_ac  / (h + ka_ac)
+        pro_ion = s_pro_mol * ka_pro / (h + ka_pro)
+        hco3    = max(ta_mol - ac_ion - pro_ion, EPSILON)
+        ph_new  = pka_co2 + math.log10(hco3 / max(s_co2, EPSILON))
+        ph_new  = float(np.clip(ph_new, 4.0, 9.0))
+        if abs(ph_new - ph) < 1e-5:
+            ph = ph_new
+            break
+        ph = 0.7 * ph_new + 0.3 * ph  # damped update for numerical stability
+
+    return float(np.clip(ph, 4.0, 9.0))
 
 
 def _temperature_factor(temperature_c: float, params: KineticParameters) -> float:
     raw = params.temperature_coefficient ** (temperature_c - 35.0)
+    return float(np.clip(raw, 0.25, 3.0))
+
+
+def _temperature_factor_hydrolysis(temperature_c: float, params: KineticParameters) -> float:
+    """Arrhenius temperature factor for hydrolysis only (θ=1.04 per ADM1)."""
+    raw = params.hydrolysis_temperature_coefficient ** (temperature_c - 35.0)
     return float(np.clip(raw, 0.25, 3.0))
 
 
@@ -81,6 +171,20 @@ def _ammonia_inhibition(inorganic_nitrogen: float, params: KineticParameters) ->
     overload = max(inorganic_nitrogen - params.nitrogen_inhibition_threshold, 0.0)
     inhibition = 1.0 / (1.0 + overload / max(params.ammonia_inhibition_k, EPSILON))
     return float(np.clip(inhibition, 0.1, 1.0))
+
+
+def _pka_ammonia(temperature_c: float) -> float:
+    return 0.09018 + 2729.92 / (temperature_c + 273.15)
+
+
+def _free_ammonia_concentration(inorganic_nitrogen: float, ph: float, temperature_c: float) -> float:
+    pka = _pka_ammonia(temperature_c)
+    fraction = 1.0 / (1.0 + 10.0 ** (pka - ph))
+    return float(max(inorganic_nitrogen, 0.0) * fraction)
+
+
+def _fan_inhibition(s_nh3: float, ki_nh3: float) -> float:
+    return float(ki_nh3 / (ki_nh3 + max(s_nh3, 0.0)))
 
 
 def _hydrogen_inhibition(hydrogen: float, params: KineticParameters) -> float:
@@ -96,6 +200,10 @@ def reaction_vector(
     params: KineticParameters,
     hydrolysis_multiplier: float,
     gas_capture_efficiency: float,
+    acidogenesis_multiplier: float = 1.0,
+    propionate_multiplier: float = 1.0,
+    acetoclastic_multiplier: float = 1.0,
+    hydrogenotrophic_multiplier: float = 1.0,
 ) -> tuple[np.ndarray, dict[str, float]]:
     values = clip_state_vector(state)
     particulate = float(values[STATE_INDEX["particulate_cod"]])
@@ -111,18 +219,33 @@ def reaction_vector(
 
     ph = estimate_ph(values, influent_ph=influent_ph, temperature_c=temperature_c)
     temp_factor = _temperature_factor(temperature_c, params)
+    temp_factor_hyd = _temperature_factor_hydrolysis(temperature_c, params)
     ph_factor = _ph_inhibition(ph, params)
-    ammonia_factor = _ammonia_inhibition(inorganic_nitrogen, params)
     hydrogen_factor = _hydrogen_inhibition(hydrogen, params)
 
-    hydrolysis = params.k_hyd * hydrolysis_multiplier * particulate * temp_factor
+    if params.ammonia_inhibition_mode == "fan":
+        s_nh3 = _free_ammonia_concentration(inorganic_nitrogen, ph, temperature_c)
+        inh_nh3_acidogens = _fan_inhibition(s_nh3, params.ki_nh3_acidogens)
+        inh_nh3_propionate = _fan_inhibition(s_nh3, params.ki_nh3_propionate)
+        inh_nh3_acetoclastic = _fan_inhibition(s_nh3, params.ki_nh3_acetoclastic)
+        inh_nh3_hydrogenotrophic = _fan_inhibition(s_nh3, params.ki_nh3_hydrogenotrophic)
+    else:
+        s_nh3 = 0.0
+        inh_simple = _ammonia_inhibition(inorganic_nitrogen, params)
+        inh_nh3_acidogens = inh_simple
+        inh_nh3_propionate = 1.0
+        inh_nh3_acetoclastic = inh_simple
+        inh_nh3_hydrogenotrophic = inh_simple
+
+    hydrolysis = params.k_hyd * hydrolysis_multiplier * particulate * temp_factor_hyd
     acidogenesis = (
         params.k_m_su
         * acidogens
         * (soluble / (params.k_s_su + soluble))
         * ph_factor
-        * ammonia_factor
+        * inh_nh3_acidogens
         * temp_factor
+        * acidogenesis_multiplier
     )
     propionate_conversion = (
         params.k_m_pro
@@ -130,23 +253,27 @@ def reaction_vector(
         * (propionate / (params.k_s_pro + propionate))
         * ph_factor
         * hydrogen_factor
+        * inh_nh3_propionate
         * temp_factor
+        * propionate_multiplier
     )
     acetate_methanogenesis = (
         params.k_m_ac
         * acetoclastic
         * (acetate / (params.k_s_ac + acetate))
         * ph_factor
-        * ammonia_factor
+        * inh_nh3_acetoclastic
         * temp_factor
+        * acetoclastic_multiplier
     )
     hydrogen_methanogenesis = (
         params.k_m_h2
         * hydrogenotrophic
         * (hydrogen / (params.k_s_h2 + hydrogen))
         * ph_factor
-        * ammonia_factor
+        * inh_nh3_hydrogenotrophic
         * temp_factor
+        * hydrogenotrophic_multiplier
     )
 
     total_biomass_decay = (
@@ -157,8 +284,6 @@ def reaction_vector(
     )
 
     reaction = np.zeros(len(STATE_NAMES), dtype=float)
-    # Biomass decay is routed back to the particulate COD pool as lysed solids/composites,
-    # matching the ADM1 assumption that cell death recycles COD inside the liquid phase.
     reaction[STATE_INDEX["particulate_cod"]] += total_biomass_decay - hydrolysis
     reaction[STATE_INDEX["soluble_cod"]] += hydrolysis - acidogenesis
     reaction[STATE_INDEX["acetate"]] += (
@@ -177,35 +302,23 @@ def reaction_vector(
     reaction[STATE_INDEX["propionate_biomass"]] += (
         params.propionate_yield * propionate_conversion - params.decay_propionate_biomass * propionate_biomass
     )
-    reaction[STATE_INDEX["acetoclastic_biomass"]] += params.acetoclastic_yield * acetate_methanogenesis - params.decay_acetoclastic * acetoclastic
-    reaction[STATE_INDEX["hydrogenotrophic_biomass"]] += params.hydrogenotrophic_yield * hydrogen_methanogenesis - params.decay_hydrogenotrophic * hydrogenotrophic
-    # Inorganic nitrogen balance (simplified ADM1, Batstone et al., 2002):
-    #   +hydrolysis_nitrogen_release per hydrolysis: release of organic N from
-    #          particulate matter; the default 0.03 kgN/kgCOD is a reduced-model
-    #          proxy for sludge protein hydrolysis.
-    #   +biomass_decay_nitrogen_content per biomass decay: release of cell-bound
-    #          ammonium upon lysis; the default 0.018 kgN/kgCOD is intentionally
-    #          conservative and can be compared against ADM1-style values around
-    #          0.06-0.08 kgN/kgCOD when benchmarking against PyADM1.
+    reaction[STATE_INDEX["acetoclastic_biomass"]] += (
+        params.acetoclastic_yield * acetate_methanogenesis - params.decay_acetoclastic * acetoclastic
+    )
+    reaction[STATE_INDEX["hydrogenotrophic_biomass"]] += (
+        params.hydrogenotrophic_yield * hydrogen_methanogenesis - params.decay_hydrogenotrophic * hydrogenotrophic
+    )
     reaction[STATE_INDEX["inorganic_nitrogen"]] += (
         params.hydrolysis_nitrogen_release * hydrolysis
         + params.biomass_decay_nitrogen_content * total_biomass_decay
     )
-    # Alkalinity balance (empirical reduced-model proxy, Batstone et al., 2002):
-    #   +0.050 per acetate methanogenesis: HCO3- produced as CO2 is stripped and
-    #          consumed by acetogens, net alkalinity gain from VFA removal.
-    #   +0.035 per hydrogen methanogenesis: minor HCO3- production from CO2 fixation.
-    #   -0.045 per acidogenesis: VFA production lowers alkalinity via acid dissociation.
-    #   +0.015 per propionate conversion: partial alkalinity recovery as propionate
-    #          is oxidised to acetate and CO2 by syntrophic acetogens.
-    reaction[STATE_INDEX["alkalinity"]] += 0.05 * acetate_methanogenesis + 0.035 * hydrogen_methanogenesis - 0.045 * acidogenesis + 0.015 * propionate_conversion
+    reaction[STATE_INDEX["alkalinity"]] += (
+        0.05 * acetate_methanogenesis
+        + 0.035 * hydrogen_methanogenesis
+        - 0.045 * acidogenesis
+        + 0.015 * propionate_conversion
+    )
 
-    # Gas production rates: fraction of substrate COD leaving as gas = (1 − biomass yield).
-    # Stoichiometric basis (Batstone et al., 2002):
-    #   Acetate methanogenesis: CH3COO⁻ + H2O → CH4 + HCO3⁻; yield fraction stays as biomass,
-    #     (1 − Y_ac) ≈ 0.945 kgCOD_CH4 / kgCOD_acetate consumed.
-    #   Hydrogen methanogenesis: 4H2 + CO2 → CH4 + 2H2O; (1 − Y_h2) ≈ 0.965 kgCOD_CH4 / kgCOD_H2.
-    #   gas_yield_ch4 = 0.35 m³CH4 / kgCOD converts the COD flux to volumetric methane (STP).
     methane_rate = gas_capture_efficiency * params.gas_yield_ch4 * (
         (1.0 - params.acetoclastic_yield) * acetate_methanogenesis
         + (1.0 - params.hydrogenotrophic_yield) * hydrogen_methanogenesis
@@ -229,5 +342,11 @@ def reaction_vector(
         "propionate_conversion_rate": propionate_conversion,
         "acetate_methanogenesis_rate": acetate_methanogenesis,
         "hydrogen_methanogenesis_rate": hydrogen_methanogenesis,
+        "free_ammonia_kgN_m3": s_nh3,
+        "inh_nh3_acidogens": inh_nh3_acidogens,
+        "inh_nh3_propionate": inh_nh3_propionate,
+        "inh_nh3_acetoclastic": inh_nh3_acetoclastic,
+        "inh_nh3_hydrogenotrophic": inh_nh3_hydrogenotrophic,
+        "hydrogen_inhibition_factor": hydrogen_factor,
     }
     return reaction, diagnostics

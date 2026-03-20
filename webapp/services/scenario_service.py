@@ -30,6 +30,11 @@ SERIES_OPTIONS = {
         "title": "Perfil de VFA total",
         "y_axis_title": "kgCOD/m3",
     },
+    "free_ammonia_kgN_m3": {
+        "label": "Amônia livre (FAN)",
+        "title": "Amônia livre (FAN)",
+        "y_axis_title": "kgN/m³",
+    },
 }
 
 
@@ -159,31 +164,41 @@ def comparison_frame(results: list[SimulationResult], *, baseline_id: str) -> pd
     if not results:
         return pd.DataFrame()
     baseline = next((result for result in results if result.simulation_id == baseline_id), results[0])
+    has_fan = any("free_ammonia_kgN_m3" in result.series for result in results)
+    has_cn = any(
+        result.summary.cn_ratio is not None or result.metadata.get("cn_ratio") is not None
+        for result in results
+    )
     rows: list[dict[str, Any]] = []
     for result in results:
-        rows.append(
-            {
-                "baseline": "sim" if result.simulation_id == baseline.simulation_id else "",
-                "simulation_id": result.simulation_id,
-                "reactor": result.reactor.reactor_type,
-                "substrate": substrate_label(result),
-                "backend_requested": backend_requested(result),
-                "backend_used": backend_used(result),
-                "fallback": "sim" if has_fallback(result) else "não",
-                "methane_final_m3_day": round(result.summary.methane_final_m3_day, 3),
-                "delta_methane_pct": round(_relative_delta_pct(result.summary.methane_final_m3_day, baseline.summary.methane_final_m3_day), 3),
-                "biogas_final_m3_day": round(result.summary.biogas_final_m3_day, 3),
-                "delta_biogas_pct": round(_relative_delta_pct(result.summary.biogas_final_m3_day, baseline.summary.biogas_final_m3_day), 3),
-                "ph_final": round(result.summary.ph_final, 3),
-                "delta_ph_abs": round(result.summary.ph_final - baseline.summary.ph_final, 3),
-                "vfa_final": round(result.summary.vfa_final, 3),
-                "delta_vfa_pct": round(_relative_delta_pct(result.summary.vfa_final, baseline.summary.vfa_final), 3),
-                "effluent_cod_final": round(result.summary.effluent_cod_final, 3),
-                "delta_effluent_cod_pct": round(_relative_delta_pct(result.summary.effluent_cod_final, baseline.summary.effluent_cod_final), 3),
-                "stability_index": round(result.summary.stability_index, 5),
-                "fallback_reason": str(result.metadata.get("backend_fallback_reason", "") or ""),
-            }
-        )
+        row: dict[str, Any] = {
+            "baseline": "sim" if result.simulation_id == baseline.simulation_id else "",
+            "simulation_id": result.simulation_id,
+            "reactor": result.reactor.reactor_type,
+            "substrate": substrate_label(result),
+            "backend_requested": backend_requested(result),
+            "backend_used": backend_used(result),
+            "fallback": "sim" if has_fallback(result) else "não",
+            "methane_final_m3_day": round(result.summary.methane_final_m3_day, 3),
+            "delta_methane_pct": round(_relative_delta_pct(result.summary.methane_final_m3_day, baseline.summary.methane_final_m3_day), 3),
+            "biogas_final_m3_day": round(result.summary.biogas_final_m3_day, 3),
+            "delta_biogas_pct": round(_relative_delta_pct(result.summary.biogas_final_m3_day, baseline.summary.biogas_final_m3_day), 3),
+            "ph_final": round(result.summary.ph_final, 3),
+            "delta_ph_abs": round(result.summary.ph_final - baseline.summary.ph_final, 3),
+            "vfa_final": round(result.summary.vfa_final, 3),
+            "delta_vfa_pct": round(_relative_delta_pct(result.summary.vfa_final, baseline.summary.vfa_final), 3),
+            "effluent_cod_final": round(result.summary.effluent_cod_final, 3),
+            "delta_effluent_cod_pct": round(_relative_delta_pct(result.summary.effluent_cod_final, baseline.summary.effluent_cod_final), 3),
+            "stability_index": round(result.summary.stability_index, 5),
+            "fallback_reason": str(result.metadata.get("backend_fallback_reason", "") or ""),
+        }
+        if has_fan:
+            fan_series = result.series.get("free_ammonia_kgN_m3")
+            row["free_ammonia_kgN_m3"] = round(float(fan_series[-1]), 6) if fan_series else None
+        if has_cn:
+            cn_val = result.summary.cn_ratio if result.summary.cn_ratio is not None else result.metadata.get("cn_ratio")
+            row["cn_ratio"] = round(float(cn_val), 2) if cn_val is not None else None
+        rows.append(row)
     return pd.DataFrame(rows)
 
 

@@ -99,6 +99,13 @@ with st.form("preferences_form"):
             index=list(backend_options).index(str(preferences.get("default_backend", "pyadm1"))),
             format_func=lambda value: backend_options[value],
         )
+        ammonia_mode_options = {"simple": "Simples (sem FAN)", "fan": "Inibicao por amonia livre (FAN)"}
+        ammonia_inhibition_mode_default = st.selectbox(
+            "Modo de inibicao por amonia padrao",
+            options=list(ammonia_mode_options),
+            index=list(ammonia_mode_options).index(str(preferences.get("ammonia_inhibition_mode_default", "simple"))),
+            format_func=lambda value: ammonia_mode_options[value],
+        )
     with pref_col2:
         default_top_k = st.slider("Top K padrao da busca tecnica", min_value=3, max_value=8, value=int(preferences.get("default_top_k", 5)), step=1)
         persist_by_default = st.checkbox("Persistir cenarios por padrao", value=bool(preferences.get("persist_scenarios_by_default", True)))
@@ -113,6 +120,7 @@ if submitted:
         {
             "default_reactor": default_reactor,
             "default_backend": default_backend,
+            "ammonia_inhibition_mode_default": ammonia_inhibition_mode_default,
             "default_top_k": int(default_top_k),
             "persist_scenarios_by_default": bool(persist_by_default),
             "show_home_onboarding": bool(show_home_onboarding),
