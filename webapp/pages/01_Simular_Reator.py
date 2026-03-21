@@ -485,11 +485,10 @@ with config_col:
             vc_current = st.session_state.get("variant_config") or {}
             vc_col1, vc_col2 = st.columns(2)
             with vc_col1:
-                tp_vol_frac = st.number_input("Fração vol. fase 1", min_value=0.10, max_value=0.60, value=float(vc_current.get("phase1_volume_fraction", 0.30)), step=0.05, key="vc_phase1_volume_fraction")
-                tp_hrt_frac = st.number_input("Fração HRT fase 1", min_value=0.05, max_value=0.50, value=float(vc_current.get("phase1_hrt_fraction", 0.20)), step=0.05, key="vc_phase1_hrt_fraction")
+                tp_vol_frac = st.number_input("Fração vol. fase 1 (= fração HRT)", min_value=0.10, max_value=0.60, value=float(vc_current.get("phase1_volume_fraction", 0.30)), step=0.05, key="vc_phase1_volume_fraction")
             with vc_col2:
-                tp_ph1 = st.number_input("pH setpoint fase 1 (acidogênica)", min_value=4.5, max_value=6.5, value=float(vc_current.get("phase1_ph_setpoint", 5.5)), step=0.1, key="vc_phase1_ph_setpoint")
-                tp_ph2 = st.number_input("pH setpoint fase 2 (metanogênica)", min_value=6.5, max_value=8.0, value=float(vc_current.get("phase2_ph_setpoint", 7.2)), step=0.1, key="vc_phase2_ph_setpoint")
+                tp_ph1 = st.number_input("pH setpoint fase 1 (acidogênica, modelo reduzido)", min_value=4.5, max_value=6.5, value=float(vc_current.get("phase1_ph_setpoint", 5.5)), step=0.1, key="vc_phase1_ph_setpoint")
+                tp_ph2 = st.number_input("pH setpoint fase 2 (metanogênica, modelo reduzido)", min_value=6.5, max_value=8.0, value=float(vc_current.get("phase2_ph_setpoint", 7.2)), step=0.1, key="vc_phase2_ph_setpoint")
 
         elif reactor_type == "tpad":
             st.markdown("---")
@@ -499,7 +498,6 @@ with config_col:
             with vc_col1:
                 tpad_thermo_t = st.number_input("Temperatura termofílica [°C]", min_value=45.0, max_value=65.0, value=float(vc_current.get("thermo_temperature_c", 55.0)), step=1.0, key="vc_thermo_temperature_c")
                 tpad_thermo_hrt = st.number_input("HRT termofílico [dias]", min_value=0.5, max_value=10.0, value=float(vc_current.get("thermo_hrt_days", 3.0)), step=0.5, key="vc_thermo_hrt_days")
-                tpad_thermo_vol = st.number_input("Fração vol. termofílica", min_value=0.10, max_value=0.50, value=float(vc_current.get("thermo_volume_fraction", 0.25)), step=0.05, key="vc_thermo_volume_fraction")
             with vc_col2:
                 tpad_meso_t = st.number_input("Temperatura mesofílica [°C]", min_value=25.0, max_value=42.0, value=float(vc_current.get("meso_temperature_c", 35.0)), step=1.0, key="vc_meso_temperature_c")
                 tpad_meso_hrt = st.number_input("HRT mesofílico [dias]", min_value=5.0, max_value=40.0, value=float(vc_current.get("meso_hrt_days", 15.0)), step=1.0, key="vc_meso_hrt_days")
@@ -548,7 +546,6 @@ elif reactor_type == "plug_flow" and backend_choice == "full":
 elif reactor_type == "two_phase":
     variant_config = {
         "phase1_volume_fraction": float(st.session_state.get("vc_phase1_volume_fraction", 0.30)),
-        "phase1_hrt_fraction": float(st.session_state.get("vc_phase1_hrt_fraction", 0.20)),
         "phase1_ph_setpoint": float(st.session_state.get("vc_phase1_ph_setpoint", 5.5)),
         "phase2_ph_setpoint": float(st.session_state.get("vc_phase2_ph_setpoint", 7.2)),
     }
@@ -556,7 +553,6 @@ elif reactor_type == "tpad":
     variant_config = {
         "thermo_temperature_c": float(st.session_state.get("vc_thermo_temperature_c", 55.0)),
         "thermo_hrt_days": float(st.session_state.get("vc_thermo_hrt_days", 3.0)),
-        "thermo_volume_fraction": float(st.session_state.get("vc_thermo_volume_fraction", 0.25)),
         "meso_temperature_c": float(st.session_state.get("vc_meso_temperature_c", 35.0)),
         "meso_hrt_days": float(st.session_state.get("vc_meso_hrt_days", 15.0)),
     }

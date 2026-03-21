@@ -763,6 +763,7 @@ class ADM1SimulationService:
             "feed": feed,
             "kinetics": parameters,
             "parameters": parameters,
+            "full_parameters": parameters,
         }
         if root not in targets:
             raise ValueError(f"Unsupported parameter group: {root}")
@@ -790,7 +791,6 @@ class ADM1SimulationService:
 
     def _resolve_backend(self, reactor: ReactorConfig, simulation: SimulationConfig) -> _ResolvedBackend:
         requested = simulation.backend
-        reduced_only_reactors = {"two_phase", "tpad", "batch", "uasb", "plug_flow"}
         if requested == "reduced":
             return _ResolvedBackend(requested=requested, used="reduced")
         if requested == "pyadm1":
@@ -807,13 +807,8 @@ class ADM1SimulationService:
         if requested == "auto":
             if reactor.reactor_type == "cstr":
                 return _ResolvedBackend(requested=requested, used="pyadm1")
-            # Para outros reatores, full model tem implementação nativa mais fiel
-            if reactor.reactor_type in reduced_only_reactors:
-                return _ResolvedBackend(
-                    requested=requested,
-                    used="reduced",
-                    fallback_reason=f"Auto backend usa modelo reduced para {reactor.reactor_type}; use backend='full' para o modelo ADM1 completo.",
-                )
+            # Para outros reatores, full model é o backend mais fiel disponível
+            return _ResolvedBackend(requested=requested, used="full")
         raise ValueError(f"Unsupported backend '{requested}'")
 
     def _tail_convergence_metric(self, result: SimulationResult) -> float:

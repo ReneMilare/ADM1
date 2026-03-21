@@ -143,18 +143,21 @@ class InitialState(StrictModel):
 
 
 class TwoPhaseConfig(StrictModel):
-    phase1_volume_fraction: float = Field(default=0.3, gt=0.1, lt=0.6)
-    phase1_hrt_fraction: float = Field(default=0.2, gt=0.05, lt=0.5)
-    phase1_ph_setpoint: float = Field(default=5.5, ge=4.5, le=6.5)
-    phase2_ph_setpoint: float = Field(default=7.2, ge=6.5, le=8.0)
+    phase1_volume_fraction: float = Field(default=0.3, gt=0.1, lt=0.6, description="Fração de volume líquido na fase 1. Em CSTRs em série com mesma vazão, esta fração também define a fração de HRT da fase 1.")
+    phase1_ph_setpoint: float = Field(default=5.5, ge=4.5, le=6.5, description="Setpoint de pH da fase acidogênica. Usado pelo modelo reduzido como heurística cinética; o modelo full calcula pH dinamicamente.")
+    phase2_ph_setpoint: float = Field(default=7.2, ge=6.5, le=8.0, description="Setpoint de pH da fase metanogênica. Usado pelo modelo reduzido como heurística cinética; o modelo full calcula pH dinamicamente.")
 
 
 class TPADConfig(StrictModel):
-    thermo_temperature_c: float = Field(default=55.0, ge=45.0, le=65.0)
-    thermo_hrt_days: float = Field(default=3.0, gt=0.5, le=10.0)
-    thermo_volume_fraction: float = Field(default=0.25, gt=0.1, lt=0.5)
-    meso_temperature_c: float = Field(default=35.0, ge=25.0, le=42.0)
-    meso_hrt_days: float = Field(default=15.0, gt=5.0, le=40.0)
+    thermo_temperature_c: float = Field(default=55.0, ge=45.0, le=65.0, description="Temperatura da fase termofílica [°C].")
+    thermo_hrt_days: float = Field(default=3.0, gt=0.5, le=10.0, description="HRT da fase termofílica [dias].")
+    meso_temperature_c: float = Field(default=35.0, ge=25.0, le=42.0, description="Temperatura da fase mesofílica [°C].")
+    meso_hrt_days: float = Field(default=15.0, gt=5.0, le=40.0, description="HRT da fase mesofílica [dias].")
+
+    @property
+    def thermo_volume_fraction(self) -> float:
+        """Derived: volume fraction of thermophilic phase = HRT_thermo / (HRT_thermo + HRT_meso)."""
+        return self.thermo_hrt_days / (self.thermo_hrt_days + self.meso_hrt_days)
 
 
 class BatchConfig(StrictModel):

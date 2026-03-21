@@ -329,13 +329,15 @@ class FullPlugFlowRhs:
 class FullTwoPhaseRhs:
     """Full ADM1 ODE for two-phase operation (hydrolysis/acidogenesis + methanogenesis).
 
-    Two CSTRs in series with different volumes and HRTs sharing the same feed flow q.
+    Two CSTRs in series sharing the same feed flow q_ad.
     State vector: [phase1_states..., phase2_states...]
 
-    Phase 1 (hydrolysis/acidogenesis): V1 = f_vol * V_liq, HRT1 = f_hrt * HRT_total
-    Phase 2 (methanogenesis):          V2 = (1−f_vol) * V_liq, HRT2 = (1−f_hrt) * HRT_total
+    Phase 1 (hydrolysis/acidogenesis): V1 = f_vol * V_liq
+    Phase 2 (methanogenesis):          V2 = (1−f_vol) * V_liq
 
-    The feed flow q_ad is conserved: q = V_liq/HRT_total = V1/HRT1 = V2/HRT2.
+    Since q is conserved in series: HRT1 = V1/q = f_vol * HRT_total,
+    HRT2 = V2/q = (1−f_vol) * HRT_total. Volume fraction = HRT fraction.
+    Gas volume is split proportionally to liquid volume.
     Phase 1 effluent is the influent to Phase 2. Phase 2 effluent leaves the system.
     """
 
@@ -344,7 +346,6 @@ class FullTwoPhaseRhs:
         *,
         inputs: FullModelInputs,
         phase1_volume_fraction: float = 0.3,
-        phase1_hrt_fraction: float = 0.2,
     ) -> None:
         self.inputs = inputs
         self.assembly = inputs.assembly
@@ -354,13 +355,12 @@ class FullTwoPhaseRhs:
         v_liq = float(inputs.parameter_values["V_liq"])
         v_gas = float(inputs.parameter_values["V_gas"])
         f_vol = float(phase1_volume_fraction)
-        f_hrt = float(phase1_hrt_fraction)
 
-        # Volumes and residence times per phase
+        # Volumes per phase — gas volume proportional to liquid volume
         v1_liq = v_liq * f_vol
         v2_liq = v_liq * (1.0 - f_vol)
-        v1_gas = v_gas * f_hrt          # gas volume proportional to HRT fraction
-        v2_gas = v_gas * (1.0 - f_hrt)
+        v1_gas = v_gas * f_vol
+        v2_gas = v_gas * (1.0 - f_vol)
 
         # Build per-phase parameter dicts (q_ad is the same for both)
         params1 = dict(inputs.parameter_values)
@@ -446,18 +446,21 @@ class FullTPADRhs(FullTwoPhaseRhs):
         *,
         inputs: FullModelInputs,
         phase1_volume_fraction: float = 0.25,
-        phase1_hrt_fraction: float = 0.17,
         thermo_temperature_c: float = 55.0,
+        meso_temperature_c: float = 35.0,
     ) -> None:
         super().__init__(
             inputs=inputs,
             phase1_volume_fraction=phase1_volume_fraction,
-            phase1_hrt_fraction=phase1_hrt_fraction,
         )
-        # Override phase 1 parameters with temperature-scaled kinetics
+        # Override phase 1 parameters with thermophilic temperature-scaled kinetics
         scaled_params1 = _scale_params_for_temperature(self._params1, thermo_temperature_c)
         self._params1 = scaled_params1
         self._rhs1 = FullCSTRRhs(inputs=_inputs_with_params(inputs, scaled_params1))
+        # Override phase 2 parameters with mesophilic temperature-scaled kinetics
+        scaled_params2 = _scale_params_for_temperature(self._params2, meso_temperature_c)
+        self._params2 = scaled_params2
+        self._rhs2 = FullCSTRRhs(inputs=_inputs_with_params(inputs, scaled_params2))
         self.biochemical_matrix = self._rhs1.biochemical_matrix
 
 
@@ -556,7 +559,6 @@ def build_reactor_mode(
         return FullTwoPhaseRhs(
             inputs=inputs,
             phase1_volume_fraction=float(two_phase_cfg.phase1_volume_fraction),
-            phase1_hrt_fraction=float(two_phase_cfg.phase1_hrt_fraction),
         )
 
     if reactor_type == "tpad":
@@ -566,8 +568,8 @@ def build_reactor_mode(
         return FullTPADRhs(
             inputs=inputs,
             phase1_volume_fraction=float(tpad_cfg.thermo_volume_fraction),
-            phase1_hrt_fraction=float(tpad_cfg.thermo_hrt_days / (tpad_cfg.thermo_hrt_days + tpad_cfg.meso_hrt_days)),
             thermo_temperature_c=float(tpad_cfg.thermo_temperature_c),
+            meso_temperature_c=float(tpad_cfg.meso_temperature_c),
         )
 
     raise ValueError(f"Reactor type não suportado pelo backend full: '{reactor_type}'")

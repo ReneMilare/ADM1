@@ -35,9 +35,8 @@ class TwoPhaseReactor(ReactorBase):
 
     def segment_dilution_rate(self, segment_index: int, operating_conditions: OperatingConditions) -> float:
         cfg = self._cfg()
-        phase1_hrt = operating_conditions.hrt_days * cfg.phase1_hrt_fraction
-        phase2_hrt = operating_conditions.hrt_days * (1.0 - cfg.phase1_hrt_fraction)
-        local_hrt = phase1_hrt if segment_index == 0 else phase2_hrt
+        f_vol = cfg.phase1_volume_fraction if segment_index == 0 else 1.0 - cfg.phase1_volume_fraction
+        local_hrt = operating_conditions.hrt_days * f_vol
         return 1.0 / max(local_hrt, 1e-9)
 
     def segment_volume(self, segment_index: int, operating_conditions: OperatingConditions) -> float:

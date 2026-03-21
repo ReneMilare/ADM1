@@ -378,7 +378,6 @@ async def simulate_two_phase(
     alkalinity_kmol_m3: float = 4.8,
     ph: float = 7.1,
     phase1_volume_fraction: float = 0.3,
-    phase1_hrt_fraction: float = 0.2,
     phase1_ph_setpoint: float = 5.5,
     phase2_ph_setpoint: float = 7.2,
     ammonia_inhibition_mode: str = "fan",
@@ -399,7 +398,6 @@ async def simulate_two_phase(
         reactor_type="two_phase",
         two_phase=TwoPhaseConfig(
             phase1_volume_fraction=phase1_volume_fraction,
-            phase1_hrt_fraction=phase1_hrt_fraction,
             phase1_ph_setpoint=phase1_ph_setpoint,
             phase2_ph_setpoint=phase2_ph_setpoint,
         ),
@@ -442,7 +440,6 @@ async def simulate_tpad(
     ph: float = 7.1,
     thermo_temperature_c: float = 55.0,
     thermo_hrt_days: float = 3.0,
-    thermo_volume_fraction: float = 0.25,
     meso_temperature_c: float = 35.0,
     meso_hrt_days: float = 15.0,
     ammonia_inhibition_mode: str = "fan",
@@ -464,7 +461,6 @@ async def simulate_tpad(
         tpad=TPADConfig(
             thermo_temperature_c=thermo_temperature_c,
             thermo_hrt_days=thermo_hrt_days,
-            thermo_volume_fraction=thermo_volume_fraction,
             meso_temperature_c=meso_temperature_c,
             meso_hrt_days=meso_hrt_days,
         ),

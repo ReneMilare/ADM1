@@ -47,7 +47,8 @@ class TPADReactor(ReactorBase):
 
     def segment_volume(self, segment_index: int, operating_conditions: OperatingConditions) -> float:
         cfg = self._cfg()
-        volume_fraction = cfg.thermo_volume_fraction if segment_index == 0 else 1.0 - cfg.thermo_volume_fraction
+        f_vol = cfg.thermo_volume_fraction  # derived property: thermo_hrt / total_hrt
+        volume_fraction = f_vol if segment_index == 0 else 1.0 - f_vol
         return operating_conditions.volume_m3 * volume_fraction
 
     def segment_parameters(self, segment_index: int, parameters: KineticParameters) -> KineticParameters:

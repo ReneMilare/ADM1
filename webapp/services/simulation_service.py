@@ -342,7 +342,6 @@ def _build_reactor_config(reactor_type: str, variant_config: dict[str, Any] | No
             reactor_type="two_phase",
             two_phase=TwoPhaseConfig(
                 phase1_volume_fraction=float(vc.get("phase1_volume_fraction", 0.30)),
-                phase1_hrt_fraction=float(vc.get("phase1_hrt_fraction", 0.20)),
                 phase1_ph_setpoint=float(vc.get("phase1_ph_setpoint", 5.5)),
                 phase2_ph_setpoint=float(vc.get("phase2_ph_setpoint", 7.2)),
             ),
@@ -353,7 +352,6 @@ def _build_reactor_config(reactor_type: str, variant_config: dict[str, Any] | No
             tpad=TPADConfig(
                 thermo_temperature_c=float(vc.get("thermo_temperature_c", 55.0)),
                 thermo_hrt_days=float(vc.get("thermo_hrt_days", 3.0)),
-                thermo_volume_fraction=float(vc.get("thermo_volume_fraction", 0.25)),
                 meso_temperature_c=float(vc.get("meso_temperature_c", 35.0)),
                 meso_hrt_days=float(vc.get("meso_hrt_days", 15.0)),
             ),
@@ -549,19 +547,18 @@ def simulation_input_rows(result: SimulationResult) -> list[dict[str, Any]]:
     if result.reactor.two_phase is not None:
         cfg = result.reactor.two_phase
         rows.extend([
-            {"group": "Extensões", "parameter": "Fração vol. fase 1", "value": f"{cfg.phase1_volume_fraction:.2f}"},
-            {"group": "Extensões", "parameter": "Fração HRT fase 1", "value": f"{cfg.phase1_hrt_fraction:.2f}"},
-            {"group": "Extensões", "parameter": "pH setpoint fase 1", "value": f"{cfg.phase1_ph_setpoint:.1f}"},
-            {"group": "Extensões", "parameter": "pH setpoint fase 2", "value": f"{cfg.phase2_ph_setpoint:.1f}"},
+            {"group": "Extensões", "parameter": "Fração vol. fase 1 (= HRT)", "value": f"{cfg.phase1_volume_fraction:.2f}"},
+            {"group": "Extensões", "parameter": "pH setpoint fase 1 (reduzido)", "value": f"{cfg.phase1_ph_setpoint:.1f}"},
+            {"group": "Extensões", "parameter": "pH setpoint fase 2 (reduzido)", "value": f"{cfg.phase2_ph_setpoint:.1f}"},
         ])
     if result.reactor.tpad is not None:
         cfg = result.reactor.tpad
         rows.extend([
             {"group": "Extensões", "parameter": "Temp. termofílica [C]", "value": f"{cfg.thermo_temperature_c:.1f}"},
             {"group": "Extensões", "parameter": "HRT termofílico [d]", "value": f"{cfg.thermo_hrt_days:.1f}"},
-            {"group": "Extensões", "parameter": "Fração vol. termofílica", "value": f"{cfg.thermo_volume_fraction:.2f}"},
             {"group": "Extensões", "parameter": "Temp. mesofílica [C]", "value": f"{cfg.meso_temperature_c:.1f}"},
             {"group": "Extensões", "parameter": "HRT mesofílico [d]", "value": f"{cfg.meso_hrt_days:.1f}"},
+            {"group": "Extensões", "parameter": "Fração vol. termofílica (derivado)", "value": f"{cfg.thermo_volume_fraction:.2f}"},
         ])
     if result.reactor.batch is not None:
         rows.append({"group": "Extensões", "parameter": "Fração inóculo", "value": f"{result.reactor.batch.inoculum_fraction:.2f}"})
