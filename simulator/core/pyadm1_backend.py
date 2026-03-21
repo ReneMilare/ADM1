@@ -30,6 +30,7 @@ RUNTIME_TRANSIENT_FILENAMES = (
 )
 RUNTIME_LOCK_FILENAME = ".runtime.lock"
 RUNTIME_SLOT_GLOB = "slot_*"
+RUNTIME_SLOT_COUNT = 8
 RUNTIME_SLOT_WAIT_SECONDS = 5.0
 RUNTIME_SLOT_POLL_INTERVAL_SECONDS = 0.1
 
@@ -308,10 +309,9 @@ def _coerce_frame(*, frame: pd.DataFrame, columns: list[str], frame_name: str) -
 
 def _prepare_runtime_dir() -> Path:
     PYADM1_RUNTIME_ROOT.mkdir(parents=True, exist_ok=True)
+    _ensure_runtime_slots()
+    _clear_runtime_files(PYADM1_RUNTIME_ROOT)
     slot_dirs = _runtime_slot_dirs()
-    if not slot_dirs:
-        _clear_runtime_files(PYADM1_RUNTIME_ROOT)
-        return PYADM1_RUNTIME_ROOT
 
     deadline = time.monotonic() + RUNTIME_SLOT_WAIT_SECONDS
     while True:
@@ -324,6 +324,11 @@ def _prepare_runtime_dir() -> Path:
                 f"No PyADM1 runtime slots are available in {PYADM1_RUNTIME_ROOT}; all {len(slot_dirs)} slots are currently in use."
             )
         time.sleep(RUNTIME_SLOT_POLL_INTERVAL_SECONDS)
+
+
+def _ensure_runtime_slots() -> None:
+    for index in range(1, RUNTIME_SLOT_COUNT + 1):
+        (PYADM1_RUNTIME_ROOT / f"slot_{index:02d}").mkdir(parents=True, exist_ok=True)
 
 
 def _runtime_slot_dirs() -> list[Path]:

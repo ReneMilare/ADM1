@@ -27,8 +27,8 @@ def test_state_catalog_matches_pyadm1_internal_order() -> None:
 
 def test_state_catalog_role_counts() -> None:
     assert len(FULL_STATE_CATALOG) == 38
-    assert len(DYNAMIC_STATE_NAMES) == 28
-    assert len(PSEUDO_STATE_NAMES) == 2
+    assert len(DYNAMIC_STATE_NAMES) == 29
+    assert len(PSEUDO_STATE_NAMES) == 1
     assert len(ALGEBRAIC_STATE_NAMES) == 8
 
 

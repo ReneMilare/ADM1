@@ -40,6 +40,7 @@ from simulator.core.models import (
     STATE_NAMES,
 )
 from simulator.core.pyadm1_backend import simulate_with_pyadm1
+from simulator.full_model.solver import simulate_with_full
 from simulator.reactor_models import build_reactor
 from simulator.scenario_store import ScenarioStore
 
@@ -97,6 +98,19 @@ class ADM1SimulationService:
                 initial_state=initial,
                 parameters=kinetics,
                 simulation=sim_config,
+            )
+            time_days = np.asarray(backend_result["time_days"], dtype=float)
+            profiles = backend_result["profiles"]
+            execution_metadata = dict(backend_result["metadata"])
+        elif backend.used == "full":
+            backend_result = simulate_with_full(
+                operating_conditions=operating,
+                feed=feed_model,
+                initial_state=initial,
+                parameters=kinetics,
+                simulation=sim_config,
+                active_extensions=sim_config.full_extensions,
+                extension_parameter_overrides=sim_config.full_extension_parameter_overrides,
             )
             time_days = np.asarray(backend_result["time_days"], dtype=float)
             profiles = backend_result["profiles"]
@@ -162,7 +176,7 @@ class ADM1SimulationService:
             metadata={"mode": "steady_state"},
         )
         backend_used = str(result.metadata.get("backend_used", "reduced"))
-        if backend_used == "pyadm1":
+        if backend_used in {"pyadm1", "full"}:
             derivative_norm = self._tail_convergence_metric(result)
             return {
                 "simulation_id": result.simulation_id,
@@ -693,9 +707,17 @@ class ADM1SimulationService:
                 return _ResolvedBackend(
                     requested=requested,
                     used="reduced",
-                    fallback_reason=f"PyADM1 não suporta {reactor.reactor_type}; usando reduced.",
+                    fallback_reason=f"PyADM1 n?o suporta {reactor.reactor_type}; usando reduced.",
                 )
             return _ResolvedBackend(requested=requested, used="pyadm1")
+        if requested == "full":
+            if reactor.reactor_type != "cstr":
+                return _ResolvedBackend(
+                    requested=requested,
+                    used="reduced",
+                    fallback_reason=f"ADM1 full nativo suporta apenas cstr nesta fase; usando reduced para {reactor.reactor_type}.",
+                )
+            return _ResolvedBackend(requested=requested, used="full")
         if requested == "auto":
             if reactor.reactor_type == "cstr":
                 return _ResolvedBackend(requested=requested, used="pyadm1")
@@ -703,7 +725,7 @@ class ADM1SimulationService:
                 return _ResolvedBackend(
                     requested=requested,
                     used="reduced",
-                    fallback_reason=f"Auto backend mantém o modelo reduced para {reactor.reactor_type}.",
+                    fallback_reason=f"Auto backend mant?m o modelo reduced para {reactor.reactor_type}.",
                 )
         raise ValueError(f"Unsupported backend '{requested}'")
 
@@ -717,6 +739,8 @@ class ADM1SimulationService:
         delta_state = np.abs(np.diff(state_tail, axis=1))
         scale = np.maximum(np.abs(state_tail[:, :-1]), 1e-6)
         return float(np.max((delta_state / scale) / delta_time[None, :]))
+
+
 
 
 

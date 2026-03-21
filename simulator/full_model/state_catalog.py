@@ -44,7 +44,7 @@ _STATES_BY_NAME = {
     "S_bu": _state("S_bu", "Butirato", KG_COD_M3, phase="liquid", domain="vfa", role="dynamic", cod_role="cod", elemental_proxy="C_bu"),
     "S_pro": _state("S_pro", "Propionato", KG_COD_M3, phase="liquid", domain="vfa", role="dynamic", cod_role="cod", elemental_proxy="C_pro"),
     "S_ac": _state("S_ac", "Acetato", KG_COD_M3, phase="liquid", domain="vfa", role="dynamic", cod_role="cod", elemental_proxy="C_ac"),
-    "S_h2": _state("S_h2", "Hidrogênio dissolvido", KG_COD_M3, phase="liquid", domain="gas_precursor", role="pseudo_state", cod_role="cod", elemental_proxy="0", notes="Resolvido por bloco algébrico no estilo PyADM1."),
+    "S_h2": _state("S_h2", "Hidrog?nio dissolvido", KG_COD_M3, phase="liquid", domain="gas_precursor", role="dynamic", cod_role="cod", elemental_proxy="0", notes="Estado din?mico can?nico do ADM1; participa da ODE e da transfer?ncia g?s-l?quido."),
     "S_ch4": _state("S_ch4", "Metano dissolvido", KG_COD_M3, phase="liquid", domain="gas_precursor", role="dynamic", cod_role="cod", elemental_proxy="C_ch4"),
     "S_IC": _state("S_IC", "Carbono inorgânico total dissolvido", KMOL_M3, phase="liquid", domain="inorganic_carbon", role="dynamic", cod_role="inorganic_carbon", elemental_proxy="1 mol C/mol"),
     "S_IN": _state("S_IN", "Nitrogênio inorgânico total dissolvido", KMOL_M3, phase="liquid", domain="nitrogen", role="dynamic", cod_role="nitrogen", elemental_proxy="1 mol N/mol"),

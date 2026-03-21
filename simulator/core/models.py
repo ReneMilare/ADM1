@@ -19,7 +19,7 @@ STATE_NAMES = (
     "alkalinity",
 )
 REACTOR_TYPES = ("cstr", "uasb", "plug_flow", "two_phase", "tpad", "batch")
-SIMULATION_BACKENDS = ("reduced", "pyadm1", "auto")
+SIMULATION_BACKENDS = ("reduced", "pyadm1", "full", "auto")
 OBJECTIVE_NAMES = (
     "methane_final_m3_day",
     "methane_peak_m3_day",
@@ -306,11 +306,22 @@ class KineticParameters(StrictModel):
 class SimulationConfig(StrictModel):
     duration_days: float = Field(default=60.0, gt=0.1)
     evaluation_points: int = Field(default=241, ge=21, le=4001)
-    solver: Literal["BDF", "Radau"] = Field(default="BDF")
-    backend: Literal["reduced", "pyadm1", "auto"] = Field(default="pyadm1")
+    solver: Literal["BDF", "Radau", "DOP853"] = Field(default="BDF")
+    backend: Literal["reduced", "pyadm1", "full", "auto"] = Field(default="pyadm1")
     rtol: float = Field(default=1e-5, gt=0.0)
     atol: float = Field(default=1e-7, gt=0.0)
     persist: bool = Field(default=True)
+    full_extensions: list[str] = Field(default_factory=list, description="Extens?es ativas do backend ADM1 full.")
+    full_extension_parameter_overrides: dict[str, float] = Field(
+        default_factory=dict,
+        description="Overrides pontuais de par?metros do assembly full, incluindo extens?es ativas.",
+    )
+
+    @model_validator(mode="after")
+    def normalize_full_extensions(self) -> "SimulationConfig":
+        unique_extensions = list(dict.fromkeys(self.full_extensions))
+        object.__setattr__(self, "full_extensions", unique_extensions)
+        return self
 
 
 class SimulationSummary(StrictModel):
@@ -404,3 +415,4 @@ class CalibrationResult(StrictModel):
     rmse_before: float
     rmse_after: float
     simulation_id: str
+
