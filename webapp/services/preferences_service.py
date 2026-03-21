@@ -29,10 +29,24 @@ DEFAULT_WORKBENCH_STATE = {
         "ammonia_inhibition_mode_default": "simple",
     },
     "simulation_presets": [],
+    "custom_substrates": [],
     "favorite_queries": [],
     "recent_queries": [],
     "recent_simulations": [],
 }
+
+# Campos obrigatórios de um substrato personalizado (valores numéricos + metadados)
+CUSTOM_SUBSTRATE_FIELDS = (
+    "particulate_cod",
+    "soluble_cod",
+    "acetate",
+    "propionate",
+    "hydrogen",
+    "inorganic_nitrogen",
+    "alkalinity",
+    "ph",
+)
+MAX_CUSTOM_SUBSTRATE_NAME_LENGTH = 80
 
 
 def _now_iso() -> str:
@@ -87,7 +101,7 @@ def _normalize_state(payload: dict[str, Any] | None) -> dict[str, Any]:
             if key in preferences:
                 state["preferences"][key] = preferences[key]
 
-    for key in ("simulation_presets", "favorite_queries", "recent_queries", "recent_simulations"):
+    for key in ("simulation_presets", "custom_substrates", "favorite_queries", "recent_queries", "recent_simulations"):
         value = payload.get(key)
         if isinstance(value, list):
             state[key] = [item for item in value if isinstance(item, dict)]
@@ -260,7 +274,94 @@ def record_recent_simulation(result: SimulationResult) -> list[dict[str, Any]]:
 
 def clear_saved_items(section: str) -> None:
     state = load_workbench_state()
-    if section not in {"simulation_presets", "favorite_queries", "recent_queries", "recent_simulations"}:
+    if section not in {"simulation_presets", "custom_substrates", "favorite_queries", "recent_queries", "recent_simulations"}:
         raise ValueError(f"Unsupported section: {section}")
     state[section] = []
     _write_state(state)
+
+
+# ─── Substratos personalizados ────────────────────────────────────────────────
+
+def list_custom_substrates() -> list[dict[str, Any]]:
+    """Retorna lista de substratos personalizados salvos, ordenados por updated_at."""
+    state = load_workbench_state()
+    substrates = state.get("custom_substrates", [])
+    return sorted(substrates, key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+
+
+def find_custom_substrate(name: str) -> dict[str, Any] | None:
+    """Busca um substrato personalizado pelo nome (case-insensitive)."""
+    for item in list_custom_substrates():
+        if str(item.get("name", "")).casefold() == name.casefold():
+            return item
+    return None
+
+
+def save_custom_substrate(name: str, values: dict[str, float]) -> list[dict[str, Any]]:
+    """Salva (cria ou atualiza) um substrato personalizado.
+
+    Args:
+        name: Nome único do substrato (será sanitizado).
+        values: Dicionário com os campos numéricos do substrato
+                (particulate_cod, soluble_cod, acetate, propionate,
+                 hydrogen, inorganic_nitrogen, alkalinity, ph).
+
+    Returns:
+        Lista atualizada de substratos personalizados.
+    """
+    cleaned_name = _sanitize_preset_name(name)
+
+    # Valida campos obrigatórios e tipos
+    substrate: dict[str, Any] = {"name": cleaned_name}
+    for field in CUSTOM_SUBSTRATE_FIELDS:
+        raw = values.get(field)
+        if raw is None:
+            raise ValueError(f"Campo obrigatório ausente no substrato personalizado: '{field}'")
+        substrate[field] = float(raw)
+
+    # Validações de domínio básicas
+    total_cod = (
+        substrate["particulate_cod"]
+        + substrate["soluble_cod"]
+        + substrate["acetate"]
+        + substrate["propionate"]
+    )
+    if total_cod <= 0.0:
+        raise ValueError("A carga orgânica total do substrato personalizado precisa ser maior que zero.")
+    if not (5.0 <= substrate["ph"] <= 8.5):
+        raise ValueError("O pH do substrato personalizado deve estar entre 5,0 e 8,5.")
+    if substrate["alkalinity"] <= 0.0:
+        raise ValueError("A alcalinidade do substrato personalizado deve ser maior que zero.")
+
+    state = load_workbench_state()
+    substrates = state.get("custom_substrates", [])
+
+    # Atualiza se já existe, caso contrário adiciona
+    existing_names = [str(item.get("name", "")).casefold() for item in substrates]
+    now = _now_iso()
+    if cleaned_name.casefold() in existing_names:
+        for item in substrates:
+            if str(item.get("name", "")).casefold() == cleaned_name.casefold():
+                item.update(substrate)
+                item["updated_at"] = now
+    else:
+        substrate["created_at"] = now
+        substrate["updated_at"] = now
+        substrates.append(substrate)
+
+    state["custom_substrates"] = sorted(
+        substrates, key=lambda item: str(item.get("updated_at") or ""), reverse=True
+    )
+    _write_state(state)
+    return list_custom_substrates()
+
+
+def delete_custom_substrate(name: str) -> list[dict[str, Any]]:
+    """Remove um substrato personalizado pelo nome."""
+    state = load_workbench_state()
+    substrates = state.get("custom_substrates", [])
+    state["custom_substrates"] = [
+        item for item in substrates if str(item.get("name", "")).casefold() != name.casefold()
+    ]
+    _write_state(state)
+    return list_custom_substrates()
