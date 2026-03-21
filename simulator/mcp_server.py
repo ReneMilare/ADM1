@@ -50,7 +50,7 @@ class SimulateReactorInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True, extra="forbid")
 
     reactor_type: str = Field(..., description="One of: cstr, uasb, plug_flow, two_phase, tpad, batch.")
-    backend: str = Field(default="pyadm1", description="One of: reduced, pyadm1 or auto.")
+    backend: str = Field(default="pyadm1", description="One of: reduced, pyadm1, full or auto.")
     substrate: str = Field(default="generic_sludge", description="Label saved with the scenario metadata.")
     volume_m3: float = Field(default=3000.0, gt=0.0)
     temperature_c: float = Field(default=35.0, ge=15.0, le=60.0)
@@ -79,6 +79,27 @@ class CompareScenariosInput(BaseModel):
     simulation_ids: list[str] = Field(..., min_length=2, description="List of persisted simulation identifiers.")
 
 
+class CompareBackendsInput(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True, extra="forbid")
+
+    reactor_type: str = Field(default="cstr", description="One of: cstr, uasb, plug_flow, two_phase, tpad, batch.")
+    backends: list[str] = Field(default_factory=lambda: ["pyadm1", "full"], min_length=2)
+    substrate: str = Field(default="generic_sludge", description="Label saved with the scenario metadata.")
+    volume_m3: float = Field(default=3000.0, gt=0.0)
+    temperature_c: float = Field(default=35.0, ge=15.0, le=60.0)
+    hrt_days: float = Field(default=20.0, gt=0.1)
+    duration_days: float = Field(default=60.0, gt=0.1)
+    feed_cod_kg_m3: float = Field(default=19.5, gt=0.0)
+    particulate_fraction: float = Field(default=0.72, ge=0.0, le=0.95)
+    acetate_fraction: float = Field(default=0.06, ge=0.0, le=0.3)
+    propionate_fraction: float = Field(default=0.03, ge=0.0, le=0.3)
+    ammonium_kg_n_m3: float = Field(default=1.3, ge=0.0)
+    alkalinity_kmol_m3: float = Field(default=4.8, gt=0.0)
+    ph: float = Field(default=7.1, ge=5.0, le=8.5)
+    segments: int = Field(default=6, ge=2, le=20)
+    ammonia_inhibition_mode: str = Field(default="simple", description="One of: simple or fan.")
+
+
 class OptimizeParameterInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True, extra="forbid")
 
@@ -89,7 +110,7 @@ class OptimizeParameterInput(BaseModel):
     maximum: float = Field(...)
     steps: int = Field(default=7, ge=3, le=21)
     reactor_type: str = Field(default="cstr")
-    backend: str = Field(default="pyadm1", description="One of: reduced, pyadm1 or auto.")
+    backend: str = Field(default="pyadm1", description="One of: reduced, pyadm1, full or auto.")
     volume_m3: float = Field(default=3000.0, gt=0.0)
     temperature_c: float = Field(default=35.0, ge=15.0, le=60.0)
     hrt_days: float = Field(default=20.0, gt=0.1)
@@ -107,7 +128,7 @@ class CalibrateModelInput(BaseModel):
     minimum: float = Field(default=0.1)
     maximum: float = Field(default=1.5)
     reactor_type: str = Field(default="cstr")
-    backend: str = Field(default="pyadm1", description="One of: reduced, pyadm1 or auto.")
+    backend: str = Field(default="pyadm1", description="One of: reduced, pyadm1, full or auto.")
     volume_m3: float = Field(default=3000.0, gt=0.0)
     temperature_c: float = Field(default=35.0, ge=15.0, le=60.0)
     hrt_days: float = Field(default=20.0, gt=0.1)
@@ -130,9 +151,9 @@ class CoDigestionComponentInput(BaseModel):
 class DesignReactorInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True, extra="forbid")
 
-    substrate: str = Field(..., description="Preset name such as 'Lodo de Esgoto', 'Res?duos Alimentares', 'Res?duos Agr?colas' or a co-digestion preset.")
+    substrate: str = Field(..., description="Preset name such as 'Lodo de Esgoto', 'Residuos Alimentares', 'Residuos Agricolas' or a co-digestion preset.")
     design_goal: str = Field(default="balanced", description="One of: balanced, maximize_methane, maximize_stability, minimize_effluent_cod.")
-    backend: str = Field(default="auto", description="One of: reduced, pyadm1 or auto.")
+    backend: str = Field(default="auto", description="One of: reduced, pyadm1, full or auto.")
     volume_m3: float | None = Field(default=None, gt=0.0)
     temperature_c: float | None = Field(default=None, ge=15.0, le=60.0)
     hrt_days: float | None = Field(default=None, gt=0.1)
@@ -194,6 +215,29 @@ def _build_blend_from_json(substrates_json: str) -> CoDigestionBlend:
     ]
     names = " + ".join(component.feed.name for component in fractions)
     return CoDigestionBlend(name=f"Co-digestion {names}", components=fractions)
+
+
+def _result_payload(result) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "simulation_id": result.simulation_id,
+        "reactor_type": result.reactor.reactor_type,
+        "backend_requested": result.metadata.get("backend_requested"),
+        "backend_used": result.metadata.get("backend_used"),
+        "fallback_reason": result.metadata.get("backend_fallback_reason"),
+        "summary": result.summary.model_dump(),
+    }
+    if str(result.metadata.get("backend_used", "")) == "full":
+        payload["diagnostics"] = {
+            "full_model_runtime": result.metadata.get("full_model_runtime"),
+            "full_model_ph_converged": result.metadata.get("full_model_ph_converged"),
+            "full_model_hydrogen_converged": result.metadata.get("full_model_hydrogen_converged"),
+            "full_model_ph_iterations_max": result.metadata.get("full_model_ph_iterations_max"),
+            "full_model_hydrogen_iterations_max": result.metadata.get("full_model_hydrogen_iterations_max"),
+            "full_model_active_extensions": result.metadata.get("full_model_active_extensions", []),
+        }
+    return payload
+
+
 
 
 @mcp.tool(
@@ -268,14 +312,7 @@ async def simulate_reactor(
         parameters=_build_kinetics(params.ammonia_inhibition_mode),
         metadata={"substrate": params.substrate},
     )
-    payload = {
-        "simulation_id": result.simulation_id,
-        "reactor_type": result.reactor.reactor_type,
-        "backend_requested": result.metadata.get("backend_requested"),
-        "backend_used": result.metadata.get("backend_used"),
-        "summary": result.summary.model_dump(),
-    }
-    return json.dumps(payload, ensure_ascii=False, indent=2)
+    return json.dumps(_result_payload(result), ensure_ascii=False, indent=2)
 
 
 @mcp.tool(
@@ -313,14 +350,7 @@ async def simulate_codigestion(
         parameters=_build_kinetics(ammonia_inhibition_mode),
         metadata={"substrate": blend.name},
     )
-    payload = {
-        "simulation_id": result.simulation_id,
-        "reactor_type": result.reactor.reactor_type,
-        "backend_requested": result.metadata.get("backend_requested"),
-        "backend_used": result.metadata.get("backend_used"),
-        "summary": result.summary.model_dump(),
-    }
-    return json.dumps(payload, ensure_ascii=False, indent=2)
+    return json.dumps(_result_payload(result), ensure_ascii=False, indent=2)
 
 
 @mcp.tool(
@@ -384,7 +414,7 @@ async def simulate_two_phase(
         parameters=_build_kinetics(ammonia_inhibition_mode),
         metadata={"substrate": substrate},
     )
-    return json.dumps({"simulation_id": result.simulation_id, "summary": result.summary.model_dump()}, ensure_ascii=False, indent=2)
+    return json.dumps(_result_payload(result), ensure_ascii=False, indent=2)
 
 
 @mcp.tool(
@@ -449,7 +479,7 @@ async def simulate_tpad(
         parameters=_build_kinetics(ammonia_inhibition_mode),
         metadata={"substrate": substrate},
     )
-    return json.dumps({"simulation_id": result.simulation_id, "summary": result.summary.model_dump()}, ensure_ascii=False, indent=2)
+    return json.dumps(_result_payload(result), ensure_ascii=False, indent=2)
 
 
 @mcp.tool(
@@ -501,7 +531,7 @@ async def simulate_batch(
         parameters=_build_kinetics(ammonia_inhibition_mode),
         metadata={"substrate": substrate},
     )
-    return json.dumps({"simulation_id": result.simulation_id, "summary": result.summary.model_dump()}, ensure_ascii=False, indent=2)
+    return json.dumps(_result_payload(result), ensure_ascii=False, indent=2)
 
 
 @mcp.tool(
@@ -555,6 +585,81 @@ async def get_ph_profile(simulation_id: str) -> str:
 
     params = ProfileInput(simulation_id=simulation_id)
     payload = _get_service().get_ph_profile(params.simulation_id)
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+@mcp.tool(
+    name="compare_backends",
+    annotations={
+        "title": "Compare Backends for One Case",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+async def compare_backends(
+    reactor_type: str = "cstr",
+    backends: list[str] | None = None,
+    substrate: str = "generic_sludge",
+    volume_m3: float = 3000.0,
+    temperature_c: float = 35.0,
+    hrt_days: float = 20.0,
+    duration_days: float = 60.0,
+    feed_cod_kg_m3: float = 19.5,
+    particulate_fraction: float = 0.72,
+    acetate_fraction: float = 0.06,
+    propionate_fraction: float = 0.03,
+    ammonium_kg_n_m3: float = 1.3,
+    alkalinity_kmol_m3: float = 4.8,
+    ph: float = 7.1,
+    segments: int = 6,
+    ammonia_inhibition_mode: str = "simple",
+) -> str:
+    """Compare explicit backend executions for the same ADM1 case."""
+
+    params = CompareBackendsInput(
+        reactor_type=reactor_type,
+        backends=backends or ["pyadm1", "full"],
+        substrate=substrate,
+        volume_m3=volume_m3,
+        temperature_c=temperature_c,
+        hrt_days=hrt_days,
+        duration_days=duration_days,
+        feed_cod_kg_m3=feed_cod_kg_m3,
+        particulate_fraction=particulate_fraction,
+        acetate_fraction=acetate_fraction,
+        propionate_fraction=propionate_fraction,
+        ammonium_kg_n_m3=ammonium_kg_n_m3,
+        alkalinity_kmol_m3=alkalinity_kmol_m3,
+        ph=ph,
+        segments=segments,
+        ammonia_inhibition_mode=ammonia_inhibition_mode,
+    )
+    feed = _build_feed(
+        feed_cod_kg_m3=params.feed_cod_kg_m3,
+        particulate_fraction=params.particulate_fraction,
+        acetate_fraction=params.acetate_fraction,
+        propionate_fraction=params.propionate_fraction,
+        ammonium_kg_n_m3=params.ammonium_kg_n_m3,
+        alkalinity_kmol_m3=params.alkalinity_kmol_m3,
+        ph=params.ph,
+        substrate=params.substrate,
+    )
+    reactor_config = ReactorConfig(
+        reactor_type=params.reactor_type,
+        segments=params.segments if params.reactor_type == "plug_flow" else 1,
+    )
+    operating = OperatingConditions(volume_m3=params.volume_m3, temperature_c=params.temperature_c, hrt_days=params.hrt_days)
+    simulation = SimulationConfig(duration_days=params.duration_days, backend=params.backends[0], persist=False)
+    payload = _get_service().compare_backends(
+        params.backends,
+        reactor=reactor_config,
+        operating_conditions=operating,
+        feed=feed,
+        simulation=simulation,
+        parameters=_build_kinetics(params.ammonia_inhibition_mode),
+    )
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 

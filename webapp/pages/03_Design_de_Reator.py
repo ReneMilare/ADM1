@@ -72,6 +72,8 @@ with selector_col3:
 
 feed, operating, note_link = get_preset_bundle(substrate_id)
 
+st.info("Para CSTR, `auto` continua em `pyadm1`. Use `full` explicitamente quando quiser forcar o ADM1 nativo do projeto no pipeline de design.")
+
 context_col, form_col = st.columns((0.95, 1.4))
 with context_col:
     st.subheader("Contexto do estudo")
@@ -162,6 +164,8 @@ if report is not None:
     fallback_candidates = [candidate for candidate in candidates if str(candidate.get('backend_requested')) != str(candidate.get('backend_used'))]
     if fallback_candidates:
         st.warning("Alguns candidatos rodaram com fallback de backend. Isso esta explicito na tabela comparativa abaixo.")
+    if report.get("backend_policy_note"):
+        st.warning(str(report["backend_policy_note"]))
 
     st.subheader("Leitura do objetivo")
     st.caption(get_goal_description(report["design_goal"]))

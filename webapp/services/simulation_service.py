@@ -32,7 +32,8 @@ REACTOR_OPTIONS = {
 }
 BACKEND_OPTIONS = {
     "pyadm1": "PyADM1 original",
-    "auto": "Auto",
+    "full": "ADM1 full nativo",
+    "auto": "Auto (CSTR -> PyADM1)",
     "reduced": "Reduced",
 }
 _VARIANT_REACTOR_TYPES = {"two_phase", "tpad", "batch"}
@@ -50,13 +51,23 @@ def get_backend_options() -> dict[str, str]:
 
 def resolve_requested_backend(reactor_type: str, backend: str) -> tuple[str, str | None]:
     if reactor_type in _VARIANT_REACTOR_TYPES:
-        return "reduced", f"O reator `{reactor_type}` utiliza o backend `reduced`. O backend `PyADM1` não suporta esta variante."
+        return (
+            "reduced",
+            f"O reator `{reactor_type}` utiliza o backend `reduced`. Os backends `pyadm1` e `full` ainda nao suportam esta variante.",
+        )
     if backend == "pyadm1" and reactor_type != "cstr":
-        return "reduced", "PyADM1 currently supports only CSTR in this project. The execution will fall back to the reduced backend."
+        return "reduced", "PyADM1 suporta apenas CSTR neste projeto. A execucao caira para o backend `reduced`."
+    if backend == "full" and reactor_type != "cstr":
+        return "reduced", "O backend `full` esta liberado apenas para CSTR nesta fase. A execucao caira para `reduced`."
     if backend == "auto" and reactor_type != "cstr":
-        return "reduced", "Auto mode keeps the reduced backend for non-CSTR reactors."
+        return "reduced", "No modo `auto`, reatores nao CSTR continuam no backend `reduced`."
     if backend == "auto":
-        return "pyadm1", "Auto mode selects PyADM1 for CSTR."
+        return (
+            "pyadm1",
+            "No modo `auto`, CSTR continua em `pyadm1` por conservadorismo. Use `full` explicitamente quando quiser rodar o backend nativo.",
+        )
+    if backend == "full":
+        return "full", "Backend `full` selecionado para CSTR. O caso sera executado no ADM1 nativo do projeto."
     return backend, None
 
 
@@ -175,8 +186,12 @@ def validate_simulation_inputs(
     if reactor_type not in _VARIANT_REACTOR_TYPES:
         if backend == "pyadm1" and reactor_type != "cstr":
             warnings.append("PyADM1 nao suporta esse reator neste projeto; o backend efetivo caira para `reduced`.")
+        if backend == "full" and reactor_type != "cstr":
+            warnings.append("O backend `full` ainda nao suporta esse reator; o backend efetivo caira para `reduced`.")
         if backend == "auto" and reactor_type != "cstr":
             warnings.append("No modo `auto`, reatores nao CSTR continuam no backend `reduced`.")
+        if backend == "auto" and reactor_type == "cstr":
+            warnings.append("No modo `auto`, CSTR continua em `pyadm1`. Use `full` explicitamente quando quiser validar o backend nativo.")
 
     if reactor_type != "batch" and duration_days > 0 and hrt_days > 0 and duration_days < hrt_days:
         warnings.append("A duracao da simulacao esta menor que o HRT. O transiente pode ficar curto demais para analise tecnica.")
@@ -240,7 +255,9 @@ def format_simulation_error(exc: Exception) -> str:
     if "validation error" in message.lower():
         return "Os parametros informados nao passaram na validacao do modelo. Revise valores fisicos e tente novamente."
     if "pyadm1" in message.lower() and "support" in message.lower():
-        return "O backend PyADM1 nao conseguiu executar esse caso. Se o reator nao for CSTR, use `reduced` ou `auto`."
+        return "O backend PyADM1 nao conseguiu executar esse caso. Se o reator nao for CSTR, use `reduced`, `auto` ou `full` para CSTR."
+    if "full" in message.lower() and "support" in message.lower():
+        return "O backend `full` ainda esta restrito a CSTR nesta fase. Para variantes e nao CSTR, use `reduced` ou `auto`."
     return message
 
 
@@ -413,6 +430,53 @@ def run_simulation(
 
 
 
+
+def compare_backends_for_result(
+    result: SimulationResult,
+    *,
+    backends: tuple[str, ...] = ("pyadm1", "full"),
+) -> dict[str, Any]:
+    service = ADM1SimulationService()
+    report = service.compare_backends(
+        backends,
+        reactor=result.reactor,
+        operating_conditions=result.operating_conditions,
+        feed=result.feed,
+        initial_state=result.initial_state,
+        parameters=result.parameters,
+        simulation=result.simulation.model_copy(update={"persist": False}, deep=True),
+    )
+    return {key: value for key, value in report.items()}
+
+
+
+def backend_comparison_frame(report: Mapping[str, Any]) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    for index, entry in enumerate(report.get("entries", []), start=1):
+        summary = entry.get("summary", {}) if isinstance(entry.get("summary"), dict) else {}
+        deltas = entry.get("delta_vs_baseline", {}) if isinstance(entry.get("delta_vs_baseline"), dict) else {}
+        methane_delta = deltas.get("methane_final_m3_day", {}) if isinstance(deltas.get("methane_final_m3_day"), dict) else {}
+        biogas_delta = deltas.get("biogas_final_m3_day", {}) if isinstance(deltas.get("biogas_final_m3_day"), dict) else {}
+        ph_delta = deltas.get("ph_final", {}) if isinstance(deltas.get("ph_final"), dict) else {}
+        rows.append(
+            {
+                "ordem": index,
+                "backend_requested": entry.get("backend_requested"),
+                "backend_used": entry.get("backend_used"),
+                "fallback_reason": entry.get("fallback_reason") or "",
+                "methane_final_m3_day": round(float(summary.get("methane_final_m3_day", 0.0)), 6),
+                "delta_methane_pct": round(float(methane_delta.get("relative_pct", 0.0)), 6),
+                "biogas_final_m3_day": round(float(summary.get("biogas_final_m3_day", 0.0)), 6),
+                "delta_biogas_pct": round(float(biogas_delta.get("relative_pct", 0.0)), 6),
+                "ph_final": round(float(summary.get("ph_final", 0.0)), 6),
+                "delta_ph_abs": round(float(ph_delta.get("absolute", 0.0)), 6),
+                "vfa_final": round(float(summary.get("vfa_final", 0.0)), 6),
+                "effluent_cod_final": round(float(summary.get("effluent_cod_final", 0.0)), 6),
+                "stability_index": round(float(summary.get("stability_index", 0.0)), 6),
+            }
+        )
+    return pd.DataFrame(rows)
+
 def simulation_summary_rows(result: SimulationResult) -> list[dict[str, Any]]:
     metadata = result.metadata
     rows = [
@@ -439,6 +503,12 @@ def simulation_summary_rows(result: SimulationResult) -> list[dict[str, Any]]:
     if blend_name:
         components = metadata.get("blend_components", [])
         rows.append({"metric": "Blend", "value": f"{blend_name} ({', '.join(str(c) for c in components)})"})
+    if str(metadata.get("backend_used", result.simulation.backend)) == "full":
+        rows.append({"metric": "Full runtime", "value": str(metadata.get("full_model_runtime", "native"))})
+        rows.append({"metric": "Full pH convergiu", "value": "sim" if bool(metadata.get("full_model_ph_converged", False)) else "nao"})
+        rows.append({"metric": "Full it. max pH", "value": str(metadata.get("full_model_ph_iterations_max", "-"))})
+        active_extensions = metadata.get("full_model_active_extensions", [])
+        rows.append({"metric": "Full extensoes ativas", "value": ", ".join(str(item) for item in active_extensions) if active_extensions else "nenhuma"})
     return rows
 
 
@@ -483,6 +553,16 @@ def simulation_input_rows(result: SimulationResult) -> list[dict[str, Any]]:
     blend_name = result.metadata.get("blend_name")
     if blend_name:
         rows.append({"group": "Extensões", "parameter": "Blend (co-digestão)", "value": str(blend_name)})
+    if str(result.metadata.get("backend_used", result.simulation.backend)) == "full":
+        rows.extend(
+            [
+                {"group": "Backend full", "parameter": "Runtime", "value": str(result.metadata.get("full_model_runtime", "native"))},
+                {"group": "Backend full", "parameter": "pH convergiu", "value": "sim" if bool(result.metadata.get("full_model_ph_converged", False)) else "nao"},
+                {"group": "Backend full", "parameter": "H2 convergiu", "value": "sim" if bool(result.metadata.get("full_model_hydrogen_converged", False)) else "nao"},
+                {"group": "Backend full", "parameter": "Iteracoes max pH", "value": str(result.metadata.get("full_model_ph_iterations_max", "-"))},
+                {"group": "Backend full", "parameter": "Extensoes ativas", "value": ", ".join(str(item) for item in result.metadata.get("full_model_active_extensions", [])) or "nenhuma"},
+            ]
+        )
     return rows
 
 

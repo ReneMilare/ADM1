@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from typing import Any
@@ -20,8 +20,9 @@ GOAL_DESCRIPTIONS = {
     "minimize_effluent_cod": "Prioriza qualidade de efluente, mantendo metano e estabilidade como criterios secundarios.",
 }
 BACKEND_STRATEGIES = {
-    "auto": "Auto",
+    "auto": "Auto (CSTR -> PyADM1)",
     "pyadm1": "PyADM1 original",
+    "full": "ADM1 full nativo",
     "reduced": "Reduced",
 }
 REACTOR_OPTIONS = {
@@ -90,6 +91,7 @@ def candidate_frame(report: dict[str, Any]) -> pd.DataFrame:
                 "reactor": candidate["reactor_type"],
                 "backend_requested": candidate["backend_requested"],
                 "backend_used": candidate["backend_used"],
+                "fallback_reason": candidate.get("fallback_reason", ""),
                 "score": round(float(candidate["score"]), 4),
                 "methane_final_m3_day": round(float(summary["methane_final_m3_day"]), 3),
                 "biogas_final_m3_day": round(float(summary["biogas_final_m3_day"]), 3),

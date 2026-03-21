@@ -52,6 +52,16 @@ class _ResolvedBackend:
     fallback_reason: str | None = None
 
 
+_BACKEND_COMPARISON_METRICS = (
+    "methane_final_m3_day",
+    "biogas_final_m3_day",
+    "ph_final",
+    "vfa_final",
+    "effluent_cod_final",
+    "stability_index",
+)
+
+
 class ADM1SimulationService:
     def __init__(self, store: ScenarioStore | None = None) -> None:
         self.store = store or ScenarioStore()
@@ -284,6 +294,86 @@ class ADM1SimulationService:
             baseline_objective=baseline_objective,
             points=points,
         )
+
+    def compare_backends(
+        self,
+        backends: Iterable[str],
+        *,
+        reactor: ReactorConfig | str = "cstr",
+        operating_conditions: OperatingConditions | None = None,
+        feed: FeedDefinition | None = None,
+        blend: CoDigestionBlend | None = None,
+        initial_state: InitialState | None = None,
+        parameters: KineticParameters | None = None,
+        simulation: SimulationConfig | None = None,
+    ) -> dict[str, object]:
+        requested_backends = tuple(dict.fromkeys(str(item) for item in backends))
+        if len(requested_backends) < 2:
+            raise ValueError("Forneca pelo menos 2 backends para comparar.")
+
+        reactor_config = self._resolve_reactor(reactor)
+        base_operating = (operating_conditions or make_default_operating_conditions()).model_copy(deep=True)
+        base_feed = (feed or make_default_feed()).model_copy(deep=True)
+        effective_feed_for_init = blend.blend() if blend is not None else base_feed
+        base_initial = (initial_state or make_default_initial_state(effective_feed_for_init)).model_copy(deep=True)
+        base_parameters = (parameters or make_default_kinetics()).model_copy(deep=True)
+        base_simulation = (simulation or make_default_simulation_config()).model_copy(update={"persist": False}, deep=True)
+
+        entries: list[dict[str, object]] = []
+        baseline_result: SimulationResult | None = None
+        for backend_name in requested_backends:
+            result = self.simulate(
+                reactor_config,
+                operating_conditions=base_operating,
+                feed=base_feed,
+                blend=blend,
+                initial_state=base_initial,
+                parameters=base_parameters,
+                simulation=base_simulation.model_copy(update={"backend": backend_name}, deep=True),
+                metadata={"mode": "backend_comparison", "comparison_group": list(requested_backends)},
+            )
+            if baseline_result is None:
+                baseline_result = result
+            deltas = {}
+            for metric_name in _BACKEND_COMPARISON_METRICS:
+                current_value = float(getattr(result.summary, metric_name))
+                baseline_value = float(getattr(baseline_result.summary, metric_name))
+                denominator = baseline_value if abs(baseline_value) > 1e-12 else 1e-12
+                deltas[metric_name] = {
+                    "value": current_value,
+                    "baseline": baseline_value,
+                    "absolute": current_value - baseline_value,
+                    "relative_pct": ((current_value - baseline_value) / denominator) * 100.0,
+                }
+            entries.append(
+                {
+                    "simulation_id": result.simulation_id,
+                    "reactor_type": result.reactor.reactor_type,
+                    "backend_requested": str(result.metadata.get("backend_requested", backend_name)),
+                    "backend_used": str(result.metadata.get("backend_used", backend_name)),
+                    "fallback_reason": str(result.metadata.get("backend_fallback_reason", "") or ""),
+                    "summary": result.summary.model_dump(),
+                    "delta_vs_baseline": deltas,
+                }
+            )
+
+        used_backends = {str(entry["backend_used"]) for entry in entries}
+        reduced_is_exploratory = "reduced" in used_backends and bool(used_backends.intersection({"pyadm1", "full"}))
+        note = None
+        if reduced_is_exploratory:
+            note = (
+                "O backend `reduced` aparece nesta comparacao apenas com carater operacional e exploratorio; "
+                "ele nao deve ser tratado como baseline matematico do backend `full`."
+            )
+
+        return {
+            "reactor_type": reactor_config.reactor_type,
+            "requested_backends": list(requested_backends),
+            "baseline_backend": str(entries[0]["backend_used"]),
+            "entries": entries,
+            "reduced_is_exploratory": reduced_is_exploratory,
+            "note": note,
+        }
 
     def compare_reactors(
         self,
@@ -707,7 +797,7 @@ class ADM1SimulationService:
                 return _ResolvedBackend(
                     requested=requested,
                     used="reduced",
-                    fallback_reason=f"PyADM1 n?o suporta {reactor.reactor_type}; usando reduced.",
+                    fallback_reason=f"PyADM1 nao suporta {reactor.reactor_type}; usando reduced.",
                 )
             return _ResolvedBackend(requested=requested, used="pyadm1")
         if requested == "full":
@@ -725,7 +815,7 @@ class ADM1SimulationService:
                 return _ResolvedBackend(
                     requested=requested,
                     used="reduced",
-                    fallback_reason=f"Auto backend mant?m o modelo reduced para {reactor.reactor_type}.",
+                    fallback_reason=f"Auto backend mantem o modelo reduced para {reactor.reactor_type}.",
                 )
         raise ValueError(f"Unsupported backend '{requested}'")
 

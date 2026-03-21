@@ -6,6 +6,7 @@ from simulator.full_model.assembly import FullModelAssembly, build_full_model_as
 from simulator.full_model.diagnostics import translate_full_profiles
 from simulator.full_model.extension_registry import list_registered_extensions, resolve_full_model_assembly
 from simulator.full_model.extensions import FullModelExtension, FullModelExtensionContribution
+from simulator.full_model.governance import GovernanceAuditReport, TraceabilityRow, audit_governance, build_traceability_rows, render_audit_markdown, render_traceability_markdown
 from simulator.full_model.model import (
     DEFAULT_FULL_MODEL_ASSEMBLY,
     DYNAMIC_STATE_INDEX,
@@ -80,6 +81,7 @@ __all__ = [
     "FullModelAssembly",
     "FullModelExtension",
     "FullModelExtensionContribution",
+    "GovernanceAuditReport",
     "FullModelInputs",
     "FullModelState",
     "FullStateEvaluation",
@@ -93,8 +95,13 @@ __all__ = [
     "simulate_with_full",
     "simulate_with_full_inputs",
     "solve_acid_base",
+    "TraceabilityRow",
+    "audit_governance",
+    "build_traceability_rows",
     "translate_backend_profiles",
     "translate_full_profiles",
+    "render_audit_markdown",
+    "render_traceability_markdown",
     "validate_full_model_assembly",
     "dense_biochemical_symbolic_matrix",
 ]

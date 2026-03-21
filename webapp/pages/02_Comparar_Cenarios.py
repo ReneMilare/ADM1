@@ -18,6 +18,7 @@ from webapp.services.scenario_service import (
     filter_results,
     filter_values,
     load_saved_results,
+    reduced_is_exploratory_for_results,
     scenario_option_labels,
     selected_results,
 )
@@ -114,6 +115,9 @@ if len(selected_ids) < 2:
 
 selected = selected_results(filtered, selected_ids)
 selected_labels = scenario_option_labels(selected)
+
+if reduced_is_exploratory_for_results(selected):
+    st.warning("Comparacoes com `reduced` ao lado de `pyadm1` ou `full` devem ser lidas apenas de forma operacional e exploratoria; nao servem como validacao matematica do backend `full`.")
 
 baseline_id = st.selectbox(
     "Cenário de referência para os deltas",

@@ -26,8 +26,10 @@ from webapp.services.preferences_service import (
 )
 from webapp.services.simulation_service import (
     apply_user_simulation_preset,
+    backend_comparison_frame,
     build_feed_and_operating,
     build_user_simulation_preset_payload,
+    compare_backends_for_result,
     format_simulation_error,
     get_backend_options,
     get_reactor_options,
@@ -96,7 +98,7 @@ render_usage_guide(
         "Execute a simulacao e persista o cenario se quiser compara-lo em outra tela.",
     ],
     tips=[
-        "Para CSTR, o padrao do projeto continua sendo `pyadm1`.",
+        "Para CSTR, `auto` continua em `pyadm1`; use `full` explicitamente quando quiser rodar o ADM1 nativo do projeto.",
         "Se estiver explorando um caso recorrente, salve-o como preset do usuario para reutilizacao futura.",
     ],
 )
@@ -632,6 +634,25 @@ if result is not None:
         if _blend_name:
             _comps = result.metadata.get("blend_components", [])
             ext_cols[col_idx % 4].metric("Blend", str(_blend_name), delta=", ".join(str(c) for c in _comps) or None)
+
+    if result.reactor.reactor_type == "cstr":
+        st.subheader("Comparacao de backends neste caso")
+        st.caption("Executa o mesmo CSTR com `pyadm1` e `full` para explicitar paridade, fallback e deltas dos KPIs principais.")
+        compare_key = f"backend_compare_{result.simulation_id}"
+        if st.button("Comparar `pyadm1` vs `full`", key=compare_key, use_container_width=False):
+            with st.spinner("Comparando `pyadm1` e `full` para o mesmo caso CSTR..."):
+                report = compare_backends_for_result(result, backends=("pyadm1", "full"))
+            st.session_state["latest_backend_comparison"] = {
+                "simulation_id": result.simulation_id,
+                "report": report,
+            }
+        comparison_state = st.session_state.get("latest_backend_comparison")
+        if isinstance(comparison_state, dict) and comparison_state.get("simulation_id") == result.simulation_id:
+            comparison_report = comparison_state.get("report")
+            if isinstance(comparison_report, dict):
+                if comparison_report.get("note"):
+                    st.warning(str(comparison_report["note"]))
+                render_frame(backend_comparison_frame(comparison_report))
 
     export_col1, export_col2, export_col3 = st.columns(3)
     with export_col1:

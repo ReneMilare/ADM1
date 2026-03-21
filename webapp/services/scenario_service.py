@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from io import StringIO
 from typing import Any
@@ -12,12 +12,12 @@ from webapp.utils.presets import PRESET_LABELS
 SERIES_OPTIONS = {
     "methane_m3_day": {
         "label": "Metano",
-        "title": "Produção de metano",
+        "title": "Producao de metano",
         "y_axis_title": "m3/d",
     },
     "biogas_m3_day": {
-        "label": "Biogás",
-        "title": "Produção de biogás",
+        "label": "Biogas",
+        "title": "Producao de biogas",
         "y_axis_title": "m3/d",
     },
     "ph": {
@@ -31,9 +31,9 @@ SERIES_OPTIONS = {
         "y_axis_title": "kgCOD/m3",
     },
     "free_ammonia_kgN_m3": {
-        "label": "Amônia livre (FAN)",
-        "title": "Amônia livre (FAN)",
-        "y_axis_title": "kgN/m³",
+        "label": "Amonia livre (FAN)",
+        "title": "Amonia livre (FAN)",
+        "y_axis_title": "kgN/m3",
     },
 }
 
@@ -68,8 +68,26 @@ def backend_used(result: SimulationResult) -> str:
     return str(result.metadata.get("backend_used", result.simulation.backend))
 
 
+def backend_scope(backend: str) -> str:
+    normalized = str(backend).strip().lower()
+    if normalized == "pyadm1":
+        return "referencia CSTR"
+    if normalized == "full":
+        return "nativo validado"
+    if normalized == "reduced":
+        return "operacional/exploratorio"
+    if normalized == "auto":
+        return "politica de selecao"
+    return normalized
+
+
 def has_fallback(result: SimulationResult) -> bool:
     return backend_requested(result) != backend_used(result)
+
+
+def reduced_is_exploratory_for_results(results: list[SimulationResult]) -> bool:
+    used_backends = {backend_used(result) for result in results}
+    return "reduced" in used_backends and bool(used_backends.intersection({"pyadm1", "full"}))
 
 
 def scenario_option_label(result: SimulationResult) -> str:
@@ -132,6 +150,7 @@ def filter_results(
 def catalog_rows(results: list[SimulationResult]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for result in results:
+        used = backend_used(result)
         rows.append(
             {
                 "simulation_id": result.simulation_id,
@@ -140,8 +159,9 @@ def catalog_rows(results: list[SimulationResult]) -> list[dict[str, Any]]:
                 "substrate": substrate_label(result),
                 "feed_name": result.feed.name,
                 "backend_requested": backend_requested(result),
-                "backend_used": backend_used(result),
-                "fallback": "sim" if has_fallback(result) else "não",
+                "backend_used": used,
+                "backend_scope": backend_scope(used),
+                "fallback": "sim" if has_fallback(result) else "nao",
                 "duration_days": round(result.simulation.duration_days, 2),
                 "temperature_c": round(result.operating_conditions.temperature_c, 2),
                 "hrt_days": round(result.operating_conditions.hrt_days, 2),
@@ -171,14 +191,16 @@ def comparison_frame(results: list[SimulationResult], *, baseline_id: str) -> pd
     )
     rows: list[dict[str, Any]] = []
     for result in results:
+        used = backend_used(result)
         row: dict[str, Any] = {
             "baseline": "sim" if result.simulation_id == baseline.simulation_id else "",
             "simulation_id": result.simulation_id,
             "reactor": result.reactor.reactor_type,
             "substrate": substrate_label(result),
             "backend_requested": backend_requested(result),
-            "backend_used": backend_used(result),
-            "fallback": "sim" if has_fallback(result) else "não",
+            "backend_used": used,
+            "backend_scope": backend_scope(used),
+            "fallback": "sim" if has_fallback(result) else "nao",
             "methane_final_m3_day": round(result.summary.methane_final_m3_day, 3),
             "delta_methane_pct": round(_relative_delta_pct(result.summary.methane_final_m3_day, baseline.summary.methane_final_m3_day), 3),
             "biogas_final_m3_day": round(result.summary.biogas_final_m3_day, 3),

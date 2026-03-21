@@ -185,6 +185,7 @@ class ADM1DesignPipeline:
                     "reactor_type": reactor,
                     "backend_requested": result.metadata.get("backend_requested"),
                     "backend_used": result.metadata.get("backend_used"),
+                    "fallback_reason": result.metadata.get("backend_fallback_reason", ""),
                     "summary": result.summary.model_dump(),
                     "simulation_id": result.simulation_id,
                     "free_ammonia_final": result.series["free_ammonia_kgN_m3"][-1] if result.series.get("free_ammonia_kgN_m3") else 0.0,
@@ -193,6 +194,14 @@ class ADM1DesignPipeline:
 
         scored_candidates = self._score_candidates(candidates, design_goal)
         recommended = max(scored_candidates, key=lambda item: item["score"])
+        used_backends = {str(candidate["backend_used"]) for candidate in scored_candidates}
+        reduced_is_exploratory = "reduced" in used_backends and bool(used_backends.intersection({"pyadm1", "full"}))
+        backend_policy_note = None
+        if reduced_is_exploratory:
+            backend_policy_note = (
+                "Quando `reduced` aparece ao lado de `pyadm1` ou `full`, a leitura deve ser apenas operacional e exploratoria; "
+                "nao serve como validacao matematica do backend `full`."
+            )
         note_path = None
         if persist_note:
             note_path = self._write_note(
@@ -220,6 +229,8 @@ class ADM1DesignPipeline:
             "recommended_reactor": recommended["reactor_type"],
             "recommended_backend": recommended["backend_used"],
             "recommendation_reason": recommended["reason"],
+            "backend_policy_note": backend_policy_note,
+            "reduced_is_exploratory": reduced_is_exploratory,
             "candidates": scored_candidates,
             "note_path": str(note_path) if note_path is not None else None,
         }
@@ -387,20 +398,34 @@ def _render_note(
     )
     fan_final = recommended.get("free_ammonia_final") or 0.0
     if fan_final > 0:
-        lines.append(f"- Amônia livre final (FAN): {fan_final:.4f} kgN/m³")
+        lines.append(f"- Amonia livre final (FAN): {fan_final:.4f} kgN/m3")
+    if any(str(candidate.get("fallback_reason") or "").strip() for candidate in scored_candidates):
+        lines.extend(
+            [
+                "",
+                "## Fallbacks de backend",
+                "",
+            ]
+        )
+        for candidate in scored_candidates:
+            fallback_reason = str(candidate.get("fallback_reason") or "").strip()
+            if fallback_reason:
+                lines.append(
+                    f"- `{candidate['reactor_type']}`: solicitado `{candidate['backend_requested']}` e executado `{candidate['backend_used']}`. {fallback_reason}"
+                )
     lines.extend(
         [
             "",
-            "## Comparação",
+            "## Comparacao",
             "",
-            "| Reator | Backend | Score | Methane final | pH final | VFA final | Effluent COD |",
-            "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
+            "| Reator | Backend solicitado | Backend usado | Score | Methane final | pH final | VFA final | Effluent COD |",
+            "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     for candidate in scored_candidates:
         summary = candidate["summary"]
         lines.append(
-            f"| {candidate['reactor_type']} | {candidate['backend_used']} | {candidate['score']:.3f} | {summary['methane_final_m3_day']:.3f} | {summary['ph_final']:.3f} | {summary['vfa_final']:.3f} | {summary['effluent_cod_final']:.3f} |"
+            f"| {candidate['reactor_type']} | {candidate['backend_requested']} | {candidate['backend_used']} | {candidate['score']:.3f} | {summary['methane_final_m3_day']:.3f} | {summary['ph_final']:.3f} | {summary['vfa_final']:.3f} | {summary['effluent_cod_final']:.3f} |"
         )
     return "\n".join(lines)
 
@@ -409,7 +434,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the ADM1 design pipeline for a substrate preset and compare reactor candidates.")
     parser.add_argument("--substrate", required=True)
     parser.add_argument("--goal", default="balanced", choices=sorted(GOAL_WEIGHTS))
-    parser.add_argument("--backend", default="auto", choices=["reduced", "pyadm1", "auto"])
+    parser.add_argument("--backend", default="auto", choices=["reduced", "pyadm1", "full", "auto"])
     parser.add_argument("--duration-days", type=float, default=45.0)
     parser.add_argument("--evaluation-points", type=int, default=181)
     parser.add_argument("--persist-note", action="store_true")
