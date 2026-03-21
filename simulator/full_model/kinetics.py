@@ -50,9 +50,9 @@ def biochemical_rates(
         extension_rates = rate_function(state, params)
         overlap = set(extension_rates).intersection(rates)
         if overlap:
-            raise ValueError(f"Processos bioqu?micos duplicados entre n?cleo e extens?es: {sorted(overlap)}")
+            raise ValueError(f"Processos bioquímicos duplicados entre núcleo e extensões: {sorted(overlap)}")
         rates.update({name: float(value) for name, value in extension_rates.items()})
     missing = [name for name in assembly.biochemical_process_names if name not in rates]
     if missing:
-        raise ValueError(f"Taxas bioqu?micas ausentes no assembly full: {missing}")
+        raise ValueError(f"Taxas bioquímicas ausentes no assembly full: {missing}")
     return {name: float(rates[name]) for name in assembly.biochemical_process_names}, inhibitions

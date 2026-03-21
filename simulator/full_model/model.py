@@ -179,7 +179,7 @@ def resolve_full_parameter_values(
 
     for name, value in (extension_parameter_overrides or {}).items():
         if name not in assembly.parameter_defaults:
-            raise ValueError(f"Par?metro full desconhecido para override: {name}")
+            raise ValueError(f"Parâmetro full desconhecido para override: {name}")
         values[name] = float(value)
     return values
 

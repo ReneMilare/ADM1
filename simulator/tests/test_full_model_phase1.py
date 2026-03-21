@@ -99,3 +99,28 @@ def test_key_symbolic_rows_capture_expected_links() -> None:
 def test_internal_pseudo_states_expose_expected_aliases() -> None:
     alias_map = {state.name: state.result_alias for state in FULL_STATE_CATALOG if state.result_alias}
     assert alias_map == {"S_H_ion": "pH"}
+
+
+def test_biochemical_matrix_cod_conservation() -> None:
+    """Cada processo de uptake deve conservar COD: soma das contribuições nas colunas COD ≈ 0."""
+    from simulator.core.defaults import make_default_kinetics, make_default_operating_conditions
+    from simulator.full_model import BIOCHEMICAL_PROCESS_NAMES, build_numeric_biochemical_matrix
+    from simulator.full_model.model import resolve_full_parameter_values
+
+    params = resolve_full_parameter_values(
+        operating_conditions=make_default_operating_conditions(),
+        parameters=make_default_kinetics(),
+    )
+    matrix = build_numeric_biochemical_matrix(params)
+    dynamic_names = list(DYNAMIC_STATE_NAMES)
+    cod_indices = [
+        dynamic_names.index(state.name)
+        for state in FULL_STATE_CATALOG
+        if state.cod_role == "cod" and state.name in dynamic_names
+    ]
+    for j, process_name in enumerate(BIOCHEMICAL_PROCESS_NAMES):
+        if "uptake" in process_name:
+            col_sum = sum(matrix[i, j] for i in cod_indices)
+            assert abs(col_sum) < 1e-9, (
+                f"{process_name}: COD não conservado (soma={col_sum:.2e})"
+            )

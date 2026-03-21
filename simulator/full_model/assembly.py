@@ -59,15 +59,15 @@ def build_full_model_assembly(*, extensions: tuple[object, ...] = (), extension_
         contribution = extension.contribute()
         _ensure_unique_names(state_catalog, contribution.states, "estado")
         _ensure_unique_names(process_catalog, contribution.processes, "processo")
-        _ensure_unique_names(parameter_catalog, contribution.parameters, "par?metro")
+        _ensure_unique_names(parameter_catalog, contribution.parameters, "parâmetro")
         state_catalog.extend(contribution.states)
         process_catalog.extend(contribution.processes)
         parameter_catalog.extend(contribution.parameters)
         for process_name, row in contribution.biochemical_stoichiometry_rows.items():
             if process_name in biochemical_rows:
-                raise ValueError(f"Linha estequiom?trica duplicada para '{process_name}'")
+                raise ValueError(f"Linha estequiométrica duplicada para '{process_name}'")
             biochemical_rows[process_name] = {name: str(expression) for name, expression in row.items()}
-        _merge_unique_relations(acid_base_relations, contribution.acid_base_relations, "?cido-base")
+        _merge_unique_relations(acid_base_relations, contribution.acid_base_relations, "ácido-base")
         _merge_unique_relations(gas_transfer_relations, contribution.gas_transfer_relations, "gasosa")
         if contribution.rate_function is not None:
             rate_functions.append(contribution.rate_function)
@@ -138,14 +138,14 @@ def validate_full_model_assembly(assembly: FullModelAssembly) -> None:
         if unknown_states:
             raise ValueError(f"Estados desconhecidos na estequiometria do assembly full: {sorted(unknown_states)}")
         if process_family.get(process_name) != "biochemical":
-            raise ValueError(f"A linha '{process_name}' n?o referencia um processo bioqu?mico do assembly.")
+            raise ValueError(f"A linha '{process_name}' não referencia um processo bioquímico do assembly.")
 
     if set(assembly.biochemical_stoichiometry_rows) != set(assembly.biochemical_process_names):
-        raise ValueError("As linhas bioqu?micas do assembly n?o cobrem exatamente os processos bioqu?micos ativos.")
+        raise ValueError("As linhas bioquímicas do assembly não cobrem exatamente os processos bioquímicos ativos.")
     if set(assembly.acid_base_relations) != set(assembly.acid_base_process_names):
-        raise ValueError("As rela??es ?cido-base do assembly n?o cobrem exatamente os processos ativos.")
+        raise ValueError("As relações ácido-base do assembly não cobrem exatamente os processos ativos.")
     if set(assembly.gas_transfer_relations) != set(assembly.gas_transfer_process_names):
-        raise ValueError("As rela??es gasosas do assembly n?o cobrem exatamente os processos ativos.")
+        raise ValueError("As relações gasosas do assembly não cobrem exatamente os processos ativos.")
 
     for hook in assembly.validation_hooks:
         hook(assembly)
@@ -165,5 +165,5 @@ def _merge_unique_relations(
 ) -> None:
     duplicated = sorted(name for name in new_relations if name in target)
     if duplicated:
-        raise ValueError(f"Rela??es {relation_kind} duplicadas no assembly full: {duplicated}")
+        raise ValueError(f"Relações {relation_kind} duplicadas no assembly full: {duplicated}")
     target.update(new_relations)

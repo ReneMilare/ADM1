@@ -7,19 +7,19 @@ from simulator.full_model.catalog_types import ParameterDefinition, ProcessDefin
 from simulator.full_model.extensions import FullModelExtensionContribution
 from simulator.full_model.units import DAY_INV, KG_COD_M3
 
-SOURCE = "Projeto ADM1 - Fase 4; extens?o piloto para validar arquitetura"
+SOURCE = "Projeto ADM1 - Fase 4; extensão piloto para validar arquitetura"
 
 
 class _PilotTracerExtension:
     name = "pilot_tracer"
-    description = "Extens?o piloto m?nima para validar estados, processos, par?metros e diagn?sticos."
+    description = "Extensão piloto mínima para validar estados, processos, parâmetros e diagnósticos."
 
     def contribute(self) -> FullModelExtensionContribution:
         return FullModelExtensionContribution(
             states=(
                 StateDefinition(
                     name="X_tracer",
-                    description="Tra?ador particulado piloto da arquitetura de extens?es.",
+                    description="Traçador particulado piloto da arquitetura de extensões.",
                     unit=KG_COD_M3,
                     phase="solid",
                     domain="extension_pilot",
@@ -27,7 +27,7 @@ class _PilotTracerExtension:
                     cod_role="cod",
                     elemental_proxy="C_xI",
                     source=SOURCE,
-                    notes="Usado apenas para validar a composi??o incremental do backend full.",
+                    notes="Usado apenas para validar a composição incremental do backend full.",
                 ),
             ),
             processes=(
@@ -35,7 +35,7 @@ class _PilotTracerExtension:
                     name="rho_ext_tracer_decay",
                     vendor_symbol="Rho_ext_1",
                     family="biochemical",
-                    description="Decaimento de um tra?ador piloto para validar extens?o bioqu?mica.",
+                    description="Decaimento de um traçador piloto para validar extensão bioquímica.",
                     rate_expression="k_decay_tracer * X_tracer",
                     affected_states=("X_tracer", "X_I"),
                     parameters=("k_decay_tracer",),
@@ -50,7 +50,7 @@ class _PilotTracerExtension:
                     unit=DAY_INV,
                     group="biochemical",
                     classification="provisional",
-                    description="Constante de decaimento do tra?ador piloto.",
+                    description="Constante de decaimento do traçador piloto.",
                     source=SOURCE,
                 ),
             ),
@@ -80,7 +80,7 @@ class _PilotTracerExtension:
 
     def _validate(self, assembly: FullModelAssembly) -> None:
         if "X_tracer" not in assembly.dynamic_state_index:
-            raise ValueError("A extens?o piloto exige X_tracer como estado din?mico.")
+            raise ValueError("A extensão piloto exige X_tracer como estado dinâmico.")
 
 
 PILOT_TRACER_EXTENSION = _PilotTracerExtension()
