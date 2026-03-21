@@ -36,7 +36,8 @@ BACKEND_OPTIONS = {
     "auto": "Auto (CSTR -> PyADM1)",
     "reduced": "Reduced",
 }
-_VARIANT_REACTOR_TYPES = {"two_phase", "tpad", "batch"}
+# Tipos de reator que requerem fallback para reduced quando pyadm1 é solicitado
+_PYADM1_ONLY_CSTR = {"two_phase", "tpad", "batch", "uasb", "plug_flow"}
 
 
 def get_reactor_options() -> dict[str, str]:
@@ -50,24 +51,23 @@ def get_backend_options() -> dict[str, str]:
 
 
 def resolve_requested_backend(reactor_type: str, backend: str) -> tuple[str, str | None]:
-    if reactor_type in _VARIANT_REACTOR_TYPES:
-        return (
-            "reduced",
-            f"O reator `{reactor_type}` utiliza o backend `reduced`. Os backends `pyadm1` e `full` ainda nao suportam esta variante.",
-        )
+    """Resolve o backend efetivo dado o tipo de reator e o backend solicitado.
+
+    O backend `full` suporta todos os tipos de reator (CSTR, UASB, Plug-flow,
+    Two-phase, TPAD, Batch). O `pyadm1` suporta apenas CSTR.
+    O `auto` usa `pyadm1` para CSTR e `reduced` para outros tipos.
+    """
     if backend == "pyadm1" and reactor_type != "cstr":
         return "reduced", "PyADM1 suporta apenas CSTR neste projeto. A execucao caira para o backend `reduced`."
-    if backend == "full" and reactor_type != "cstr":
-        return "reduced", "O backend `full` esta liberado apenas para CSTR nesta fase. A execucao caira para `reduced`."
+    if backend == "full":
+        return "full", f"Backend `full` selecionado para {reactor_type}. Suporta todos os tipos de reator com ADM1 nativo."
     if backend == "auto" and reactor_type != "cstr":
-        return "reduced", "No modo `auto`, reatores nao CSTR continuam no backend `reduced`."
+        return "reduced", "No modo `auto`, reatores nao CSTR continuam no backend `reduced`. Use `full` para ADM1 completo."
     if backend == "auto":
         return (
             "pyadm1",
             "No modo `auto`, CSTR continua em `pyadm1` por conservadorismo. Use `full` explicitamente quando quiser rodar o backend nativo.",
         )
-    if backend == "full":
-        return "full", "Backend `full` selecionado para CSTR. O caso sera executado no ADM1 nativo do projeto."
     return backend, None
 
 
@@ -185,15 +185,14 @@ def validate_simulation_inputs(
     if solver not in {"BDF", "Radau"}:
         errors.append("Solver invalido. Use `BDF` ou `Radau`.")
 
-    if reactor_type not in _VARIANT_REACTOR_TYPES:
-        if backend == "pyadm1" and reactor_type != "cstr":
-            warnings.append("PyADM1 nao suporta esse reator neste projeto; o backend efetivo caira para `reduced`.")
-        if backend == "full" and reactor_type != "cstr":
-            warnings.append("O backend `full` ainda nao suporta esse reator; o backend efetivo caira para `reduced`.")
-        if backend == "auto" and reactor_type != "cstr":
-            warnings.append("No modo `auto`, reatores nao CSTR continuam no backend `reduced`.")
-        if backend == "auto" and reactor_type == "cstr":
-            warnings.append("No modo `auto`, CSTR continua em `pyadm1`. Use `full` explicitamente quando quiser validar o backend nativo.")
+    if backend == "pyadm1" and reactor_type != "cstr":
+        warnings.append("PyADM1 suporta apenas CSTR; o backend efetivo cairá para `reduced`.")
+    if backend == "full" and reactor_type != "cstr":
+        warnings.append(f"Backend `full` selecionado para `{reactor_type}` — suportado nativamente com ADM1 completo.")
+    if backend == "auto" and reactor_type != "cstr":
+        warnings.append("No modo `auto`, reatores não-CSTR continuam no backend `reduced`. Use `full` para ADM1 nativo.")
+    if backend == "auto" and reactor_type == "cstr":
+        warnings.append("No modo `auto`, CSTR continua em `pyadm1`. Use `full` explicitamente para o backend nativo.")
 
     if reactor_type != "batch" and duration_days > 0 and hrt_days > 0 and duration_days < hrt_days:
         warnings.append("A duracao da simulacao esta menor que o HRT. O transiente pode ficar curto demais para analise tecnica.")
@@ -365,6 +364,16 @@ def _build_reactor_config(reactor_type: str, variant_config: dict[str, Any] | No
             batch=BatchConfig(
                 inoculum_fraction=float(vc.get("inoculum_fraction", 0.30)),
             ),
+        )
+    if reactor_type == "uasb":
+        kwargs: dict[str, Any] = {"reactor_type": "uasb"}
+        if "biomass_washout_factor" in vc:
+            kwargs["biomass_washout_factor"] = float(vc["biomass_washout_factor"])
+        return ReactorConfig(**kwargs)  # type: ignore[arg-type]
+    if reactor_type == "plug_flow":
+        return ReactorConfig(
+            reactor_type="plug_flow",
+            segments=int(vc.get("segments", 6)),
         )
     return ReactorConfig(reactor_type=reactor_type)  # type: ignore[arg-type]
 

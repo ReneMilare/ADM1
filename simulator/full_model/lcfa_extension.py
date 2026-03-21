@@ -17,19 +17,25 @@ Mechanism (Palatsi 2010):
       rho_6 (S_fa uptake). The adsorption layer only affects the AVAILABLE S_fa
       pool, creating kinetic inhibition of LCFA-degrading acetogens.
 
-v1 Limitation:
-  The classical LCFA inhibition (competitive sorption blocking cell surface) is
-  approximated via the adsorption/desorption dynamics reducing S_fa. Direct
-  inhibition constants on X_fa (rho_6) require modification of kinetics.py,
-  which is outside the extension architecture in this version.
+Contact inhibition on rho_7_uptake_lcfa (Palatsi 2010):
+  Adsorbed LCFA (X_LCFA_ads) blocks the cell surface of LCFA-degrading acetogens,
+  reducing their effective uptake rate. This is modeled as non-competitive inhibition
+  on the core rho_7_uptake_lcfa process:
+      I_LCFA_contact = K_I_LCFA_ads / (K_I_LCFA_ads + X_LCFA_ads)
+  where K_I_LCFA_ads = 3.35 kgCOD/m³ (Palatsi 2010 Table 5b, Approach A2, Batch II).
+  Note: Palatsi A2 applies K_I to total free LCFA (S_fa); here we apply it to the
+  adsorbed fraction (X_LCFA_ads). Palatsi's Approach A3 (preferred) uses a dynamic
+  inhibition constant K_IFA = K'_I × (X_fa/S_fa) with K'_I = 2.37e-3 kgCOD/m³,
+  but requires a different model structure. Applied via InhibitionHookType in kinetics.py.
 
 Reference:
-    Palatsi et al. (2010). "Anaerobic digestion of slaughterhouse waste —
-    Description and validation of a new model for long-chain fatty acids."
-    Bioresource Technology 101(14):5523-5532. doi:10.1016/j.biortech.2010.02.069
-    Zonta et al. (2013). "Strategies to improve the energy efficiency of the
-    anaerobic digestion of slaughterhouse waste." Bioresource Technology 142:
-    431-438. doi:10.1016/j.biortech.2013.05.061
+    Palatsi et al. (2010). "Long-chain fatty acids inhibition and adaptation in
+    anaerobic thermophilic digestion: Batch tests, microbial community structure
+    and mathematical modelling." Bioresource Technology 101(7):2243-2251.
+    doi:10.1016/j.biortech.2009.11.069
+    Zonta, Alves, Flotats & Palatsi (2013). "Modelling inhibitory effects of long
+    chain fatty acids in the anaerobic digestion process." Water Research
+    47(3):1369-1380. doi:10.1016/j.watres.2012.12.007
 """
 from __future__ import annotations
 
@@ -42,7 +48,7 @@ from simulator.full_model.catalog_types import ParameterDefinition, ProcessDefin
 from simulator.full_model.extensions import FullModelExtensionContribution
 from simulator.full_model.units import DAY_INV, DIMENSIONLESS, KG_COD_M3
 
-_SRC = "Palatsi et al. (2010) doi:10.1016/j.biortech.2010.02.069; Zonta et al. (2013) doi:10.1016/j.biortech.2013.05.061"
+_SRC = "Palatsi et al. (2010) doi:10.1016/j.biortech.2009.11.069; Zonta et al. (2013) doi:10.1016/j.watres.2012.12.007"
 
 # Core active biomass groups used to estimate X_total_active for adsorption
 _ACTIVE_BIOMASS = ("X_su", "X_aa", "X_fa", "X_c4", "X_pro", "X_ac", "X_h2")
@@ -115,7 +121,12 @@ class _LCFAExtension:
                 classification="provisional",
                 description="Constante de adsorção de LCFA (k_ads × X_total_active).",
                 source=_SRC,
-                notes="Palatsi 2010 Table 2. Units: m³/(kgCOD·d).",
+                notes="Ad-hoc estimate without bibliographic source. Palatsi 2010 uses "
+                      "Approach A3 (Inhibition-Adsorption Model) where inhibition is expressed "
+                      "via a dynamic term K_IFA = K'_I × (X_fa/S_fa) — this formulation does "
+                      "not require explicit k_ads/k_des as separate first-order rate constants. "
+                      "These values are implementation-specific estimates for the adsorption "
+                      "layer structure chosen here (E5). Require experimental validation.",
             ),
             ParameterDefinition(
                 name="k_des_LCFA",
@@ -125,17 +136,19 @@ class _LCFAExtension:
                 classification="provisional",
                 description="Constante de primeira ordem para dessorção de LCFA.",
                 source=_SRC,
-                notes="Palatsi 2010 Table 2.",
+                notes="Ad-hoc estimate without bibliographic source. See k_ads_LCFA notes. "
+                      "Palatsi 2010 Approach A3 does not define k_des as a separate parameter.",
             ),
             ParameterDefinition(
                 name="k_m_LCFA_ads",
-                value=6.0,
+                value=21.69,
                 unit=DAY_INV,
                 group="biochemical",
-                classification="provisional",
+                classification="calibrated",
                 description="Taxa máxima de degradação de LCFA adsorvido por X_fa.",
                 source=_SRC,
-                notes="Uses same kinetics as rho_6 but substrate is X_LCFA_ads.",
+                notes="Palatsi 2010 Table 5b, Approach A2 (Batch II): k_m_LCFA_ads = 21.69 d⁻¹. "
+                      "Substrate is X_LCFA_ads rather than free S_fa.",
             ),
             ParameterDefinition(
                 name="K_S_LCFA_ads",
@@ -164,6 +177,20 @@ class _LCFAExtension:
                 classification="canonical",
                 description="Fração COD catabolisado de LCFA → H2 (0.3, ADM1 Table 6).",
                 source=_SRC,
+            ),
+            ParameterDefinition(
+                name="K_I_LCFA_ads",
+                value=3.35,
+                unit=KG_COD_M3,
+                group="biochemical",
+                classification="calibrated",
+                description="Constante de inibição por contato de LCFA adsorvido sobre rho_7 (kgCOD/m³).",
+                source=_SRC,
+                notes="Palatsi 2010 Table 5b, Approach A2 (Batch II): K_I = 3.35 kgCOD/m³. "
+                      "Em Palatsi A2, K_I é aplicada a S_fa (LCFA livre total) na inibição não-competitiva "
+                      "das metanogêneses acetoclástica e hidrogenotrófica. Aqui aplicamos a X_LCFA_ads "
+                      "(fração adsorvida) por coerência com a estrutura de adsorção do modelo. "
+                      "Palatsi A3 (preferido) usa K'_I = 2.37e-3 kgCOD/m³ com K_IFA = K'_I*(X_fa/S_fa).",
             ),
         )
 
@@ -198,6 +225,7 @@ class _LCFAExtension:
             biochemical_stoichiometry_rows=biochemical_stoichiometry_rows,
             rate_function=self._rates,
             diagnostics_hook=self._diagnostics,
+            inhibition_hook=self._inhibition,
         )
 
     def _rates(self, state: Mapping[str, float], params: Mapping[str, float]) -> dict[str, float]:
@@ -225,6 +253,18 @@ class _LCFAExtension:
             "rho_E5_LCFA_desorption": rho_des,
             "rho_E5_LCFA_ads_degradation": rho_deg,
         }
+
+    def _inhibition(self, state: Mapping[str, float], params: Mapping[str, float]) -> dict[str, float]:
+        """Non-competitive contact inhibition of LCFA-degrading acetogens by adsorbed LCFA.
+
+        Adsorbed LCFA (X_LCFA_ads) blocks the cell surface, reducing the effective uptake
+        rate of rho_7_uptake_lcfa (core LCFA β-oxidation). Model from Palatsi 2010 Table 2:
+            I_LCFA_contact = K_I_LCFA_ads / (K_I_LCFA_ads + X_LCFA_ads)
+        """
+        x_lcfa_ads = max(float(state.get("X_LCFA_ads", 0.0)), 0.0)
+        k_i = float(params.get("K_I_LCFA_ads", 0.10))
+        i_lcfa = k_i / (k_i + x_lcfa_ads)
+        return {"rho_7_uptake_lcfa": i_lcfa}
 
     def _diagnostics(
         self, matrix: np.ndarray, assembly: FullModelAssembly, params: Mapping[str, float]

@@ -11,7 +11,7 @@ CARBON_SIGMA_TERMS = {
     "s_2": "-C_ch + C_su",
     "s_3": "-C_pr + C_aa",
     "s_4": "-C_li + (1 - f_fa_li) * C_su + f_fa_li * C_fa",
-    "s_5": "-C_su + (1 - Y_su) * (f_bu_su * C_bu + f_pro_su * C_pro + f_ac_su * C_ac) + Y_su * C_bac",
+    "s_5": "-C_su + (1 - Y_su) * ((1 - f_lac_su - f_et_su) * (f_bu_su * C_bu + f_pro_su * C_pro + f_ac_su * C_ac) + f_lac_su * C_lac + f_et_su * C_et) + Y_su * C_bac",
     "s_6": "-C_aa + (1 - Y_aa) * (f_va_aa * C_va + f_bu_aa * C_bu + f_pro_aa * C_pro + f_ac_aa * C_ac) + Y_aa * C_bac",
     "s_7": "-C_fa + (1 - Y_fa) * 0.7 * C_ac + Y_fa * C_bac",
     "s_8": "-C_va + (1 - Y_c4) * 0.54 * C_pro + (1 - Y_c4) * 0.31 * C_ac + Y_c4 * C_bac",
@@ -37,11 +37,14 @@ BIOCHEMICAL_STOICHIOMETRY_ROWS = {
     "rho_3_hydrolysis_proteins": {"S_aa": "1", "S_IC": "-s_3", "X_pr": "-1"},
     "rho_4_hydrolysis_lipids": {"S_su": "1 - f_fa_li", "S_fa": "f_fa_li", "S_IC": "-s_4", "X_li": "-1"},
     "rho_5_uptake_sugars": {
+        # VFA/H2 fractions are scaled by (1 - f_lac_su - f_et_su) to make room for lactate/ethanol
+        # overflow products when E6/E10 are active. When both are 0 (default), this reduces to
+        # the original ADM1 stoichiometry. S_lac and S_et entries are added by E6/E10 patches.
         "S_su": "-1",
-        "S_bu": "(1 - Y_su) * f_bu_su",
-        "S_pro": "(1 - Y_su) * f_pro_su",
-        "S_ac": "(1 - Y_su) * f_ac_su",
-        "S_h2": "(1 - Y_su) * f_h2_su",
+        "S_bu": "(1 - Y_su) * f_bu_su * (1 - f_lac_su - f_et_su)",
+        "S_pro": "(1 - Y_su) * f_pro_su * (1 - f_lac_su - f_et_su)",
+        "S_ac": "(1 - Y_su) * f_ac_su * (1 - f_lac_su - f_et_su)",
+        "S_h2": "(1 - Y_su) * f_h2_su * (1 - f_lac_su - f_et_su)",
         "S_IC": "-s_5",
         "S_IN": "-Y_su * N_bac",
         "X_su": "Y_su",

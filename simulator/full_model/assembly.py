@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Mapping
 
 from simulator.full_model.catalog_types import ParameterDefinition, ProcessDefinition, RelationDefinition, StateDefinition
-from simulator.full_model.extensions import AssemblyValidationHook, DiagnosticHook, ProcessRateFunction
+from simulator.full_model.extensions import AssemblyValidationHook, DiagnosticHook, InhibitionHookType, ProcessRateFunction
 from simulator.full_model.parameters import FULL_PARAMETER_CATALOG
 from simulator.full_model.process_catalog import FULL_PROCESS_CATALOG
 from simulator.full_model.state_catalog import FULL_STATE_CATALOG
@@ -21,6 +21,7 @@ class FullModelAssembly:
     acid_base_relations: dict[str, RelationDefinition]
     gas_transfer_relations: dict[str, RelationDefinition]
     extension_rate_functions: tuple[ProcessRateFunction, ...]
+    extension_inhibition_hooks: tuple[InhibitionHookType, ...]
     diagnostics_hooks: tuple[DiagnosticHook, ...]
     validation_hooks: tuple[AssemblyValidationHook, ...]
 
@@ -52,6 +53,7 @@ def build_full_model_assembly(*, extensions: tuple[object, ...] = (), extension_
     acid_base_relations = dict(ACID_BASE_RELATIONS)
     gas_transfer_relations = dict(GAS_TRANSFER_RELATIONS)
     rate_functions: list[ProcessRateFunction] = []
+    inhibition_hooks: list[InhibitionHookType] = []
     diagnostics_hooks: list[DiagnosticHook] = []
     validation_hooks: list[AssemblyValidationHook] = []
 
@@ -59,18 +61,25 @@ def build_full_model_assembly(*, extensions: tuple[object, ...] = (), extension_
         contribution = extension.contribute()
         _ensure_unique_names(state_catalog, contribution.states, "estado")
         _ensure_unique_names(process_catalog, contribution.processes, "processo")
-        _ensure_unique_names(parameter_catalog, contribution.parameters, "parâmetro")
+        # Parameters: extensions may override core defaults (e.g., f_lac_su, f_et_su).
+        # Later extensions take precedence over earlier ones; all override core values.
+        _override_parameters(parameter_catalog, contribution.parameters)
         state_catalog.extend(contribution.states)
         process_catalog.extend(contribution.processes)
-        parameter_catalog.extend(contribution.parameters)
         for process_name, row in contribution.biochemical_stoichiometry_rows.items():
             if process_name in biochemical_rows:
                 raise ValueError(f"Linha estequiométrica duplicada para '{process_name}'")
             biochemical_rows[process_name] = {name: str(expression) for name, expression in row.items()}
+        for process_name, patch in contribution.stoichiometry_patches.items():
+            if process_name not in biochemical_rows:
+                raise ValueError(f"Patch estequiométrico referencia processo inexistente: '{process_name}'")
+            biochemical_rows[process_name].update({name: str(expr) for name, expr in patch.items()})
         _merge_unique_relations(acid_base_relations, contribution.acid_base_relations, "ácido-base")
         _merge_unique_relations(gas_transfer_relations, contribution.gas_transfer_relations, "gasosa")
         if contribution.rate_function is not None:
             rate_functions.append(contribution.rate_function)
+        if contribution.inhibition_hook is not None:
+            inhibition_hooks.append(contribution.inhibition_hook)
         if contribution.diagnostics_hook is not None:
             diagnostics_hooks.append(contribution.diagnostics_hook)
         if contribution.validate_hook is not None:
@@ -106,6 +115,7 @@ def build_full_model_assembly(*, extensions: tuple[object, ...] = (), extension_
         acid_base_relations=acid_base_relations,
         gas_transfer_relations=gas_transfer_relations,
         extension_rate_functions=tuple(rate_functions),
+        extension_inhibition_hooks=tuple(inhibition_hooks),
         diagnostics_hooks=tuple(diagnostics_hooks),
         validation_hooks=tuple(validation_hooks),
         full_state_names=full_state_names,
@@ -156,6 +166,20 @@ def _ensure_unique_names(existing_items: list[object], new_items: tuple[object, 
     duplicate_names = sorted(item.name for item in new_items if item.name in existing_names)
     if duplicate_names:
         raise ValueError(f"{item_kind.capitalize()}s duplicados no assembly full: {duplicate_names}")
+
+
+def _override_parameters(catalog: list[object], new_params: tuple[object, ...]) -> None:
+    """Add new parameters to catalog; replace existing ones with the same name (override semantics).
+
+    Extensions use this to override core parameter defaults (e.g., f_lac_su=0.0 → 0.10 when E6 active).
+    """
+    name_to_index: dict[str, int] = {item.name: i for i, item in enumerate(catalog)}
+    for param in new_params:
+        if param.name in name_to_index:
+            catalog[name_to_index[param.name]] = param
+        else:
+            catalog.append(param)
+            name_to_index[param.name] = len(catalog) - 1
 
 
 def _merge_unique_relations(

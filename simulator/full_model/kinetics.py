@@ -52,6 +52,14 @@ def biochemical_rates(
         if overlap:
             raise ValueError(f"Processos bioquímicos duplicados entre núcleo e extensões: {sorted(overlap)}")
         rates.update({name: float(value) for name, value in extension_rates.items()})
+    # Apply cross-process inhibition hooks (e.g., H2S on methanogenesis, LCFA contact inhibition,
+    # phenolics on methanogenesis). Each hook returns {process_name: factor} where factor ∈ [0,1].
+    # Multiple hooks for the same process are applied multiplicatively (AND logic).
+    for hook in assembly.extension_inhibition_hooks:
+        factors = hook(state, params)
+        for process_name, factor in factors.items():
+            if process_name in rates:
+                rates[process_name] = rates[process_name] * max(float(factor), 0.0)
     missing = [name for name in assembly.biochemical_process_names if name not in rates]
     if missing:
         raise ValueError(f"Taxas bioquímicas ausentes no assembly full: {missing}")

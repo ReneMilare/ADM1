@@ -119,9 +119,10 @@ class TestLactateExtension:
     def test_contribute_process_names(self):
         contribution = LACTATE_EXTENSION.contribute()
         process_names = {p.name for p in contribution.processes}
-        assert "rho_E6_lactate_from_sugars" in process_names
         assert "rho_E6_uptake_lactate" in process_names
         assert "rho_E6_decay_X_lac" in process_names
+        # overflow process removed: S_lac is an external substrate only
+        assert "rho_E6_lactate_from_sugars" not in process_names
 
     def test_stoichiometry_rows_cover_all_processes(self):
         contribution = LACTATE_EXTENSION.contribute()
@@ -142,7 +143,7 @@ class TestLactateExtension:
         state["S_IN"] = 0.01
         params = _make_params("lactate")
         rates = LACTATE_EXTENSION._rates(state, params)
-        assert set(rates.keys()) == {"rho_E6_lactate_from_sugars", "rho_E6_uptake_lactate", "rho_E6_decay_X_lac"}
+        assert set(rates.keys()) == {"rho_E6_uptake_lactate", "rho_E6_decay_X_lac"}
         assert all(v >= 0.0 for v in rates.values())
 
     def test_simulation_runs_without_crash(self):
@@ -174,7 +175,9 @@ class TestEthanolExtension:
         state_names = {s.name for s in contribution.states}
         process_names = {p.name for p in contribution.processes}
         assert {"S_et", "X_et"} <= state_names
-        assert {"rho_E10_ethanol_from_sugars", "rho_E10_uptake_ethanol", "rho_E10_decay_X_et"} <= process_names
+        assert {"rho_E10_uptake_ethanol", "rho_E10_decay_X_et"} <= process_names
+        # overflow process removed: S_et is an external substrate only
+        assert "rho_E10_ethanol_from_sugars" not in process_names
 
     def test_assembly_builds_without_error(self):
         assembly = resolve_full_model_assembly(["ethanol"])
@@ -188,7 +191,7 @@ class TestEthanolExtension:
         state["S_IN"] = 0.01
         params = _make_params("ethanol")
         rates = ETHANOL_EXTENSION._rates(state, params)
-        assert set(rates.keys()) == {"rho_E10_ethanol_from_sugars", "rho_E10_uptake_ethanol", "rho_E10_decay_X_et"}
+        assert set(rates.keys()) == {"rho_E10_uptake_ethanol", "rho_E10_decay_X_et"}
         assert all(v >= 0.0 for v in rates.values())
 
     def test_simulation_runs_without_crash(self):
@@ -238,21 +241,22 @@ class TestPhenolicsExtension:
         assert all(v >= 0.0 for v in rates.values())
 
     def test_high_phenol_reduces_rate(self):
-        """High S_phen inhibits rho_E11_uptake_phenolics via self-inhibition."""
+        """Haldane inhibition dominates at S_phen >> K_I_phen, suppressing rho_E11_uptake_phenolics."""
         assembly = resolve_full_model_assembly(["phenolics"])
         params = _make_params("phenolics")
         state_low = {name: 0.01 for name in assembly.full_state_names}
-        state_low["S_phen"] = 0.01
+        # Near K_S_phen=30.5: moderate substrate, inhibition I≈0.8 (K_I=50, S=25)
+        state_low["S_phen"] = 25.0
         state_low["X_phen"] = 0.5
         state_low["S_H_ion"] = 1e-7
         state_low["S_IN"] = 0.01
+        # Far above K_I_phen=50: Haldane inhibition I≈0.01 (S=500)
         state_high = dict(state_low)
-        state_high["S_phen"] = 5.0
+        state_high["S_phen"] = 500.0
         rate_low = PHENOLICS_EXTENSION._rates(state_low, params)["rho_E11_uptake_phenolics"]
         rate_high = PHENOLICS_EXTENSION._rates(state_high, params)["rho_E11_uptake_phenolics"]
-        # At S_phen >> K_I_phen (5.0 >> 0.3): inhibition term K_I/(K_I+S) is tiny
-        # The net rate (S/(K_S+S) * K_I/(K_I+S)) should be lower than at low S_phen
-        assert rate_high < rate_low * 5.0  # rough bound: high phenol doesn't dominate
+        # At S_phen=500 >> K_I_phen=50: I=1/(1+(500/50)²)≈0.01 — Haldane inhibition suppresses rate
+        assert rate_high < rate_low
 
     def test_simulation_runs_without_crash(self):
         result = _run_extension("phenolics", {"S_phen": 0.05, "X_phen": 0.3})

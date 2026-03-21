@@ -103,7 +103,8 @@ def test_full_backend_persistence_roundtrip() -> None:
         service.store.path_for(result.simulation_id).unlink(missing_ok=True)
 
 
-def test_full_request_falls_back_for_non_cstr() -> None:
+def test_full_backend_supports_non_cstr_reactors() -> None:
+    """O backend full suporta todos os tipos de reator (UASB, Batch, etc.)."""
     service, tmpdir = _make_service()
     try:
         simulation = make_default_simulation_config().model_copy(
@@ -111,8 +112,9 @@ def test_full_request_falls_back_for_non_cstr() -> None:
         )
         result = service.simulate("uasb", simulation=simulation)
         assert result.metadata["backend_requested"] == "full"
-        assert result.metadata["backend_used"] == "reduced"
-        assert "backend_fallback_reason" in result.metadata
+        assert result.metadata["backend_used"] == "full"
+        assert "backend_fallback_reason" not in result.metadata
+        assert result.metadata.get("reactor_type") == "uasb"
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
 

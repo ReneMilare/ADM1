@@ -89,7 +89,7 @@ def test_key_symbolic_rows_capture_expected_links() -> None:
     decay = BIOCHEMICAL_STOICHIOMETRY_ROWS["rho_13_decay_sugar_biomass"]
     assert sugar["S_su"] == "-1"
     assert sugar["X_su"] == "Y_su"
-    assert sugar["S_h2"] == "(1 - Y_su) * f_h2_su"
+    assert sugar["S_h2"] == "(1 - Y_su) * f_h2_su * (1 - f_lac_su - f_et_su)"
     assert acetate["S_ch4"] == "1 - Y_ac"
     assert acetate["X_ac"] == "Y_ac"
     assert decay["X_xc"] == "1"

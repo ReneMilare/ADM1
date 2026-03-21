@@ -53,7 +53,8 @@ from webapp.utils.presets import (
 )
 
 FLASH_KEY = "simular_reator_flash"
-_VARIANT_TYPES = {"two_phase", "tpad", "batch"}
+# Tipos que requerem fallback quando o backend pyadm1 é solicitado (não suportam não-CSTR)
+_PYADM1_FALLBACK_TYPES = {"two_phase", "tpad", "batch", "uasb", "plug_flow"}
 
 
 def _queue_flash(message: str) -> None:
@@ -185,28 +186,18 @@ with selector_col2:
         key="sim_substrate_mode",
     )
 with selector_col3:
-    # For variant reactor types, backend is forced to reduced and selector is disabled
-    if reactor_type in _VARIANT_TYPES:
-        st.selectbox(
-            "Backend",
-            options=["reduced"],
-            format_func=lambda value: "Reduced (forçado)",
-            disabled=True,
-            key="_backend_disabled_display",
-        )
-        backend_choice = "reduced"
-        st.session_state["sim_backend_choice"] = "reduced"
-    else:
-        backend_choice = st.selectbox(
-            "Backend",
-            options=list(backend_options),
-            format_func=lambda value: backend_options[value],
-            key="sim_backend_choice",
-        )
+    backend_choice = st.selectbox(
+        "Backend",
+        options=list(backend_options),
+        format_func=lambda value: backend_options[value],
+        key="sim_backend_choice",
+    )
 
-# Show info chip for variant reactor types
-if reactor_type in _VARIANT_TYPES:
-    st.info(f"ℹ️ O reator `{reactor_type}` utiliza o backend `reduced`. O backend `PyADM1` não suporta esta variante.")
+# Show info when pyadm1 is selected for non-CSTR reactors (will fallback to reduced)
+if reactor_type in _PYADM1_FALLBACK_TYPES and backend_choice == "pyadm1":
+    st.warning(f"PyADM1 suporta apenas CSTR. Para o reator `{reactor_type}`, o backend será `reduced`. Use `full` para ADM1 nativo.")
+elif reactor_type != "cstr" and backend_choice == "full":
+    st.info(f"Backend `full` selecionado — suporta `{reactor_type}` com ADM1 nativo completo.")
 
 # ─── Extension selector (only for full backend) ───────────────────────────────
 _EXTENSION_DESCRIPTIONS = {
@@ -218,7 +209,7 @@ _EXTENSION_DESCRIPTIONS = {
 }
 
 _active_extensions: list[str] = []
-if backend_choice == "full" and reactor_type not in _VARIANT_TYPES:
+if backend_choice == "full":
     try:
         _available_ext = list_registered_extensions()
     except Exception:
@@ -358,7 +349,7 @@ if st.session_state.get("sim_base_signature") != source_signature and not skip_b
     st.session_state["sim_base_signature"] = source_signature
 
 predicted_backend, backend_note = resolve_requested_backend(reactor_type, backend_choice)
-if backend_note and reactor_type not in _VARIANT_TYPES:
+if backend_note:
     if predicted_backend != backend_choice:
         st.warning(backend_note)
     else:
@@ -459,7 +450,36 @@ with config_col:
                 render_frame(preset_rows())
 
         # ─── Variant config section ───────────────────────────────────────────
-        if reactor_type == "two_phase":
+        if reactor_type == "uasb" and backend_choice == "full":
+            st.markdown("---")
+            st.markdown("**Configuração do UASB — Retenção de Biomassa**")
+            vc_current = st.session_state.get("variant_config") or {}
+            st.number_input(
+                "Fator de arraste de biomassa (washout_factor)",
+                min_value=0.05, max_value=1.0,
+                value=float(vc_current.get("biomass_washout_factor", 0.35)),
+                step=0.05, format="%.2f",
+                key="vc_biomass_washout_factor",
+                help="Fração da taxa de diluição aplicada aos estados sólidos (biomassa). "
+                     "UASB típico: 0.35 (SRT ≈ 2.9×HRT). Valor 1.0 = CSTR sem retenção.",
+            )
+
+        elif reactor_type == "plug_flow" and backend_choice == "full":
+            st.markdown("---")
+            st.markdown("**Configuração do Plug-Flow — Tanques em Série**")
+            vc_current = st.session_state.get("variant_config") or {}
+            st.slider(
+                "Número de segmentos (N)",
+                min_value=2, max_value=20,
+                value=int(vc_current.get("segments", 6)),
+                step=1,
+                key="vc_segments",
+                help="Número de CSTRs em série para aproximar o escoamento pistão. "
+                     "N=2 é o mínimo; N≥8 converge bem para plug-flow real. "
+                     "Aumenta o custo computacional em N×.",
+            )
+
+        elif reactor_type == "two_phase":
             st.markdown("---")
             st.markdown("**Configuração da Variante — Duas Fases (AD)**")
             vc_current = st.session_state.get("variant_config") or {}
@@ -517,7 +537,15 @@ with config_col:
 
 # ─── Collect variant_config after form ───────────────────────────────────────
 variant_config: dict | None = None
-if reactor_type == "two_phase":
+if reactor_type == "uasb" and backend_choice == "full":
+    variant_config = {
+        "biomass_washout_factor": float(st.session_state.get("vc_biomass_washout_factor", 0.35)),
+    }
+elif reactor_type == "plug_flow" and backend_choice == "full":
+    variant_config = {
+        "segments": int(st.session_state.get("vc_segments", 6)),
+    }
+elif reactor_type == "two_phase":
     variant_config = {
         "phase1_volume_fraction": float(st.session_state.get("vc_phase1_volume_fraction", 0.30)),
         "phase1_hrt_fraction": float(st.session_state.get("vc_phase1_hrt_fraction", 0.20)),

@@ -31,19 +31,25 @@ H2S stripping (simplified, first-order):
     from S_H2S with rate constant k_La_H2S, representing the mass transfer to
     the gas phase.
 
-H2S inhibition (v1 limitation):
-    H2S inhibits methanogenesis (rho_11, rho_12). Direct modification of core
-    process rates requires changes to kinetics.py, which is outside the extension
-    architecture in this version. The competitive effect on S_h2 and S_ac
-    (substrates consumed by SRB instead of methanogens) provides indirect inhibition.
+H2S inhibition on methanogenesis:
+    H2S inhibits acetoclastic methanogenesis (rho_11) and hydrogenotrophic
+    methanogenesis (rho_12) via first-order linear inhibition (Fedorovich 2003, Eq. 11):
+        I_H2S = max(0.0, 1.0 - S_H2S / K_I_H2S)
+    This is implemented via the InhibitionHookType mechanism in kinetics.py,
+    which multiplies the computed rates by the inhibition factor after all base
+    rates are assembled. K_I_H2S = 6.72e-3 kmolS/m³ ≈ 0.22 g S/L
+    (Fedorovich 2003, mean of reactors X3/X4). When S_H2S >= K_I_H2S, I_H2S = 0
+    (complete inhibition). The same linear form also applies to SRB self-inhibition
+    in _rates().
 
 Reference:
-    Fedorovich et al. (2003). "Model for anaerobic wastewater treatment with
-    simultaneous sulfate reduction." Water Science and Technology 48(6):137-144.
-    Barrera et al. (2015). "Importance of sulfate reduction in an upflow anaerobic
-    sludge bed (UASB) reactor treating sulfate-rich wastewater from the fish
-    canning industry." Chemical Engineering Journal 277:146-154.
-    doi:10.1016/j.cej.2015.04.083
+    Fedorovich, Lens & Kalyuzhnyi (2003). "Extension of Anaerobic Digestion Model
+    No. 1 with processes of sulfate reduction." Applied Biochemistry and
+    Biotechnology 109(1-3):33-45. doi:10.1385/ABAB:109:1-3:33
+    Barrera et al. (2015). "Modeling the anaerobic digestion of cane-molasses vinasse:
+    Extension of the Anaerobic Digestion Model No. 1 (ADM1) with sulfate reduction
+    for a very high strength and sulfate rich wastewater." Water Research 71:42-54.
+    doi:10.1016/j.watres.2014.12.026
 """
 from __future__ import annotations
 
@@ -56,7 +62,7 @@ from simulator.full_model.catalog_types import ParameterDefinition, ProcessDefin
 from simulator.full_model.extensions import FullModelExtensionContribution
 from simulator.full_model.units import DAY_INV, DIMENSIONLESS, KG_COD_M3, KMOL_S_M3
 
-_SRC = "Fedorovich et al. (2003) WST 48(6):137-144; Barrera et al. (2015) doi:10.1016/j.cej.2015.04.083"
+_SRC = "Fedorovich, Lens & Kalyuzhnyi (2003) doi:10.1385/ABAB:109:1-3:33; Barrera et al. (2015) doi:10.1016/j.watres.2014.12.026"
 _KMOL_M3 = "kmol/m3"
 
 
@@ -178,108 +184,118 @@ class _SRBExtension:
         parameters = (
             ParameterDefinition(
                 name="k_m_SRB_ac",
-                value=0.25,
+                value=7.1,
                 unit=DAY_INV,
                 group="biochemical",
-                classification="provisional",
+                classification="calibrated",
                 description="Taxa máxima de consumo de acetato por X_SRB_ac.",
                 source=_SRC,
-                notes="Fedorovich 2003 Table 1.",
+                notes="Fedorovich 2003 Table 2: µ_max = 7.1 d⁻¹ para SRB acetato-oxidadoras.",
             ),
             ParameterDefinition(
                 name="K_S_SRB_ac",
-                value=0.10,
+                value=0.22,
                 unit=KG_COD_M3,
                 group="biochemical",
-                classification="provisional",
+                classification="calibrated",
                 description="Meia-saturação para acetato (X_SRB_ac).",
                 source=_SRC,
+                notes="Fedorovich 2003 Table 2: K_S_ac = 0.22 kgCOD/m³.",
             ),
             ParameterDefinition(
                 name="K_S_SO4_ac",
-                value=0.005,
+                value=1.0e-4,
                 unit=_KMOL_M3,
                 group="biochemical",
-                classification="provisional",
+                classification="calibrated",
                 description="Meia-saturação para sulfato na oxidação de acetato (kmol/m³).",
                 source=_SRC,
-                notes="≈ 0.48 g SO4/L; typical for acetate-oxidizing SRB.",
+                notes="Fedorovich 2003 Table 2: K_S_SO4 = 0.1 mmol/L = 1.0e-4 kmol/m³. "
+                      "Very low — SRB efficiently scavenge sulfate even at trace concentrations.",
             ),
             ParameterDefinition(
                 name="Y_SRB_ac",
-                value=0.04,
+                value=0.0342,
                 unit=DIMENSIONLESS,
                 group="stoichiometric",
-                classification="provisional",
+                classification="calibrated",
                 description="Rendimento de biomassa de SRB_ac (gCOD_X / gCOD_ac).",
                 source=_SRC,
-                notes="SRB have lower yield than acetogens due to less energy per mol SO4.",
+                notes="Fedorovich 2003 Table 2: Y_SRB_ac = 0.0342 kgCOD/kgCOD. "
+                      "Lower than acetogens due to less Gibbs energy per mol SO4 reduced.",
             ),
             ParameterDefinition(
                 name="k_m_SRB_h2",
-                value=0.30,
+                value=26.7,
                 unit=DAY_INV,
                 group="biochemical",
-                classification="provisional",
+                classification="calibrated",
                 description="Taxa máxima de consumo de H2 por X_SRB_h2.",
                 source=_SRC,
+                notes="Fedorovich 2003 Table 3: µ_max = 26.7 d⁻¹ para SRB H2-oxidadoras.",
             ),
             ParameterDefinition(
                 name="K_S_SRB_h2",
-                value=7e-6,
+                value=1e-4,
                 unit=KG_COD_M3,
                 group="biochemical",
-                classification="provisional",
+                classification="calibrated",
                 description="Meia-saturação para H2 em SRB_h2 (kgCOD/m³).",
                 source=_SRC,
-                notes="7×10⁻⁶ kgCOD/m³ ≈ 3.5 µM H2 (similar to hydrogenotrophic methanogens).",
+                notes="Fedorovich 2003 Table 3: K_S_H2 = 1e-4 kgCOD/m³ ≈ 6.25 µM H2. "
+                      "Similar to hydrogenotrophic methanogens (competitive threshold).",
             ),
             ParameterDefinition(
                 name="K_S_SO4_h2",
-                value=0.002,
+                value=1.04e-4,
                 unit=_KMOL_M3,
                 group="biochemical",
-                classification="provisional",
+                classification="calibrated",
                 description="Meia-saturação para sulfato na oxidação de H2 (kmol/m³).",
                 source=_SRC,
+                notes="Fedorovich 2003 Table 3: K_S_SO4 ≈ 0.104 mmol/L = 1.04e-4 kmol/m³.",
             ),
             ParameterDefinition(
                 name="Y_SRB_h2",
-                value=0.05,
+                value=0.0366,
                 unit=DIMENSIONLESS,
                 group="stoichiometric",
-                classification="provisional",
+                classification="calibrated",
                 description="Rendimento de biomassa de SRB_h2 (gCOD_X / gCOD_H2).",
                 source=_SRC,
+                notes="Fedorovich 2003 Table 3: Y_SRB_h2 = 0.0366 kgCOD/kgCOD.",
             ),
             ParameterDefinition(
                 name="k_dec_X_SRB_ac",
-                value=0.02,
+                value=0.015,
                 unit=DAY_INV,
                 group="biochemical",
-                classification="provisional",
+                classification="calibrated",
                 description="Taxa de decaimento de X_SRB_ac.",
                 source=_SRC,
+                notes="Fedorovich 2003 Table 2: b_dec = 0.015 d⁻¹ para SRB acetato-oxidadoras.",
             ),
             ParameterDefinition(
                 name="k_dec_X_SRB_h2",
-                value=0.02,
+                value=0.01,
                 unit=DAY_INV,
                 group="biochemical",
-                classification="provisional",
+                classification="calibrated",
                 description="Taxa de decaimento de X_SRB_h2.",
                 source=_SRC,
+                notes="Fedorovich 2003 Table 3: b_dec = 0.01 d⁻¹ para SRB H2-oxidadoras.",
             ),
             ParameterDefinition(
                 name="K_I_H2S",
-                value=0.01,
+                value=6.72e-3,
                 unit=KMOL_S_M3,
                 group="biochemical",
-                classification="provisional",
+                classification="calibrated",
                 description="Constante de inibição de H2S sobre metanogênese (kmolS/m³).",
                 source=_SRC,
-                notes="≈ 0.34 g S/L ≈ 0.01 M dissolved H2S. Fedorovich 2003. "
-                      "v1 limitation: not applied to core rho_11/rho_12 (requires kinetics.py modification).",
+                notes="Fedorovich 2003: mean of reactor X3 (7.19e-3 mol/L) and X4 (6.25e-3 mol/L) "
+                      "= 6.72e-3 kmolS/m³ ≈ 0.22 g S/L. Applied to rho_11 and rho_12 via "
+                      "InhibitionHookType in kinetics.py.",
             ),
             ParameterDefinition(
                 name="k_La_H2S",
@@ -290,6 +306,7 @@ class _SRBExtension:
                 description="Coeficiente de transferência de massa de H2S para a fase gasosa (d⁻¹).",
                 source=_SRC,
                 notes="Net first-order stripping coefficient. Not a Henry's law implementation. "
+                      "Not tabulated in Fedorovich 2003. "
                       "Effective k_La may range 0.1–2.0 d⁻¹ depending on mixing and headspace.",
             ),
         )
@@ -306,9 +323,7 @@ class _SRBExtension:
         #   S_IC = C_ac - Y*C_bac (from acetate to bicarbonate)
         #
         #   For SRB_h2 (H2 oxidation):
-        #     1 kgCOD H2 = 1000/(2*2) = 250 mol H2 (H2 + 0.5O2; MW_O2=32 → 2gCOD/mol)
-        #     Wait: 1 mol H2 = 2 gH2, COD = O2_consumed = 2*32/2 = 16 g? No:
-        #     H2 + 0.5 O2 → H2O; gCOD/mol = 0.5 * 32 = 16 gO2/mol H2
+        #     1 mol H2: H2 + 0.5 O2 → H2O; gCOD/mol = 0.5 * 32 = 16 gO2/mol H2
         #     So 1 kgCOD H2 = 1000/16 = 62.5 mol H2
         #     4H2 reduces 1 mol SO4 → 62.5/4 = 15.625 mol SO4/kgCOD H2 catabolized
         #     ΔS_SO4 = -(1-Y_SRB_h2) * 15.625 / 1000 = -(1-Y_SRB_h2) / 64  kmol/kgCOD
@@ -358,6 +373,7 @@ class _SRBExtension:
             biochemical_stoichiometry_rows=biochemical_stoichiometry_rows,
             rate_function=self._rates,
             diagnostics_hook=self._diagnostics,
+            inhibition_hook=self._inhibition,
         )
 
     def _rates(self, state: Mapping[str, float], params: Mapping[str, float]) -> dict[str, float]:
@@ -381,9 +397,9 @@ class _SRBExtension:
         i_so4_ac = s_so4 / (k_so4_ac + s_so4)
         i_so4_h2 = s_so4 / (k_so4_h2 + s_so4)
 
-        # H2S inhibition on SRB themselves (feedback)
-        k_i_h2s = float(params.get("K_I_H2S", 0.01))
-        i_h2s = k_i_h2s / (k_i_h2s + s_h2s)
+        # H2S inhibition on SRB themselves (feedback) — linear form: Fedorovich 2003 Eq. 11
+        k_i_h2s = float(params.get("K_I_H2S", 6.72e-3))
+        i_h2s = max(0.0, 1.0 - s_h2s / k_i_h2s)
 
         rho_srb_ac = (
             float(params["k_m_SRB_ac"])
@@ -413,6 +429,22 @@ class _SRBExtension:
             "rho_E4_decay_X_SRB_ac": rho_dec_srb_ac,
             "rho_E4_decay_X_SRB_h2": rho_dec_srb_h2,
             "rho_E4_H2S_stripping": rho_strip,
+        }
+
+    def _inhibition(self, state: Mapping[str, float], params: Mapping[str, float]) -> dict[str, float]:
+        """H2S first-order linear inhibition on acetoclastic and hydrogenotrophic methanogenesis.
+
+        Fedorovich 2003 (ABB 109:33-45) Eq. 11 — first-order inhibition kinetics:
+            I_H2S = max(0.0, 1.0 - S_H2S / K_I_H2S)
+        When S_H2S >= K_I_H2S, complete inhibition (I_H2S = 0).
+        Applied to rho_11 (acetate → CH4) and rho_12 (H2 → CH4).
+        """
+        s_h2s = max(float(state.get("S_H2S", 0.0)), 0.0)
+        k_i_h2s = float(params.get("K_I_H2S", 6.72e-3))
+        i_h2s = max(0.0, 1.0 - s_h2s / k_i_h2s)
+        return {
+            "rho_11_uptake_acetate": i_h2s,
+            "rho_12_uptake_hydrogen": i_h2s,
         }
 
     def _diagnostics(

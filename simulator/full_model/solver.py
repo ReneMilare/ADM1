@@ -5,9 +5,10 @@ from collections.abc import Mapping
 import numpy as np
 from scipy.integrate import solve_ivp
 
-from simulator.core.models import FeedDefinition, InitialState, KineticParameters, OperatingConditions, SimulationConfig
+from simulator.core.models import FeedDefinition, InitialState, KineticParameters, OperatingConditions, ReactorConfig, SimulationConfig
 from simulator.full_model.adapter import build_backend_inputs, translate_backend_profiles
-from simulator.full_model.model import FullModelInputs
+from simulator.full_model.model import FullModelInputs, dynamic_state_dict
+from simulator.full_model.reactor_modes import FullPlugFlowRhs, FullTwoPhaseRhs, build_reactor_mode
 from simulator.full_model.rhs import FullCSTRRhs
 
 
@@ -21,6 +22,7 @@ def simulate_with_full(
     simulation: SimulationConfig,
     active_extensions: list[str] | tuple[str, ...] | None = None,
     extension_parameter_overrides: Mapping[str, float] | None = None,
+    reactor_config: ReactorConfig | None = None,
 ) -> dict[str, object]:
     backend_inputs = build_backend_inputs(
         operating_conditions=operating_conditions,
@@ -30,54 +32,113 @@ def simulate_with_full(
         active_extensions=active_extensions,
         extension_parameter_overrides=extension_parameter_overrides,
     )
-    return simulate_with_full_inputs(inputs=backend_inputs, simulation=simulation)
+    return simulate_with_full_inputs(
+        inputs=backend_inputs,
+        simulation=simulation,
+        reactor_config=reactor_config,
+    )
 
 
 
-def simulate_with_full_inputs(*, inputs: FullModelInputs, simulation: SimulationConfig) -> dict[str, object]:
-    system = FullCSTRRhs(inputs=inputs)
+def simulate_with_full_inputs(
+    *,
+    inputs: FullModelInputs,
+    simulation: SimulationConfig,
+    reactor_config: ReactorConfig | None = None,
+) -> dict[str, object]:
+    reactor_type = reactor_config.reactor_type if reactor_config is not None else "cstr"
+    system = build_reactor_mode(reactor_type, inputs, reactor_config=reactor_config)
+
+    # Build initial condition vector.
+    # For multi-segment reactors (plug_flow, two_phase, tpad), replicate initial state.
+    if isinstance(system, FullPlugFlowRhs):
+        n_seg = system.n_segments
+        y0 = np.tile(inputs.dynamic_initial, n_seg)
+        segment_count = n_seg
+    elif isinstance(system, FullTwoPhaseRhs):
+        y0 = np.tile(inputs.dynamic_initial, 2)
+        segment_count = 2
+    else:
+        y0 = inputs.dynamic_initial.copy()
+        segment_count = 1
+
+    # Batch inoculum dilution: the reactor starts with f_inoc fraction of inoculum and
+    # (1 - f_inoc) fraction of fresh feed.
+    # y0_actual = f_inoc * inoculum_state + (1 - f_inoc) * feed_state
+    # This implements the standard batch setup procedure (BSM2 convention):
+    # the inoculum provides the active biomass; the substrate fills the remaining volume.
+    if (
+        reactor_config is not None
+        and reactor_config.reactor_type == "batch"
+        and reactor_config.batch is not None
+        and segment_count == 1
+    ):
+        f_inoc = float(reactor_config.batch.inoculum_fraction)
+        y0 = f_inoc * y0 + (1.0 - f_inoc) * inputs.dynamic_influent
+
     time_grid = np.linspace(0.0, simulation.duration_days, simulation.evaluation_points)
     solution = solve_ivp(
         system,
         t_span=(0.0, simulation.duration_days),
-        y0=inputs.dynamic_initial,
+        y0=y0,
         method=simulation.solver,
         t_eval=time_grid,
         rtol=simulation.rtol,
         atol=simulation.atol,
     )
     if not solution.success:
-        raise RuntimeError(f"Full ADM1 simulation failed: {solution.message}")
+        raise RuntimeError(f"Full ADM1 simulation failed ({reactor_type}): {solution.message}")
 
-    dynamic_matrix = np.clip(solution.y.T.astype(float), a_min=0.0, a_max=None)
+    # For multi-segment reactors, extract the last segment (effluent) for post-processing.
+    m = len(inputs.assembly.dynamic_state_names)
+    if segment_count > 1:
+        # solution.y shape: (n_seg*m, n_time) → take last segment rows for profiles
+        last_seg_rows = solution.y[(segment_count - 1) * m : segment_count * m, :]
+        dynamic_matrix = np.clip(last_seg_rows.T.astype(float), a_min=0.0, a_max=None)
+    else:
+        dynamic_matrix = np.clip(solution.y.T.astype(float), a_min=0.0, a_max=None)
+
+    # Evaluate full state (acid-base + gas transfer) at each time point for the last segment.
+    # For multi-segment, re-use the CSTR evaluate() logic on the effluent segment.
+    _eval_rhs: FullCSTRRhs
+    if isinstance(system, FullCSTRRhs):
+        _eval_rhs = system
+    elif isinstance(system, FullPlugFlowRhs):
+        _eval_rhs = system._rhs
+    elif isinstance(system, FullTwoPhaseRhs):
+        _eval_rhs = system._rhs2
+    else:
+        _eval_rhs = FullCSTRRhs(inputs=inputs)
+
     evaluations = [
-        system.evaluate(
-            dynamic_values={name: float(row[index]) for index, name in enumerate(inputs.assembly.dynamic_state_names)},
+        _eval_rhs.evaluate(
+            dynamic_values=dynamic_state_dict(row, assembly=inputs.assembly),
             use_cache=False,
         )
         for row in dynamic_matrix
     ]
-    full_state_matrix = np.asarray([evaluation.full_state.vector for evaluation in evaluations], dtype=float)
+    full_state_matrix = np.asarray([ev.full_state.vector for ev in evaluations], dtype=float)
     profiles = translate_backend_profiles(
         full_state_matrix=full_state_matrix,
         parameter_values=inputs.parameter_values,
         assembly=inputs.assembly,
     )
     metadata = {
-        "segment_count": 1,
+        "segment_count": segment_count,
+        "reactor_type": reactor_type,
         "solver_status": solution.message,
-        "final_internal_state": [float(value) for value in full_state_matrix[-1].tolist()],
+        "final_internal_state": [float(v) for v in full_state_matrix[-1].tolist()],
         "full_state_columns": list(inputs.assembly.full_state_names),
         "full_dynamic_state_columns": list(inputs.assembly.dynamic_state_names),
         "full_model_liquid_volume_m3": float(inputs.parameter_values["V_liq"]),
         "full_model_gas_volume_m3": float(inputs.parameter_values["V_gas"]),
-        "full_model_ph_converged": all(evaluation.acid_base.converged for evaluation in evaluations),
-        "full_model_ph_iterations_max": max(evaluation.acid_base.iterations for evaluation in evaluations),
+        "full_model_ph_converged": all(ev.acid_base.converged for ev in evaluations),
+        "full_model_ph_iterations_max": max(ev.acid_base.iterations for ev in evaluations),
         "full_model_runtime": "native",
         "full_model_active_extensions": list(inputs.assembly.active_extensions),
     }
     return {
-        "time_days": [float(value) for value in time_grid.tolist()],
+        "time_days": [float(v) for v in time_grid.tolist()],
         "profiles": profiles,
         "metadata": metadata,
     }

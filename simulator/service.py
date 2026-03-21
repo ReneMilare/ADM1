@@ -121,6 +121,7 @@ class ADM1SimulationService:
                 simulation=sim_config,
                 active_extensions=sim_config.full_extensions,
                 extension_parameter_overrides=sim_config.full_extension_parameter_overrides,
+                reactor_config=reactor_config,
             )
             time_days = np.asarray(backend_result["time_days"], dtype=float)
             profiles = backend_result["profiles"]
@@ -801,21 +802,17 @@ class ADM1SimulationService:
                 )
             return _ResolvedBackend(requested=requested, used="pyadm1")
         if requested == "full":
-            if reactor.reactor_type != "cstr":
-                return _ResolvedBackend(
-                    requested=requested,
-                    used="reduced",
-                    fallback_reason=f"ADM1 full nativo suporta apenas cstr nesta fase; usando reduced para {reactor.reactor_type}.",
-                )
+            # Full model suporta todos os tipos de reator nativamente
             return _ResolvedBackend(requested=requested, used="full")
         if requested == "auto":
             if reactor.reactor_type == "cstr":
                 return _ResolvedBackend(requested=requested, used="pyadm1")
+            # Para outros reatores, full model tem implementação nativa mais fiel
             if reactor.reactor_type in reduced_only_reactors:
                 return _ResolvedBackend(
                     requested=requested,
                     used="reduced",
-                    fallback_reason=f"Auto backend mantem o modelo reduced para {reactor.reactor_type}.",
+                    fallback_reason=f"Auto backend usa modelo reduced para {reactor.reactor_type}; use backend='full' para o modelo ADM1 completo.",
                 )
         raise ValueError(f"Unsupported backend '{requested}'")
 

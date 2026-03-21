@@ -32,9 +32,13 @@ def test_phase5_backend_options_include_full_and_resolve_fallbacks() -> None:
     options = get_backend_options()
 
     assert "full" in options
+    # full backend agora suporta todos os tipos de reator
     assert resolve_requested_backend("cstr", "full")[0] == "full"
-    assert resolve_requested_backend("uasb", "full")[0] == "reduced"
+    assert resolve_requested_backend("uasb", "full")[0] == "full"
+    assert resolve_requested_backend("plug_flow", "full")[0] == "full"
     assert resolve_requested_backend("cstr", "auto")[0] == "pyadm1"
+    # pyadm1 ainda requer fallback para não-CSTR
+    assert resolve_requested_backend("uasb", "pyadm1")[0] == "reduced"
 
 
 def test_phase5_service_compare_backends_for_cstr_full_vs_pyadm1() -> None:
@@ -63,7 +67,8 @@ def test_phase5_service_compare_backends_for_cstr_full_vs_pyadm1() -> None:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
-def test_phase5_design_pipeline_accepts_full_and_reports_fallbacks() -> None:
+def test_phase5_design_pipeline_accepts_full_for_all_reactors() -> None:
+    """O backend full suporta todos os reatores incluindo plug_flow."""
     service, tmpdir = _make_service()
     note_root = Path(tempfile.mkdtemp(dir=WORKSPACE_TMP))
     try:
@@ -82,10 +87,9 @@ def test_phase5_design_pipeline_accepts_full_and_reports_fallbacks() -> None:
         assert candidates["cstr"]["backend_requested"] == "full"
         assert candidates["cstr"]["backend_used"] == "full"
         assert candidates["plug_flow"]["backend_requested"] == "full"
-        assert candidates["plug_flow"]["backend_used"] == "reduced"
-        assert candidates["plug_flow"]["fallback_reason"]
-        assert report["reduced_is_exploratory"] is True
-        assert report["backend_policy_note"]
+        assert candidates["plug_flow"]["backend_used"] == "full"
+        # Sem fallback — full model suporta plug_flow nativamente
+        assert not candidates["plug_flow"].get("fallback_reason")
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
         shutil.rmtree(note_root, ignore_errors=True)
