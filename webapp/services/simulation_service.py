@@ -134,6 +134,7 @@ def build_simulation_config(
     backend: str,
     persist: bool,
     ammonia_inhibition_mode: str = "simple",
+    full_extensions: list[str] | None = None,
 ) -> SimulationConfig:
     base = make_default_simulation_config()
     return base.model_copy(
@@ -143,6 +144,7 @@ def build_simulation_config(
             "solver": solver,
             "backend": backend,
             "persist": bool(persist),
+            "full_extensions": list(full_extensions or []),
         }
     )
 
@@ -382,6 +384,7 @@ def run_simulation(
     ammonia_inhibition_mode: str = "simple",
     variant_config: dict[str, Any] | None = None,
     blend: CoDigestionBlend | None = None,
+    full_extensions: list[str] | None = None,
 ) -> SimulationResult:
     # If blend not provided explicitly, auto-derive from co-digestion preset
     if blend is None and substrate_mode == "codigestion" and preset_id:
@@ -401,6 +404,7 @@ def run_simulation(
         backend=backend,
         persist=persist,
         ammonia_inhibition_mode=ammonia_inhibition_mode,
+        full_extensions=full_extensions,
     )
     reactor_config = _build_reactor_config(reactor_type, variant_config)
     kinetics = KineticParameters(ammonia_inhibition_mode=ammonia_inhibition_mode)  # type: ignore[arg-type]
@@ -417,6 +421,8 @@ def run_simulation(
         metadata["substrate_note_link"] = note_link
     if variant_config:
         metadata["variant_config"] = variant_config
+    if full_extensions:
+        metadata["full_extensions_requested"] = full_extensions
 
     return service.simulate(
         reactor_config,

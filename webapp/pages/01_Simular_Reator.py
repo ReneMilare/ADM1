@@ -40,6 +40,7 @@ from webapp.services.simulation_service import (
     summary_json_bytes,
     validate_simulation_inputs,
 )
+from simulator.full_model.extension_registry import list_registered_extensions
 from webapp.state.session_state import ensure_session_state
 from webapp.utils.page_config import configure_page, render_page_header
 from webapp.utils.presets import (
@@ -206,6 +207,32 @@ with selector_col3:
 # Show info chip for variant reactor types
 if reactor_type in _VARIANT_TYPES:
     st.info(f"ℹ️ O reator `{reactor_type}` utiliza o backend `reduced`. O backend `PyADM1` não suporta esta variante.")
+
+# ─── Extension selector (only for full backend) ───────────────────────────────
+_EXTENSION_DESCRIPTIONS = {
+    "lactate": "E6 – Lactato: intermediário na fermentação de açúcares",
+    "ethanol": "E10 – Etanol: intermediário na fermentação de açúcares",
+    "phenolics": "E11 – Fenólicos: degradação de compostos fenólicos (ex: resíduos oleosos)",
+    "lcfa_adsorption": "E5 – Adsorção de LCFA: cinética de adsorção de ácidos graxos de cadeia longa",
+    "srb": "E4 – SRB: redução de sulfato (competição com metanogênese)",
+}
+
+_active_extensions: list[str] = []
+if backend_choice == "full" and reactor_type not in _VARIANT_TYPES:
+    try:
+        _available_ext = list_registered_extensions()
+    except Exception:
+        _available_ext = list(_EXTENSION_DESCRIPTIONS)
+    _ext_labels = {k: _EXTENSION_DESCRIPTIONS.get(k, k) for k in _available_ext}
+    _active_extensions = st.multiselect(
+        "Extensões do modelo full ADM1",
+        options=list(_ext_labels),
+        format_func=lambda v: _ext_labels.get(v, v),
+        default=st.session_state.get("sim_full_extensions", []),
+        key="sim_full_extensions",
+        help="Selecione módulos opcionais a ativar no backend full. Cada extensão adiciona estados e processos ao modelo.",
+    )
+
 
 # ─── Substrate selection ──────────────────────────────────────────────────────
 preset_id = None
@@ -598,6 +625,7 @@ if submitted:
                 ammonia_inhibition_mode=ammonia_inhibition_mode,
                 variant_config=variant_config,
                 blend=codigestion_blend,
+                full_extensions=_active_extensions if _active_extensions else None,
             )
         st.session_state["latest_simulation"] = result
         st.session_state["latest_error"] = None
@@ -698,7 +726,72 @@ if result is not None:
     if result.reactor.reactor_type in ("two_phase", "tpad"):
         render_phase_profile_charts(result)
 
-    st.subheader("Preview da serie temporal")
+    # ─── Extension-specific profiles ─────────────────────────────────────────
+    _ext_requested = result.metadata.get("full_extensions_requested") or []
+    if _ext_requested:
+        st.subheader("Perfis de extensões do modelo")
+        st.caption("Perfis temporais dos estados adicionados pelas extensões ativas nesta simulação.")
+
+        # Map each extension to the series keys it contributes
+        _EXT_SERIES: dict[str, list[tuple[str, str]]] = {
+            "srb": [
+                ("S_SO4", "Sulfato S_SO4 [kgCOD/m³]"),
+                ("S_H2S", "Sulfeto H₂S S_H2S [kgCOD/m³]"),
+                ("X_SRB_ac", "Biomassa SRB acetoclástica X_SRB_ac [kgCOD/m³]"),
+                ("X_SRB_h2", "Biomassa SRB hidrogenotrófica X_SRB_h2 [kgCOD/m³]"),
+            ],
+            "lcfa_adsorption": [
+                ("X_LCFA_ads", "LCFA adsorvido X_LCFA_ads [kgCOD/m³]"),
+            ],
+            "lactate": [
+                ("S_lac", "Lactato S_lac [kgCOD/m³]"),
+                ("X_lac", "Biomassa lactato X_lac [kgCOD/m³]"),
+            ],
+            "ethanol": [
+                ("S_et", "Etanol S_et [kgCOD/m³]"),
+                ("X_et", "Biomassa etanol X_et [kgCOD/m³]"),
+            ],
+            "phenolics": [
+                ("S_phen", "Fenólicos S_phen [kgCOD/m³]"),
+                ("X_phen", "Biomassa fenólicos X_phen [kgCOD/m³]"),
+            ],
+        }
+
+        import plotly.graph_objects as go
+
+        for _ext_name in _ext_requested:
+            _ext_series_defs = _EXT_SERIES.get(_ext_name, [])
+            _available = [(key, label) for key, label in _ext_series_defs if result.series.get(key)]
+            if not _available:
+                continue
+            with st.expander(f"🔬 {_EXTENSION_DESCRIPTIONS.get(_ext_name, _ext_name)}", expanded=True):
+                _t = result.series.get("time_days") or list(range(len(next(iter(_available))[0])))
+                _cols = st.columns(min(len(_available), 2))
+                for i, (skey, slabel) in enumerate(_available):
+                    _vals = result.series.get(skey, [])
+                    if _vals:
+                        _fig = go.Figure()
+                        _fig.add_trace(go.Scatter(x=_t, y=_vals, mode="lines", name=slabel))
+                        _fig.update_layout(
+                            xaxis_title="Tempo [dias]",
+                            yaxis_title=slabel,
+                            height=280,
+                            margin={"t": 30, "b": 30, "l": 10, "r": 10},
+                        )
+                        _cols[i % 2].plotly_chart(_fig, use_container_width=True)
+
+        # SRB KPI metrics
+        if "srb" in _ext_requested:
+            _so4_s = result.series.get("S_SO4")
+            _h2s_s = result.series.get("S_H2S")
+            if _so4_s or _h2s_s:
+                srb_cols = st.columns(2)
+                if _so4_s:
+                    srb_cols[0].metric("Sulfato efluente (S_SO4)", f"{_so4_s[-1]:.4f} kgCOD/m³")
+                if _h2s_s:
+                    srb_cols[1].metric("Sulfeto efluente (S_H2S)", f"{_h2s_s[-1]:.4f} kgCOD/m³")
+
+
     render_series_preview(result)
 else:
     st.info("Configure o caso e clique em `Executar simulacao` para gerar os primeiros resultados na interface.")

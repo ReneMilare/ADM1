@@ -89,3 +89,19 @@ def test_full_parity_subset_persists_artifacts() -> None:
     assert report["scenario_names"] == ["baseline_bsm2_reference", "high_nitrogen_sin_x2"]
     assert (output_dir / ARTIFACT_JSON_NAME).exists()
     assert (output_dir / ARTIFACT_MD_NAME).exists()
+
+
+def test_full_parity_all_scenarios_pass_gates() -> None:
+    """Todos os 6 cenários canônicos devem passar os gates de paridade full vs pyadm1."""
+    _reset_workspace()
+    report, _ = run_full_parity_benchmark(
+        output_root=WORKSPACE_TMP,
+        scenario_names=EXPECTED_SCENARIO_NAMES,
+    )
+    assert report["scenario_count"] == len(EXPECTED_SCENARIO_NAMES)
+    failures = [
+        f"{s['name']}: {[f for f, v in s['series_comparison'].items() if not v['within_tolerance']] + [f for f, v in s['summary_comparison'].items() if not v['within_tolerance']]}"
+        for s in report["scenarios"]
+        if not s["all_gates_pass"]
+    ]
+    assert not failures, "Cenários com gate falho:\n" + "\n".join(failures)

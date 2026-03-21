@@ -74,7 +74,6 @@ def solve_acid_base(
     else:
         values = _species(total_state, params, s_h_ion)
 
-    values = _species(total_state, params, s_h_ion)
     return AcidBaseState(
         s_h_ion=float(s_h_ion),
         p_h=float(-__import__("math").log10(max(s_h_ion, 1e-14))),

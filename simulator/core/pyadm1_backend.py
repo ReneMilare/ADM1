@@ -664,7 +664,17 @@ def _translate_profiles(
         "h2_m3_day": hydrogen.tolist(),
         "biogas_m3_day": biogas.tolist(),
         "ch4_fraction": np.clip(methane / np.maximum(biogas, 1e-9), 0.0, 1.0).tolist(),
-        "effluent_cod": (particulate_cod + soluble_cod + acetate + propionate).tolist(),
+        "effluent_cod": (
+            particulate_cod
+            + soluble_cod
+            + vfa_total
+            + acidogens
+            + propionate_biomass
+            + results["X_ac"].to_numpy(dtype=float)
+            + results["X_h2"].to_numpy(dtype=float)
+            + results["S_h2"].to_numpy(dtype=float)
+            + results["S_ch4"].to_numpy(dtype=float)
+        ).tolist(),
         "volatile_solids_proxy": (
             particulate_cod
             + acidogens

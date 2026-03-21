@@ -72,9 +72,7 @@ def simulate_with_full_inputs(*, inputs: FullModelInputs, simulation: Simulation
         "full_model_liquid_volume_m3": float(inputs.parameter_values["V_liq"]),
         "full_model_gas_volume_m3": float(inputs.parameter_values["V_gas"]),
         "full_model_ph_converged": all(evaluation.acid_base.converged for evaluation in evaluations),
-        "full_model_hydrogen_converged": all(evaluation.hydrogen_converged for evaluation in evaluations),
         "full_model_ph_iterations_max": max(evaluation.acid_base.iterations for evaluation in evaluations),
-        "full_model_hydrogen_iterations_max": max(evaluation.hydrogen_iterations for evaluation in evaluations),
         "full_model_runtime": "native",
         "full_model_active_extensions": list(inputs.assembly.active_extensions),
     }

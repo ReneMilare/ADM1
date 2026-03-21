@@ -34,7 +34,20 @@ def translate_full_profiles(
     acetate = matrix[:, assembly.full_state_index["S_ac"]]
     propionate = matrix[:, assembly.full_state_index["S_pro"]]
     vfa_total = acetate + propionate + matrix[:, assembly.full_state_index["S_va"]] + matrix[:, assembly.full_state_index["S_bu"]]
-    effluent_cod = particulate_cod + soluble_cod + acetate + propionate
+    biomass_cod = (
+        matrix[:, assembly.full_state_index["X_su"]]
+        + matrix[:, assembly.full_state_index["X_aa"]]
+        + matrix[:, assembly.full_state_index["X_fa"]]
+        + matrix[:, assembly.full_state_index["X_c4"]]
+        + matrix[:, assembly.full_state_index["X_pro"]]
+        + matrix[:, assembly.full_state_index["X_ac"]]
+        + matrix[:, assembly.full_state_index["X_h2"]]
+    )
+    dissolved_gas_cod = (
+        matrix[:, assembly.full_state_index["S_h2"]]
+        + matrix[:, assembly.full_state_index["S_ch4"]]
+    )
+    effluent_cod = particulate_cod + soluble_cod + vfa_total + biomass_cod + dissolved_gas_cod
     volatile_solids = particulate_cod + acidogens + matrix[:, assembly.full_state_index["X_pro"]] + matrix[:, assembly.full_state_index["X_ac"]] + matrix[:, assembly.full_state_index["X_h2"]]
     series.update(
         {

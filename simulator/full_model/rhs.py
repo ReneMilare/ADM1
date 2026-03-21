@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -18,8 +19,6 @@ class FullStateEvaluation:
     gas_transfer: GasTransferState
     rates: dict[str, float]
     inhibitions: dict[str, float]
-    hydrogen_iterations: int
-    hydrogen_converged: bool
 
 
 class FullCSTRRhs:
@@ -62,6 +61,12 @@ class FullCSTRRhs:
 
     def evaluate(self, *, dynamic_values: Mapping[str, float], use_cache: bool) -> FullStateEvaluation:
         acid_base = solve_acid_base(dynamic_values, self.params, initial_guess=self._last_h_ion if use_cache else None)
+        if not acid_base.converged:
+            logging.getLogger("adm1.full").warning(
+                "pH solver não convergiu em %d iterações (último pH=%.3f)",
+                acid_base.iterations,
+                acid_base.p_h,
+            )
         s_h2 = max(float(dynamic_values["S_h2"]), 0.0)
         full_state = assemble_full_state(
             dynamic_values,
@@ -89,6 +94,4 @@ class FullCSTRRhs:
             gas_transfer=gas_transfer,
             rates=rates,
             inhibitions=inhibitions,
-            hydrogen_iterations=0,
-            hydrogen_converged=True,
         )

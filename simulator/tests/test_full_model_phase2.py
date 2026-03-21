@@ -48,7 +48,6 @@ def test_full_backend_smoke_for_cstr() -> None:
         assert len(result.metadata["final_internal_state"]) == 38
         assert result.metadata["full_model_runtime"] == "native"
         assert result.metadata["full_model_ph_converged"] is True
-        assert result.metadata["full_model_hydrogen_converged"] is True
         assert result.summary.methane_final_m3_day > 0.0
         assert 5.0 <= result.summary.ph_final <= 8.5
     finally:
@@ -152,7 +151,6 @@ def test_full_rhs_dimensions_and_nominal_newton_convergence() -> None:
     assert np.isfinite(rate_vector).all()
     assert np.isfinite(derivative).all()
     assert evaluation.acid_base.converged is True
-    assert evaluation.hydrogen_converged is True
 
 
 def test_acid_base_solver_reports_iteration_limit_case() -> None:
@@ -171,3 +169,33 @@ def test_acid_base_solver_reports_iteration_limit_case() -> None:
     assert result.converged is False
     assert np.isfinite(result.p_h)
     assert result.s_h_ion > 0.0
+
+
+def test_algebraic_states_consistent_with_dynamic() -> None:
+    """pH deve ser -log10(S_H_ion) e S_nh3 + S_nh4_ion deve igualar S_IN."""
+    import math
+
+    feed = make_default_feed()
+    inputs = build_backend_inputs(
+        operating_conditions=make_default_operating_conditions(),
+        feed=feed,
+        initial_state=make_default_initial_state(feed),
+        parameters=make_default_kinetics(),
+    )
+    simulation = make_default_simulation_config().model_copy(update={"backend": "full", "duration_days": 60.0})
+    result = simulate_with_full_inputs(inputs=inputs, simulation=simulation)
+    profiles = result["profiles"]
+
+    ph_final = profiles["ph"][-1]
+    s_h_ion_final = profiles["S_H_ion"][-1]
+    assert abs(ph_final - (-math.log10(max(s_h_ion_final, 1e-14)))) < 1e-6, (
+        f"pH ({ph_final:.4f}) != -log10(S_H_ion) ({-math.log10(max(s_h_ion_final, 1e-14)):.4f})"
+    )
+
+    s_in_final = profiles["S_IN"][-1]
+    s_nh3_final = profiles["S_nh3"][-1]
+    s_nh4_final = profiles["S_nh4_ion"][-1]
+    nitrogen_balance_err = abs((s_nh3_final + s_nh4_final) - s_in_final) / max(s_in_final, 1e-9)
+    assert nitrogen_balance_err < 0.01, (
+        f"S_nh3 + S_nh4_ion ({s_nh3_final + s_nh4_final:.6f}) != S_IN ({s_in_final:.6f}), err={nitrogen_balance_err:.4f}"
+    )
