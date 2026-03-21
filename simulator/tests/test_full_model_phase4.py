@@ -30,7 +30,7 @@ def test_full_assembly_without_extensions_matches_base_catalog() -> None:
     assert assembly.full_process_names == FULL_PROCESS_NAMES
     assert len(assembly.full_state_names) == 38
     assert len(assembly.dynamic_state_names) == 29
-    assert list_registered_extensions() == ("pilot_tracer",)
+    assert set(list_registered_extensions()) == {"pilot_tracer", "lactate", "ethanol", "phenolics", "lcfa_adsorption", "srb"}
 
 
 
