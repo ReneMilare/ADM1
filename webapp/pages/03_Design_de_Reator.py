@@ -78,7 +78,8 @@ context_col, form_col = st.columns((0.95, 1.4))
 with context_col:
     st.subheader("Contexto do estudo")
     st.markdown(f"- Substrato: `{substrate_options[substrate_id]}`")
-    st.markdown(f"- Nota tecnica: {note_link}")
+    _note_label = note_link.removeprefix("[[").removesuffix("]]") if note_link else ""
+    st.markdown(f"- Nota tecnica: `{_note_label}`")
     st.markdown(f"- Feed: `{feed.name}`")
     st.caption(get_goal_description(design_goal))
     st.dataframe(

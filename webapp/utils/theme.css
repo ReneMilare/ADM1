@@ -259,3 +259,50 @@ pre,
 .stCodeBlock {
   color: #10202e;
 }
+
+/* Código inline dentro de botões: fundo transparente e herda a cor branca do botão */
+.stButton > button code,
+.stDownloadButton > button code,
+[data-testid="stFormSubmitButton"] button code {
+  background: transparent !important;
+  color: inherit !important;
+}
+
+/* O input de busca do BaseWeb multiselect recebe background branco da regra
+   genérica de input acima e fica sobreposto ao primeiro badge, ocultando o
+   primeiro caractere. Forçamos transparent para que o badge apareça por baixo. */
+[data-testid="stMultiSelect"] input {
+  background: transparent !important;
+}
+
+/* ── Multiselect tags ────────────────────────────────────────────────────── */
+/* Fundo teal herdado do tema + regra global de span escuro = texto ilegível.
+   Forçamos texto branco e garantimos que o primeiro tag não seja cortado.    */
+[data-baseweb="tag"] {
+  background-color: var(--adm1-accent) !important;
+  border: none !important;
+  overflow: visible !important;
+}
+
+/* div[data-baseweb="select"] span { color: var(--adm1-ink) !important } tem especificidade
+   (0,1,2) e ganha sobre [data-baseweb="tag"] span (0,1,1). Usamos o contexto do select para
+   igualar a especificidade e garantir texto branco nos badges. */
+div[data-baseweb="select"] [data-baseweb="tag"] span,
+div[data-baseweb="select"] [data-baseweb="tag"] svg,
+div[data-baseweb="select"] [data-baseweb="tag"] * {
+  color: #f0faf8 !important;
+  fill: #f0faf8 !important;
+}
+
+/* Evita que o primeiro badge seja cortado pelo border-radius do container.
+   - Nível 3 (div direto de [data-baseweb="select"]): border-radius:8px + overflow:hidden → clip
+   - Nível 2 (pai do SPAN tag): overflow:hidden auto → clip horizontal
+   Removemos overflow:hidden de ambos e adicionamos padding para preservar o layout. */
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div:first-child {
+  overflow: visible !important;
+  padding-left: 10px !important;
+}
+
+[data-testid="stMultiSelect"] [data-baseweb="select"] > div:first-child > div:first-child {
+  overflow: visible !important;
+}

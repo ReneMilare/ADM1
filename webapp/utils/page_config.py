@@ -6,7 +6,6 @@ from pathlib import Path
 import streamlit as st
 
 _THEME_CSS_PATH = Path(__file__).resolve().parent / "theme.css"
-_THEME_CSS = f"<style>\n{_THEME_CSS_PATH.read_text(encoding='utf-8')}\n</style>"
 
 
 def configure_page(title: str) -> None:
@@ -15,7 +14,8 @@ def configure_page(title: str) -> None:
         layout="wide",
         initial_sidebar_state="expanded",
     )
-    st.markdown(_THEME_CSS, unsafe_allow_html=True)
+    _theme_css = f"<style>\n{_THEME_CSS_PATH.read_text(encoding='utf-8')}\n</style>"
+    st.markdown(_theme_css, unsafe_allow_html=True)
 
 
 def render_page_header(*, eyebrow: str, title: str, description: str) -> None:

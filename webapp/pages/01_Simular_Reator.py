@@ -501,7 +501,8 @@ with context_col:
     st.markdown("### Contexto do substrato")
     if substrate_mode_label == "preset":
         st.markdown(f"- Preset: `{single_substrate_options.get(preset_id, preset_id)}`")
-        st.markdown(f"- Nota tecnica: {preset_link}")
+        _note_label = preset_link.removeprefix("[[").removesuffix("]]") if preset_link else ""
+        st.markdown(f"- Nota tecnica: `{_note_label}`")
         render_frame(
             [
                 {"parametro": "Feed", "valor": base_feed.name},
@@ -524,6 +525,18 @@ with context_col:
         st.caption("Os campos de alimentacao abaixo controlam diretamente a composicao simplificada usada pelo backend local.")
 
 with config_col:
+    # Seletor do modo hidráulico fora do form — widgets dentro do form não disparam
+    # rerun ao serem clicados, então o radio precisa ficar aqui para trocar o campo
+    # imediatamente ao ser selecionado.
+    if reactor_type != "batch":
+        st.radio(
+            "Definir por",
+            options=["hrt", "flow_rate"],
+            horizontal=True,
+            format_func=lambda v: {"hrt": "HRT (dias)", "flow_rate": "Vazão Q (m³/dia)"}[v],
+            key="hydraulic_mode",
+            help="HRT: informe diretamente o tempo de retenção hidráulico. Vazão: informe Q e HRT = V/Q é derivado.",
+        )
     with st.form("simulation_form"):
         left, right = st.columns(2)
         with left:
@@ -565,16 +578,7 @@ with config_col:
                 )
                 st.caption("Modo hidráulico: **N/A** — batelada não tem fluxo contínuo.")
             else:
-                hydraulic_mode_val = st.radio(
-                    "Definir por",
-                    options=["hrt", "flow_rate"],
-                    horizontal=True,
-                    format_func=lambda v: {"hrt": "HRT (dias)", "flow_rate": "Vazão Q (m³/dia)"}[v],
-                    index=["hrt", "flow_rate"].index(str(st.session_state.get("hydraulic_mode", "hrt"))),
-                    key="hydraulic_mode",
-                    help="HRT: informe diretamente o tempo de retenção hidráulico. Vazão: informe Q e HRT = V/Q é derivado.",
-                )
-                if hydraulic_mode_val == "hrt":
+                if st.session_state.get("hydraulic_mode", "hrt") == "hrt":
                     st.number_input(
                         "HRT [dias]",
                         min_value=0.5,
