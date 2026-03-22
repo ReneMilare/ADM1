@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping
 
 import numpy as np
@@ -95,6 +96,16 @@ def simulate_with_full_inputs(
         rtol = max(rtol, 1e-4)
         atol = max(atol, 1e-6)
     max_step = simulation.duration_days / 20.0
+
+    # Contagens de dimensão para metadados técnicos
+    n_dynamic = len(inputs.assembly.dynamic_state_names)
+    n_algebraic = len(inputs.assembly.algebraic_state_names)
+    n_pseudo = len(inputs.assembly.pseudo_state_names)
+    n_full = len(inputs.assembly.full_state_names)
+    # Dimensão efetiva do sistema de EDOs = estados dinâmicos × número de segmentos
+    effective_ode_dimension = n_dynamic * segment_count
+
+    t_start = time.perf_counter()
     solution = solve_ivp(
         system,
         t_span=(0.0, simulation.duration_days),
@@ -105,20 +116,22 @@ def simulate_with_full_inputs(
         atol=atol,
         max_step=max_step,
     )
+    runtime_seconds = time.perf_counter() - t_start
+
     if not solution.success:
         raise RuntimeError(f"Full ADM1 simulation failed ({reactor_type}): {solution.message}")
 
-    # For multi-segment reactors, extract the last segment (effluent) for post-processing.
+    # Para reatores multi-segmento, extrai o último segmento (efluente) para pós-processamento.
     m = len(inputs.assembly.dynamic_state_names)
     if segment_count > 1:
-        # solution.y shape: (n_seg*m, n_time) → take last segment rows for profiles
+        # solution.y shape: (n_seg*m, n_time) → pega as linhas do último segmento para perfis
         last_seg_rows = solution.y[(segment_count - 1) * m : segment_count * m, :]
         dynamic_matrix = np.clip(last_seg_rows.T.astype(float), a_min=0.0, a_max=None)
     else:
         dynamic_matrix = np.clip(solution.y.T.astype(float), a_min=0.0, a_max=None)
 
-    # Evaluate full state (acid-base + gas transfer) at each time point for the last segment.
-    # For multi-segment, re-use the CSTR evaluate() logic on the effluent segment.
+    # Avalia o estado completo (equilíbrio ácido-base + transferência gasosa) em cada ponto de tempo.
+    # Para multi-segmento, reutiliza a lógica evaluate() do CSTR no segmento efluente.
     _eval_rhs: FullCSTRRhs
     if isinstance(system, FullCSTRRhs):
         _eval_rhs = system
@@ -155,6 +168,25 @@ def simulate_with_full_inputs(
         "full_model_ph_iterations_max": max(ev.acid_base.iterations for ev in evaluations),
         "full_model_runtime": "native",
         "full_model_active_extensions": list(inputs.assembly.active_extensions),
+        # ── Metadados técnicos do solver (Plano 2) ──────────────────────────
+        # Contagens de estados para observabilidade do sistema
+        "full_model_state_count": n_full,
+        "full_model_dynamic_state_count": n_dynamic,
+        "full_model_algebraic_state_count": n_algebraic,
+        "full_model_pseudo_state_count": n_pseudo,
+        "full_model_segment_count": segment_count,
+        # Dimensão efetiva = n_dynamic × n_segmentos (tamanho do vetor de estado integrado)
+        "full_model_effective_ode_dimension": effective_ode_dimension,
+        # Diagnóstico do solver scipy
+        "full_model_runtime_seconds": round(runtime_seconds, 4),
+        "full_model_solver_method": str(simulation.solver),
+        "full_model_solver_rtol": float(simulation.rtol),
+        "full_model_solver_atol": float(simulation.atol),
+        "full_model_time_grid_points": int(simulation.evaluation_points),
+        # Estatísticas de chamadas do solver (disponíveis na maioria dos métodos scipy)
+        "full_model_solver_nfev": int(getattr(solution, "nfev", 0) or 0),
+        "full_model_solver_njev": int(getattr(solution, "njev", 0) or 0),
+        "full_model_solver_nlu": int(getattr(solution, "nlu", 0) or 0),
     }
     return {
         "time_days": [float(v) for v in time_grid.tolist()],

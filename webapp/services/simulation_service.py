@@ -79,7 +79,20 @@ def build_feed_and_operating(
     manual_feed_values: dict[str, float | str],
     operating_values: dict[str, float],
     blend: CoDigestionBlend | None = None,
+    custom_substrate_values: dict[str, float | str] | None = None,
 ) -> tuple[FeedDefinition, OperatingConditions, str | None]:
+    """Constrói FeedDefinition e OperatingConditions a partir dos parâmetros da UI.
+
+    Suporta quatro caminhos de substrato:
+    - ``blend``: co-digestão com blending explícito
+    - ``preset`` / ``codigestion``: preset nativo (SUBSTRATE_PRESETS / CODIGESTION_PRESETS)
+    - ``custom``: substrato personalizado salvo pelo usuário
+    - ``manual``: edição livre de todos os campos
+
+    O campo ``operating_values`` aceita tanto ``hrt_days`` (para o modo HRT) quanto
+    ``flow_rate_m3_day`` (para o modo vazão). Se a vazão for fornecida, o HRT efetivo
+    é derivado como V / Q.
+    """
     if blend is not None:
         feed = blend.blend()
         base_operating, note_link = _operating_from_preset(preset_id)
@@ -87,7 +100,26 @@ def build_feed_and_operating(
         if not preset_id:
             raise ValueError("preset_id is required when substrate_mode='preset' or 'codigestion'")
         feed, base_operating, note_link = get_preset_bundle(preset_id)
+    elif substrate_mode == "custom":
+        # Substrato personalizado salvo pelo usuário
+        feed, base_operating = get_manual_defaults()
+        note_link = None
+        values = custom_substrate_values or manual_feed_values
+        feed = feed.model_copy(
+            update={
+                "name": str(values.get("name") or feed.name),
+                "particulate_cod": float(values.get("particulate_cod", feed.particulate_cod)),
+                "soluble_cod": float(values.get("soluble_cod", feed.soluble_cod)),
+                "acetate": float(values.get("acetate", feed.acetate)),
+                "propionate": float(values.get("propionate", feed.propionate)),
+                "hydrogen": float(values.get("hydrogen", feed.hydrogen)),
+                "inorganic_nitrogen": float(values.get("inorganic_nitrogen", feed.inorganic_nitrogen)),
+                "alkalinity": float(values.get("alkalinity", feed.alkalinity)),
+                "ph": float(values.get("ph", feed.ph)),
+            }
+        )
     else:
+        # Modo manual temporário
         feed, base_operating = get_manual_defaults()
         note_link = None
         feed = feed.model_copy(
@@ -104,11 +136,22 @@ def build_feed_and_operating(
             }
         )
 
+    volume_m3 = float(operating_values.get("volume_m3", base_operating.volume_m3))
+    temperature_c = float(operating_values.get("temperature_c", base_operating.temperature_c))
+
+    # Modo HRT vs Modo Vazão: calcula HRT efetivo a partir de Q quando informado
+    flow_rate = operating_values.get("flow_rate_m3_day")
+    if flow_rate is not None and float(flow_rate) > 0.0:
+        # Modo vazão: HRT = V / Q
+        hrt_days = volume_m3 / float(flow_rate)
+    else:
+        hrt_days = float(operating_values.get("hrt_days", base_operating.hrt_days))
+
     operating = base_operating.model_copy(
         update={
-            "volume_m3": float(operating_values.get("volume_m3", base_operating.volume_m3)),
-            "temperature_c": float(operating_values.get("temperature_c", base_operating.temperature_c)),
-            "hrt_days": float(operating_values.get("hrt_days", base_operating.hrt_days)),
+            "volume_m3": volume_m3,
+            "temperature_c": temperature_c,
+            "hrt_days": hrt_days,
         }
     )
     return feed, operating, note_link
@@ -268,19 +311,27 @@ def format_simulation_error(exc: Exception) -> str:
 
 
 def build_user_simulation_preset_payload(session_values: Mapping[str, Any]) -> dict[str, Any]:
+    # Modo hidráulico: "hrt" ou "flow_rate"
+    hydraulic_mode = str(session_values.get("hydraulic_mode", "hrt"))
+    operating: dict[str, Any] = {
+        "volume_m3": float(session_values.get("volume_active", 3000.0)),
+        "temperature_c": float(session_values.get("temperature_active", 35.0)),
+        "hrt_days": float(session_values.get("hrt_active", 20.0)),
+        "hydraulic_mode": hydraulic_mode,
+    }
+    if hydraulic_mode == "flow_rate":
+        operating["flow_rate_m3_day"] = float(session_values.get("flow_rate_active", 150.0))
+
     return {
         "reactor_type": str(session_values.get("sim_reactor_type", "cstr")),
         "substrate_mode": str(session_values.get("sim_substrate_mode", "preset")),
         "preset_id": session_values.get("sim_preset_id"),
+        "custom_substrate_name": session_values.get("sim_custom_substrate_name"),
         "backend_choice": str(session_values.get("sim_backend_choice", "pyadm1")),
         "ammonia_inhibition_mode": str(session_values.get("ammonia_inhibition_mode", "simple")),
         "codigestion_preset": session_values.get("codigestion_preset"),
         "variant_config": session_values.get("variant_config"),
-        "operating": {
-            "volume_m3": float(session_values.get("volume_active", 3000.0)),
-            "temperature_c": float(session_values.get("temperature_active", 35.0)),
-            "hrt_days": float(session_values.get("hrt_active", 20.0)),
-        },
+        "operating": operating,
         "simulation": {
             "duration_days": float(session_values.get("duration_days", 45.0)),
             "evaluation_points": int(session_values.get("evaluation_points", 181)),
@@ -314,6 +365,7 @@ def apply_user_simulation_preset(session_state: Any, payload: Mapping[str, Any])
     session_state["sim_reactor_type"] = str(payload.get("reactor_type", "cstr"))
     session_state["sim_substrate_mode"] = str(payload.get("substrate_mode", "preset"))
     session_state["sim_preset_id"] = payload.get("preset_id")
+    session_state["sim_custom_substrate_name"] = payload.get("custom_substrate_name", None)
     session_state["sim_backend_choice"] = str(payload.get("backend_choice", "pyadm1"))
     # New extension fields — backward compatible: default to safe values if absent
     session_state["ammonia_inhibition_mode"] = str(payload.get("ammonia_inhibition_mode", "simple"))
@@ -328,6 +380,10 @@ def apply_user_simulation_preset(session_state: Any, payload: Mapping[str, Any])
     session_state["volume_active"] = float(operating.get("volume_m3", 3000.0))
     session_state["temperature_active"] = float(operating.get("temperature_c", 35.0))
     session_state["hrt_active"] = float(operating.get("hrt_days", 20.0))
+    # Modo hidráulico — retrocompatível: default "hrt" quando ausente
+    session_state["hydraulic_mode"] = str(operating.get("hydraulic_mode", "hrt"))
+    if "flow_rate_m3_day" in operating:
+        session_state["flow_rate_active"] = float(operating["flow_rate_m3_day"])
     session_state["duration_days"] = float(simulation.get("duration_days", 45.0))
     session_state["evaluation_points"] = int(simulation.get("evaluation_points", 181))
     session_state["solver_choice"] = str(simulation.get("solver", "BDF"))
@@ -417,8 +473,19 @@ def run_simulation(
     full_extensions: list[str] | None = None,
     full_initial_state_overrides: dict[str, float] | None = None,
     full_influent_state_overrides: dict[str, float] | None = None,
+    custom_substrate_values: dict[str, float | str] | None = None,
+    hydraulic_mode: str = "hrt",
 ) -> SimulationResult:
-    # If blend not provided explicitly, auto-derive from co-digestion preset
+    """Executa simulação ADM1 com os parâmetros fornecidos.
+
+    Args:
+        hydraulic_mode: ``"hrt"`` para definir HRT diretamente, ou ``"flow_rate"``
+            para derivar HRT = V/Q (nesse caso, ``operating_values`` deve conter
+            ``flow_rate_m3_day``).
+        custom_substrate_values: Valores de substrato personalizado salvo pelo
+            usuário. Usado quando ``substrate_mode == "custom"``.
+    """
+    # Se blend não for fornecido explicitamente, deriva do preset de co-digestão
     if blend is None and substrate_mode == "codigestion" and preset_id:
         blend = get_codigestion_blend(preset_id)
 
@@ -428,6 +495,7 @@ def run_simulation(
         manual_feed_values=manual_feed_values,
         operating_values=operating_values,
         blend=blend,
+        custom_substrate_values=custom_substrate_values,
     )
     simulation = build_simulation_config(
         duration_days=duration_days,
@@ -444,10 +512,19 @@ def run_simulation(
     kinetics = KineticParameters(ammonia_inhibition_mode=ammonia_inhibition_mode)  # type: ignore[arg-type]
 
     service = ADM1SimulationService()
+
+    # Calcula Q e HRT efetivos para o metadado de resumo
+    effective_volume = float(operating.volume_m3)
+    effective_hrt = float(operating.hrt_days)
+    effective_q = effective_volume / effective_hrt if effective_hrt > 0.0 else 0.0
+
     metadata: dict[str, Any] = {
         "ui_origin": "streamlit_w2_w7",
         "substrate_mode": substrate_mode,
         "ammonia_inhibition_mode": ammonia_inhibition_mode,
+        "hydraulic_mode": hydraulic_mode,
+        "effective_flow_rate_m3_day": round(effective_q, 4),
+        "effective_hrt_days": round(effective_hrt, 4),
     }
     if preset_id:
         metadata["substrate_preset"] = preset_id
@@ -461,6 +538,8 @@ def run_simulation(
         metadata["full_initial_state_overrides_requested"] = dict(full_initial_state_overrides)
     if full_influent_state_overrides:
         metadata["full_influent_state_overrides_requested"] = dict(full_influent_state_overrides)
+    if substrate_mode == "custom" and custom_substrate_values:
+        metadata["custom_substrate_name"] = str(custom_substrate_values.get("name", ""))
 
     return service.simulate(
         reactor_config,

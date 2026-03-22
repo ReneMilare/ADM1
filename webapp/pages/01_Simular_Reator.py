@@ -18,10 +18,14 @@ from webapp.components.status_cards import (
 from webapp.components.tables import render_frame, render_input_table, render_series_preview, render_summary_table
 from webapp.services.health import collect_health_snapshot
 from webapp.services.preferences_service import (
+    delete_custom_substrate,
     delete_simulation_preset,
+    find_custom_substrate,
     get_preferences,
+    list_custom_substrates,
     list_simulation_presets,
     record_recent_simulation,
+    save_custom_substrate,
     save_simulation_preset,
 )
 from webapp.services.simulation_service import (
@@ -137,6 +141,7 @@ session_defaults = {
     "sim_reactor_type": preferences.get("default_reactor", "cstr"),
     "sim_substrate_mode": "preset",
     "sim_preset_id": default_preset_id,
+    "sim_custom_substrate_name": None,
     "sim_backend_choice": preferences.get("default_backend", "pyadm1"),
     "ammonia_inhibition_mode": preferences.get("ammonia_inhibition_mode_default", "simple"),
     "codigestion_preset": next(iter(codigestion_options)) if codigestion_options else None,
@@ -154,6 +159,8 @@ session_defaults = {
     "srb_initial_srb_h2": 0.05,
     "srb_initial_srb_pro": 0.05,
     "srb_initial_srb_bu": 0.05,
+    "hydraulic_mode": "hrt",
+    "flow_rate_active": 150.0,
 }
 for key, value in session_defaults.items():
     if key not in st.session_state:
@@ -205,9 +212,14 @@ with selector_col1:
 with selector_col2:
     substrate_mode_label = st.radio(
         "Modo de alimentacao",
-        options=["preset", "codigestion", "manual"],
+        options=["preset", "codigestion", "custom", "manual"],
         horizontal=True,
-        format_func=lambda value: {"preset": "Preset", "codigestion": "Co-digestão", "manual": "Manual"}[value],
+        format_func=lambda value: {
+            "preset": "Preset nativo",
+            "codigestion": "Co-digestão",
+            "custom": "Personalizado",
+            "manual": "Manual temporário",
+        }[value],
         key="sim_substrate_mode",
     )
 with selector_col3:
@@ -408,11 +420,56 @@ elif substrate_mode_label == "codigestion":
         else:
             base_feed, base_operating = get_manual_defaults()
             preset_link = None
+elif substrate_mode_label == "custom":
+    # ── Substrato personalizado salvo pelo usuário ─────────────────────────────
+    saved_substrates = list_custom_substrates()
+    if not saved_substrates:
+        st.warning("Nenhum substrato personalizado salvo. Use o painel 'Gerenciar substratos personalizados' abaixo para criar um.")
+        base_feed, base_operating = get_manual_defaults()
+        preset_id = None
+        preset_link = None
+    else:
+        custom_substrate_options = {str(item["name"]): str(item["name"]) for item in saved_substrates}
+        # Mantém seleção anterior se ainda válida
+        _prev_custom = st.session_state.get("sim_custom_substrate_name")
+        _custom_default = _prev_custom if _prev_custom in custom_substrate_options else next(iter(custom_substrate_options))
+        selected_custom_name = st.selectbox(
+            "Substrato personalizado",
+            options=list(custom_substrate_options),
+            format_func=lambda v: custom_substrate_options[v],
+            index=list(custom_substrate_options).index(_custom_default) if _custom_default in custom_substrate_options else 0,
+            key="sim_custom_substrate_name",
+        )
+        _custom_data = find_custom_substrate(selected_custom_name) or {}
+        base_feed, base_operating = get_manual_defaults()
+        # Carrega valores do substrato personalizado no feed base
+        base_feed = base_feed.model_copy(
+            update={
+                "name": str(_custom_data.get("name", selected_custom_name)),
+                "particulate_cod": float(_custom_data.get("particulate_cod", base_feed.particulate_cod)),
+                "soluble_cod": float(_custom_data.get("soluble_cod", base_feed.soluble_cod)),
+                "acetate": float(_custom_data.get("acetate", base_feed.acetate)),
+                "propionate": float(_custom_data.get("propionate", base_feed.propionate)),
+                "hydrogen": float(_custom_data.get("hydrogen", base_feed.hydrogen)),
+                "inorganic_nitrogen": float(_custom_data.get("inorganic_nitrogen", base_feed.inorganic_nitrogen)),
+                "alkalinity": float(_custom_data.get("alkalinity", base_feed.alkalinity)),
+                "ph": float(_custom_data.get("ph", base_feed.ph)),
+            }
+        )
+        preset_id = None
+        preset_link = None
+        st.caption(
+            f"Substrato: **{selected_custom_name}** | "
+            f"COD particulate: {_custom_data.get('particulate_cod', 0):.2f} | "
+            f"COD soluble: {_custom_data.get('soluble_cod', 0):.2f} | "
+            f"pH: {_custom_data.get('ph', 0):.2f} | "
+            f"Atualizado: {_custom_data.get('updated_at', 'N/A')}"
+        )
 else:
     base_feed, base_operating = get_manual_defaults()
     preset_link = None
 
-source_signature = f"{substrate_mode_label}:{preset_id or 'manual'}"
+source_signature = f"{substrate_mode_label}:{preset_id or st.session_state.get('sim_custom_substrate_name') or 'manual'}"
 skip_base_reset = bool(st.session_state.pop("sim_skip_base_reset", False))
 if st.session_state.get("sim_base_signature") != source_signature and not skip_base_reset:
     st.session_state["volume_active"] = float(base_operating.volume_m3)
@@ -459,6 +516,9 @@ with context_col:
         st.markdown("- Modo co-digestão ativo.")
         if codigestion_blend:
             st.caption("Composição blended exibida acima. Frações validadas pelo modelo.")
+    elif substrate_mode_label == "custom":
+        st.markdown("- Substrato personalizado ativo.")
+        st.caption("Substrato salvo pelo usuário. Edite no painel 'Gerenciar substratos personalizados' abaixo.")
     else:
         st.markdown("- Modo manual ativo.")
         st.caption("Os campos de alimentacao abaixo controlam diretamente a composicao simplificada usada pelo backend local.")
@@ -482,6 +542,8 @@ with config_col:
                 step=0.5,
                 key="temperature_active",
             )
+
+            # ── Seletor do modo hidráulico ────────────────────────────────────
             if reactor_type == "batch":
                 st.number_input(
                     "Duração do ensaio [dias]",
@@ -491,23 +553,59 @@ with config_col:
                     key="duration_days",
                     help="Para batelada, este campo define a duração total do ensaio BMP.",
                 )
-                # HRT hidden for batch — use a fixed placeholder value
+                # Para batelada: Q e HRT não se aplicam — desabilitados com valor fixo
                 st.number_input(
-                    "HRT [dias] (não usado em batelada)",
+                    "HRT [dias] (N/A em batelada)",
                     min_value=0.5,
                     value=float(st.session_state.get("hrt_active", 20.0)),
                     step=0.5,
                     key="hrt_active",
                     disabled=True,
+                    help="Batelada não usa HRT nem vazão contínua.",
                 )
+                st.caption("Modo hidráulico: **N/A** — batelada não tem fluxo contínuo.")
             else:
-                st.number_input(
-                    "HRT [dias]",
-                    min_value=0.5,
-                    value=float(st.session_state.get("hrt_active", base_operating.hrt_days)),
-                    step=0.5,
-                    key="hrt_active",
+                hydraulic_mode_val = st.radio(
+                    "Definir por",
+                    options=["hrt", "flow_rate"],
+                    horizontal=True,
+                    format_func=lambda v: {"hrt": "HRT (dias)", "flow_rate": "Vazão Q (m³/dia)"}[v],
+                    index=["hrt", "flow_rate"].index(str(st.session_state.get("hydraulic_mode", "hrt"))),
+                    key="hydraulic_mode",
+                    help="HRT: informe diretamente o tempo de retenção hidráulico. Vazão: informe Q e HRT = V/Q é derivado.",
                 )
+                if hydraulic_mode_val == "hrt":
+                    st.number_input(
+                        "HRT [dias]",
+                        min_value=0.5,
+                        value=float(st.session_state.get("hrt_active", base_operating.hrt_days)),
+                        step=0.5,
+                        key="hrt_active",
+                        help="Tempo de retenção hidráulico. A vazão Q = V / HRT é calculada automaticamente.",
+                    )
+                    # Mostra Q calculado como informação
+                    _v_preview = float(st.session_state.get("volume_active", base_operating.volume_m3))
+                    _hrt_preview = float(st.session_state.get("hrt_active", base_operating.hrt_days))
+                    if _hrt_preview > 0:
+                        st.caption(f"Vazão efetiva: **Q = {_v_preview / _hrt_preview:.1f} m³/dia**")
+                else:
+                    # Modo vazão: mostra Q e calcula HRT
+                    _v_form = float(st.session_state.get("volume_active", base_operating.volume_m3))
+                    _q_default = float(st.session_state.get("flow_rate_active", _v_form / max(float(st.session_state.get("hrt_active", base_operating.hrt_days)), 0.1)))
+                    st.number_input(
+                        "Vazão Q [m³/dia]",
+                        min_value=0.1,
+                        value=_q_default,
+                        step=10.0,
+                        key="flow_rate_active",
+                        help="Vazão afluente contínua. HRT = V / Q é derivado automaticamente.",
+                    )
+                    # Salva HRT derivado para manter consistência da sessão
+                    _q_actual = float(st.session_state.get("flow_rate_active", _q_default))
+                    _hrt_derived = _v_form / max(_q_actual, 0.01)
+                    st.session_state["hrt_active"] = _hrt_derived
+                    st.caption(f"HRT efetivo: **{_hrt_derived:.2f} dias** (V = {_v_form:.0f} m³, Q = {_q_actual:.1f} m³/dia)")
+
                 st.number_input(
                     "Duracao da simulacao [dias]",
                     min_value=1.0,
@@ -516,7 +614,7 @@ with config_col:
                     key="duration_days",
                 )
         with right:
-            if substrate_mode_label == "manual":
+            if substrate_mode_label in ("manual",):
                 st.text_input("Nome da alimentacao", value=st.session_state.get("manual_feed_name", base_feed.name), key="manual_feed_name")
                 st.number_input("Particulate COD [kgCOD/m3]", min_value=0.0, value=float(st.session_state.get("manual_particulate_cod", base_feed.particulate_cod)), step=0.1, key="manual_particulate_cod")
                 st.number_input("Soluble COD [kgCOD/m3]", min_value=0.0, value=float(st.session_state.get("manual_soluble_cod", base_feed.soluble_cod)), step=0.1, key="manual_soluble_cod")
@@ -526,6 +624,19 @@ with config_col:
                 st.number_input("Inorganic nitrogen [kgN/m3]", min_value=0.0, value=float(st.session_state.get("manual_inorganic_nitrogen", base_feed.inorganic_nitrogen)), step=0.05, key="manual_inorganic_nitrogen")
                 st.number_input("Alkalinity [kmol/m3 eq.]", min_value=0.1, value=float(st.session_state.get("manual_alkalinity", base_feed.alkalinity)), step=0.05, key="manual_alkalinity")
                 st.number_input("Influent pH", min_value=5.0, max_value=8.5, value=float(st.session_state.get("manual_feed_ph", base_feed.ph)), step=0.05, key="manual_feed_ph")
+            elif substrate_mode_label == "custom":
+                st.markdown("**Substrato personalizado carregado**")
+                st.caption("Os valores abaixo são do substrato personalizado selecionado. Para editar, use o painel 'Gerenciar substratos personalizados'.")
+                render_frame([
+                    {"parametro": "Feed", "valor": base_feed.name},
+                    {"parametro": "Particulate COD", "valor": f"{base_feed.particulate_cod:.3f} kgCOD/m3"},
+                    {"parametro": "Soluble COD", "valor": f"{base_feed.soluble_cod:.3f} kgCOD/m3"},
+                    {"parametro": "Acetate", "valor": f"{base_feed.acetate:.3f} kgCOD/m3"},
+                    {"parametro": "Propionate", "valor": f"{base_feed.propionate:.3f} kgCOD/m3"},
+                    {"parametro": "Influent pH", "valor": f"{base_feed.ph:.2f}"},
+                    {"parametro": "Inorganic N", "valor": f"{base_feed.inorganic_nitrogen:.3f} kgN/m3"},
+                    {"parametro": "Alkalinity", "valor": f"{base_feed.alkalinity:.3f} kmol/m3"},
+                ])
             else:
                 st.markdown("**Preset carregado**")
                 st.caption("Nesta versao, o preset define a composicao da alimentacao. Use o modo manual para ajustar a composicao campo a campo.")
@@ -658,6 +769,34 @@ if substrate_mode_label == "manual":
         "ph": st.session_state.get("manual_feed_ph", base_feed.ph),
     }
 
+# Substrato personalizado: valores já estão em base_feed (carregado acima)
+custom_substrate_values_active: dict | None = None
+if substrate_mode_label == "custom":
+    _cs_name = st.session_state.get("sim_custom_substrate_name")
+    _cs_data = find_custom_substrate(_cs_name) if _cs_name else None
+    if _cs_data:
+        custom_substrate_values_active = {k: _cs_data[k] for k in ("name", "particulate_cod", "soluble_cod", "acetate", "propionate", "hydrogen", "inorganic_nitrogen", "alkalinity", "ph") if k in _cs_data}
+
+# Modo hidráulico: monta operating_values com Q ou HRT conforme selecionado
+hydraulic_mode = str(st.session_state.get("hydraulic_mode", "hrt")) if reactor_type != "batch" else "hrt"
+_vol = float(st.session_state.get("volume_active", base_operating.volume_m3))
+_temp = float(st.session_state.get("temperature_active", base_operating.temperature_c))
+_hrt = float(st.session_state.get("hrt_active", base_operating.hrt_days))
+_operating_values: dict = {
+    "volume_m3": _vol,
+    "temperature_c": _temp,
+    "hrt_days": _hrt,
+}
+if hydraulic_mode == "flow_rate" and reactor_type != "batch":
+    _q = float(st.session_state.get("flow_rate_active", _vol / max(_hrt, 0.1)))
+    _operating_values["flow_rate_m3_day"] = _q
+    # HRT efetivo derivado de V/Q para exibição no resumo
+    _hrt_effective = _vol / max(_q, 0.01)
+    _q_effective = _q
+else:
+    _hrt_effective = _hrt
+    _q_effective = _vol / max(_hrt, 0.01)
+
 # Derive feed_nitrogen for contextual recommendation
 _feed_nitrogen = float(base_feed.inorganic_nitrogen) if substrate_mode_label != "manual" else float(manual_feed_values.get("inorganic_nitrogen", 0.0) or 0.0)
 
@@ -668,11 +807,7 @@ validation = validate_simulation_inputs(
     reactor_type=reactor_type,
     substrate_mode=substrate_mode_label,
     manual_feed_values=manual_feed_values,
-    operating_values={
-        "volume_m3": st.session_state.get("volume_active", base_operating.volume_m3),
-        "temperature_c": st.session_state.get("temperature_active", base_operating.temperature_c),
-        "hrt_days": st.session_state.get("hrt_active", base_operating.hrt_days),
-    },
+    operating_values=_operating_values,
     duration_days=float(st.session_state.get("duration_days", 45.0)),
     evaluation_points=int(st.session_state.get("evaluation_points", 181)),
     solver=str(st.session_state.get("solver_choice", "BDF")),
@@ -706,6 +841,76 @@ with st.expander("Salvar preset do usuario", expanded=False):
         except Exception as exc:
             st.error(format_simulation_error(exc))
 
+# ─── Gerenciar substratos personalizados ─────────────────────────────────────
+with st.expander("Gerenciar substratos personalizados", expanded=False):
+    st.caption(
+        "Crie substratos personalizados reutilizáveis separados dos presets nativos. "
+        "Cada substrato salvo pode ser selecionado no modo 'Personalizado' acima."
+    )
+    _saved_custom_list = list_custom_substrates()
+
+    if _saved_custom_list:
+        st.markdown("**Substratos salvos**")
+        render_frame([
+            {
+                "nome": item.get("name"),
+                "COD_part": f"{item.get('particulate_cod', 0):.2f}",
+                "COD_sol": f"{item.get('soluble_cod', 0):.2f}",
+                "pH": f"{item.get('ph', 0):.2f}",
+                "atualizado": item.get("updated_at", ""),
+            }
+            for item in _saved_custom_list
+        ])
+        _del_name = st.selectbox(
+            "Substrato para excluir",
+            options=[item["name"] for item in _saved_custom_list],
+            key="custom_substrate_to_delete",
+        )
+        if st.button("Excluir substrato selecionado", use_container_width=True):
+            delete_custom_substrate(_del_name)
+            _queue_flash(f"Substrato '{_del_name}' excluido.")
+            st.rerun()
+    else:
+        st.info("Nenhum substrato personalizado salvo ainda.")
+
+    st.markdown("---")
+    st.markdown("**Criar ou atualizar substrato personalizado**")
+    _cs_col1, _cs_col2 = st.columns(2)
+    with _cs_col1:
+        _new_cs_name = st.text_input("Nome do substrato", key="new_custom_substrate_name", placeholder="Ex: Lodo Misto Tratado")
+        _new_cs_pcod = st.number_input("Particulate COD [kgCOD/m3]", min_value=0.0, value=8.0, step=0.5, key="new_cs_pcod")
+        _new_cs_scod = st.number_input("Soluble COD [kgCOD/m3]", min_value=0.0, value=3.0, step=0.5, key="new_cs_scod")
+        _new_cs_ac = st.number_input("Acetate [kgCOD/m3]", min_value=0.0, value=0.5, step=0.05, key="new_cs_ac")
+        _new_cs_pro = st.number_input("Propionate [kgCOD/m3]", min_value=0.0, value=0.2, step=0.05, key="new_cs_pro")
+    with _cs_col2:
+        _new_cs_h2 = st.number_input("Hydrogen [kgCOD/m3]", min_value=0.0, value=0.001, step=0.001, format="%.4f", key="new_cs_h2")
+        _new_cs_nin = st.number_input("Inorganic nitrogen [kgN/m3]", min_value=0.0, value=1.0, step=0.05, key="new_cs_nin")
+        _new_cs_alk = st.number_input("Alkalinity [kmol/m3 eq.]", min_value=0.01, value=4.0, step=0.1, key="new_cs_alk")
+        _new_cs_ph = st.number_input("pH", min_value=5.0, max_value=8.5, value=7.0, step=0.05, key="new_cs_ph")
+
+    if st.button("Salvar substrato personalizado", use_container_width=True):
+        try:
+            if not _new_cs_name or not _new_cs_name.strip():
+                st.error("Informe um nome para o substrato personalizado.")
+            else:
+                save_custom_substrate(
+                    _new_cs_name,
+                    {
+                        "particulate_cod": _new_cs_pcod,
+                        "soluble_cod": _new_cs_scod,
+                        "acetate": _new_cs_ac,
+                        "propionate": _new_cs_pro,
+                        "hydrogen": _new_cs_h2,
+                        "inorganic_nitrogen": _new_cs_nin,
+                        "alkalinity": _new_cs_alk,
+                        "ph": _new_cs_ph,
+                    },
+                )
+                _queue_flash(f"Substrato personalizado '{_new_cs_name}' salvo.")
+                st.rerun()
+        except Exception as exc:
+            st.error(str(exc))
+
 if submitted:
     try:
         if validation["errors"]:
@@ -719,11 +924,7 @@ if submitted:
                 substrate_mode=substrate_mode_label,
                 preset_id=preset_id,
                 manual_feed_values=manual_feed_values,
-                operating_values={
-                    "volume_m3": st.session_state.get("volume_active", base_operating.volume_m3),
-                    "temperature_c": st.session_state.get("temperature_active", base_operating.temperature_c),
-                    "hrt_days": st.session_state.get("hrt_active", base_operating.hrt_days),
-                },
+                operating_values=_operating_values,
                 duration_days=float(st.session_state.get("duration_days", 45.0)),
                 evaluation_points=int(st.session_state.get("evaluation_points", 181)),
                 solver=str(st.session_state.get("solver_choice", "BDF")),
@@ -735,6 +936,8 @@ if submitted:
                 full_extensions=_active_extensions if _active_extensions else None,
                 full_initial_state_overrides=_full_initial_state_overrides,
                 full_influent_state_overrides=_full_influent_state_overrides,
+                custom_substrate_values=custom_substrate_values_active,
+                hydraulic_mode=hydraulic_mode,
             )
         st.session_state["latest_simulation"] = result
         st.session_state["latest_error"] = None
@@ -750,6 +953,27 @@ result = st.session_state.get("latest_simulation")
 if result is not None:
     st.subheader("Resultado da simulacao")
     render_simulation_kpis(result)
+
+    # ── Resumo de origem e modo hidráulico ────────────────────────────────────
+    _res_substrate_mode = result.metadata.get("substrate_mode", "")
+    _res_hydraulic_mode = result.metadata.get("hydraulic_mode", "hrt")
+    _res_q = result.metadata.get("effective_flow_rate_m3_day")
+    _res_hrt = result.metadata.get("effective_hrt_days")
+    _res_custom_name = result.metadata.get("custom_substrate_name")
+    _summary_parts: list[str] = []
+    if _res_substrate_mode == "preset":
+        _summary_parts.append(f"Substrato: preset nativo `{result.metadata.get('substrate_preset', '—')}`")
+    elif _res_substrate_mode == "custom":
+        _summary_parts.append(f"Substrato: personalizado `{_res_custom_name or '—'}`")
+    elif _res_substrate_mode == "codigestion":
+        _summary_parts.append("Substrato: co-digestão")
+    else:
+        _summary_parts.append("Substrato: manual temporário")
+    if _res_hydraulic_mode == "flow_rate":
+        _summary_parts.append(f"Hidráulico: definido por **Vazão Q = {_res_q:.1f} m³/dia** → HRT efetivo = {_res_hrt:.2f} dias")
+    else:
+        _summary_parts.append(f"Hidráulico: definido por **HRT = {_res_hrt:.2f} dias** → Q efetivo = {_res_q:.1f} m³/dia")
+    st.caption(" | ".join(_summary_parts))
 
     # Conditional extension KPIs
     _fan_series = result.series.get("free_ammonia_kgN_m3")
@@ -771,6 +995,97 @@ if result is not None:
         if _blend_name:
             _comps = result.metadata.get("blend_components", [])
             ext_cols[col_idx % 4].metric("Blend", str(_blend_name), delta=", ".join(str(c) for c in _comps) or None)
+
+    # ── Diagnóstico técnico do solver full (Plano 2) ──────────────────────────
+    _backend_used = str(result.metadata.get("backend_used", result.simulation.backend))
+    _backend_requested = str(result.metadata.get("backend_requested", result.simulation.backend))
+    _fallback_reason = result.metadata.get("fallback_reason")
+
+    # Sinalização clara de backend solicitado vs utilizado
+    if _backend_used != _backend_requested:
+        st.warning(
+            f"Backend solicitado: `{_backend_requested}` — backend efetivo: `{_backend_used}`. "
+            f"Motivo do fallback: {_fallback_reason or 'N/A'}"
+        )
+    else:
+        st.info(f"Backend: `{_backend_used}`")
+
+    if _backend_used == "full":
+        _n_state = result.metadata.get("full_model_state_count")
+        _n_dyn = result.metadata.get("full_model_dynamic_state_count")
+        _n_alg = result.metadata.get("full_model_algebraic_state_count")
+        _n_pseudo = result.metadata.get("full_model_pseudo_state_count")
+        _n_seg = result.metadata.get("full_model_segment_count", result.metadata.get("segment_count", 1))
+        _ode_dim = result.metadata.get("full_model_effective_ode_dimension")
+        _exts = result.metadata.get("full_model_active_extensions", [])
+        _runtime = result.metadata.get("full_model_runtime_seconds")
+        _method = result.metadata.get("full_model_solver_method")
+        _rtol = result.metadata.get("full_model_solver_rtol")
+        _atol = result.metadata.get("full_model_solver_atol")
+        _n_pts = result.metadata.get("full_model_time_grid_points")
+        _nfev = result.metadata.get("full_model_solver_nfev")
+        _njev = result.metadata.get("full_model_solver_njev")
+        _nlu = result.metadata.get("full_model_solver_nlu")
+        _ph_conv = result.metadata.get("full_model_ph_converged")
+        _ph_iter = result.metadata.get("full_model_ph_iterations_max")
+
+        # Cards resumidos com métricas principais
+        if any(v is not None for v in [_n_state, _n_dyn, _ode_dim, _runtime]):
+            _diag_cols = st.columns(4)
+            if _n_state is not None:
+                _diag_cols[0].metric("Estados totais", str(_n_state), help="Dimensão total do vetor de estado interno do modelo.")
+            if _n_dyn is not None:
+                _diag_cols[1].metric("Estados dinâmicos (EDO)", str(_n_dyn), help="Estados integrados como equações diferenciais ordinárias.")
+            if _ode_dim is not None:
+                _diag_cols[2].metric("Dimensão efetiva EDO", str(_ode_dim), help=f"n_dinâmico × n_segmentos = {_n_dyn} × {_n_seg}")
+            if _runtime is not None:
+                _diag_cols[3].metric("Tempo de execução", f"{_runtime:.3f} s", help="Tempo total de integração do solver.")
+
+        # Expander com diagnóstico técnico detalhado
+        with st.expander("Diagnostico tecnico do solver full", expanded=False):
+            st.markdown(
+                "O backend `full` integra numericamente as EDOs do ADM1 completo usando `scipy.integrate.solve_ivp`. "
+                "Os **estados dinâmicos** são integrados diretamente; os **estados algébricos** (equilíbrio ácido-base) "
+                "são resolvidos implicitamente a cada passo de tempo via iteração de Newton. "
+                "Os **pseudo-estados** são variáveis derivadas (fluxos de gás, pH) calculadas analiticamente do estado dinâmico."
+            )
+            _tech_rows = []
+            if _n_state is not None:
+                _tech_rows.append({"campo": "Estados totais", "valor": str(_n_state), "descricao": "Dimensão do vetor de estado completo"})
+            if _n_dyn is not None:
+                _tech_rows.append({"campo": "Estados dinâmicos (EDO)", "valor": str(_n_dyn), "descricao": "Integrados via solve_ivp"})
+            if _n_alg is not None:
+                _tech_rows.append({"campo": "Estados algébricos", "valor": str(_n_alg), "descricao": "Equilíbrio ácido-base por iteração de Newton"})
+            if _n_pseudo is not None:
+                _tech_rows.append({"campo": "Pseudo-estados", "valor": str(_n_pseudo), "descricao": "Variáveis derivadas (pH, fluxo de gás)"})
+            if _n_seg is not None:
+                _tech_rows.append({"campo": "Segmentos", "valor": str(_n_seg), "descricao": "CSTRs em série (1 = CSTR/batch/UASB)"})
+            if _ode_dim is not None:
+                _tech_rows.append({"campo": "Dimensão efetiva EDO", "valor": str(_ode_dim), "descricao": f"n_dyn × n_seg = {_n_dyn} × {_n_seg}"})
+            if _exts:
+                _tech_rows.append({"campo": "Extensões ativas", "valor": ", ".join(_exts), "descricao": "Módulos opcionais ativados"})
+            if _method:
+                _tech_rows.append({"campo": "Método solver", "valor": str(_method), "descricao": "Integrador scipy (BDF recomendado para sistemas stiff)"})
+            if _rtol is not None:
+                _tech_rows.append({"campo": "Tolerância relativa (rtol)", "valor": f"{_rtol:.2e}", "descricao": "Critério de convergência relativo"})
+            if _atol is not None:
+                _tech_rows.append({"campo": "Tolerância absoluta (atol)", "valor": f"{_atol:.2e}", "descricao": "Critério de convergência absoluto"})
+            if _n_pts is not None:
+                _tech_rows.append({"campo": "Pontos de grade temporal", "valor": str(_n_pts), "descricao": "Número de pontos de saída (t_eval)"})
+            if _nfev:
+                _tech_rows.append({"campo": "Avaliações de função (nfev)", "valor": str(_nfev), "descricao": "Total de chamadas ao RHS"})
+            if _njev:
+                _tech_rows.append({"campo": "Avaliações do Jacobiano (njev)", "valor": str(_njev), "descricao": "Chamadas de Jacobiano do solver"})
+            if _nlu:
+                _tech_rows.append({"campo": "Decomposições LU (nlu)", "valor": str(_nlu), "descricao": "Fatorações LU do método implícito"})
+            if _ph_conv is not None:
+                _tech_rows.append({"campo": "pH convergiu", "valor": "Sim" if _ph_conv else "Nao", "descricao": "Todos os passos de pH convergiram"})
+            if _ph_iter is not None:
+                _tech_rows.append({"campo": "Iterações máx. pH", "valor": str(_ph_iter), "descricao": "Máximo de iterações usadas no solver de pH"})
+            if _runtime is not None:
+                _tech_rows.append({"campo": "Tempo de execução (s)", "valor": f"{_runtime:.4f}", "descricao": "Tempo total de integração numérica"})
+            if _tech_rows:
+                render_frame(_tech_rows)
 
     if result.reactor.reactor_type == "cstr":
         st.subheader("Comparacao de backends neste caso")
