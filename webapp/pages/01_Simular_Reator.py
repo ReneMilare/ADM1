@@ -67,6 +67,25 @@ def _render_flash() -> None:
         st.toast(message)
 
 
+def _build_extension_state_overrides(active_extensions: list[str]) -> tuple[dict[str, float], dict[str, float]]:
+    initial: dict[str, float] = {}
+    influent: dict[str, float] = {}
+    if "srb" in active_extensions:
+        initial_pairs = {
+            "S_SO4": float(st.session_state.get("srb_initial_so4", 0.01)),
+            "X_SRB_ac": float(st.session_state.get("srb_initial_srb_ac", 0.10)),
+            "X_SRB_h2": float(st.session_state.get("srb_initial_srb_h2", 0.05)),
+            "X_SRB_pro": float(st.session_state.get("srb_initial_srb_pro", 0.05)),
+            "X_SRB_bu": float(st.session_state.get("srb_initial_srb_bu", 0.05)),
+        }
+        influent_pairs = {
+            "S_SO4": float(st.session_state.get("srb_influent_so4", 0.01)),
+        }
+        initial.update({name: value for name, value in initial_pairs.items() if abs(value) > 0.0})
+        influent.update({name: value for name, value in influent_pairs.items() if abs(value) > 0.0})
+    return initial, influent
+
+
 configure_page("Simular Reator")
 ensure_session_state()
 snapshot = collect_health_snapshot()
@@ -129,6 +148,12 @@ session_defaults = {
     "volume_active": 3000.0,
     "temperature_active": 35.0,
     "hrt_active": 20.0,
+    "srb_influent_so4": 0.01,
+    "srb_initial_so4": 0.01,
+    "srb_initial_srb_ac": 0.10,
+    "srb_initial_srb_h2": 0.05,
+    "srb_initial_srb_pro": 0.05,
+    "srb_initial_srb_bu": 0.05,
 }
 for key, value in session_defaults.items():
     if key not in st.session_state:
@@ -223,6 +248,63 @@ if backend_choice == "full":
         key="sim_full_extensions",
         help="Selecione módulos opcionais a ativar no backend full. Cada extensão adiciona estados e processos ao modelo.",
     )
+    if "srb" in _active_extensions:
+        with st.expander("Configuração mínima da extensão SRB", expanded=True):
+            st.caption(
+                "A redução de sulfato só reage se houver sulfato e biomassa SRB no modelo. "
+                "Sem esses estados, os perfis SRB ficam zerados."
+            )
+            _srb_col1, _srb_col2 = st.columns(2)
+            with _srb_col1:
+                st.number_input(
+                    "Sulfato afluente S_SO4 [kmol/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("srb_influent_so4", 0.01)),
+                    step=0.001,
+                    format="%.4f",
+                    key="srb_influent_so4",
+                )
+                st.number_input(
+                    "Sulfato inicial S_SO4 [kmol/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("srb_initial_so4", 0.01)),
+                    step=0.001,
+                    format="%.4f",
+                    key="srb_initial_so4",
+                )
+                st.number_input(
+                    "Biomassa inicial X_SRB_ac [kgCOD/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("srb_initial_srb_ac", 0.10)),
+                    step=0.01,
+                    format="%.4f",
+                    key="srb_initial_srb_ac",
+                )
+            with _srb_col2:
+                st.number_input(
+                    "Biomassa inicial X_SRB_h2 [kgCOD/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("srb_initial_srb_h2", 0.05)),
+                    step=0.01,
+                    format="%.4f",
+                    key="srb_initial_srb_h2",
+                )
+                st.number_input(
+                    "Biomassa inicial X_SRB_pro [kgCOD/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("srb_initial_srb_pro", 0.05)),
+                    step=0.01,
+                    format="%.4f",
+                    key="srb_initial_srb_pro",
+                )
+                st.number_input(
+                    "Biomassa inicial X_SRB_bu [kgCOD/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("srb_initial_srb_bu", 0.05)),
+                    step=0.01,
+                    format="%.4f",
+                    key="srb_initial_srb_bu",
+                )
 
 
 # ─── Substrate selection ──────────────────────────────────────────────────────
@@ -580,6 +662,7 @@ if substrate_mode_label == "manual":
 _feed_nitrogen = float(base_feed.inorganic_nitrogen) if substrate_mode_label != "manual" else float(manual_feed_values.get("inorganic_nitrogen", 0.0) or 0.0)
 
 ammonia_inhibition_mode = str(st.session_state.get("ammonia_inhibition_mode", "simple"))
+_full_initial_state_overrides, _full_influent_state_overrides = _build_extension_state_overrides(_active_extensions)
 
 validation = validate_simulation_inputs(
     reactor_type=reactor_type,
@@ -650,6 +733,8 @@ if submitted:
                 variant_config=variant_config,
                 blend=codigestion_blend,
                 full_extensions=_active_extensions if _active_extensions else None,
+                full_initial_state_overrides=_full_initial_state_overrides,
+                full_influent_state_overrides=_full_influent_state_overrides,
             )
         st.session_state["latest_simulation"] = result
         st.session_state["latest_error"] = None
@@ -759,10 +844,13 @@ if result is not None:
         # Map each extension to the series keys it contributes
         _EXT_SERIES: dict[str, list[tuple[str, str]]] = {
             "srb": [
-                ("S_SO4", "Sulfato S_SO4 [kgCOD/m³]"),
-                ("S_H2S", "Sulfeto H₂S S_H2S [kgCOD/m³]"),
+                ("S_SO4", "Sulfato S_SO4 [kmol/m³]"),
+                ("S_H2S", "Sulfeto dissolvido S_H2S [kmolS/m³]"),
+                ("S_gas_H2S", "H₂S no biogás S_gas_H2S [kmolS/m³]"),
                 ("X_SRB_ac", "Biomassa SRB acetoclástica X_SRB_ac [kgCOD/m³]"),
                 ("X_SRB_h2", "Biomassa SRB hidrogenotrófica X_SRB_h2 [kgCOD/m³]"),
+                ("X_SRB_pro", "Biomassa SRB propionotrófica X_SRB_pro [kgCOD/m³]"),
+                ("X_SRB_bu", "Biomassa SRB butirotrófica X_SRB_bu [kgCOD/m³]"),
             ],
             "lcfa_adsorption": [
                 ("X_LCFA_ads", "LCFA adsorvido X_LCFA_ads [kgCOD/m³]"),
@@ -785,11 +873,11 @@ if result is not None:
 
         for _ext_name in _ext_requested:
             _ext_series_defs = _EXT_SERIES.get(_ext_name, [])
-            _available = [(key, label) for key, label in _ext_series_defs if result.series.get(key)]
+            _available = [(key, label) for key, label in _ext_series_defs if key in result.series]
             if not _available:
                 continue
             with st.expander(f"🔬 {_EXTENSION_DESCRIPTIONS.get(_ext_name, _ext_name)}", expanded=True):
-                _t = result.series.get("time_days") or list(range(len(next(iter(_available))[0])))
+                _t = result.time_days
                 _cols = st.columns(min(len(_available), 2))
                 for i, (skey, slabel) in enumerate(_available):
                     _vals = result.series.get(skey, [])
@@ -811,9 +899,20 @@ if result is not None:
             if _so4_s or _h2s_s:
                 srb_cols = st.columns(2)
                 if _so4_s:
-                    srb_cols[0].metric("Sulfato efluente (S_SO4)", f"{_so4_s[-1]:.4f} kgCOD/m³")
+                    srb_cols[0].metric("Sulfato efluente (S_SO4)", f"{_so4_s[-1]:.4f} kmol/m³")
                 if _h2s_s:
-                    srb_cols[1].metric("Sulfeto efluente (S_H2S)", f"{_h2s_s[-1]:.4f} kgCOD/m³")
+                    srb_cols[1].metric("Sulfeto efluente (S_H2S)", f"{_h2s_s[-1]:.4f} kmolS/m³")
+            _srb_signal_keys = ("S_SO4", "S_H2S", "S_gas_H2S", "X_SRB_ac", "X_SRB_h2", "X_SRB_pro", "X_SRB_bu")
+            _srb_signal_series = [result.series.get(key, []) for key in _srb_signal_keys if key in result.series]
+            _srb_all_zero = _srb_signal_series and all(
+                max((abs(float(value)) for value in series), default=0.0) <= 1e-12
+                for series in _srb_signal_series
+            )
+            if _srb_all_zero:
+                st.warning(
+                    "A extensão SRB foi ativada, mas sulfato e biomassa SRB ficaram zerados nesta corrida. "
+                    "Revise os campos de sulfato afluente e biomassa inicial da SRB."
+                )
 
 
     render_series_preview(result)

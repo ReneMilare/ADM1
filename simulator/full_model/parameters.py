@@ -115,7 +115,7 @@ FULL_PARAMETER_CATALOG = (
     _parameter("k_m_pro", 13.0, DAY_INV, "biochemical", "canonical", "Taxa máxima de uptake de propionato."),
     _parameter("K_S_pro", 0.1, KG_COD_M3, "biochemical", "canonical", "Constante de meia-saturação de propionato."),
     _parameter("K_I_h2_pro", 3.5e-6, KG_COD_M3, "biochemical", "canonical", "Constante de inibição por H2 no uptake de propionato."),
-    _parameter("k_m_ac", 8.0, KG_COD_M3, "biochemical", "canonical", "Parâmetro cinético de acetoclásticos, mantido conforme o vendor.", notes="A unidade segue o valor declarado no vendor, embora a literatura clássica costume reportar d^-1."),
+    _parameter("k_m_ac", 8.0, DAY_INV, "biochemical", "canonical", "Taxa máxima de consumo de acetato por acetoclásticos.", notes="ADM1 Table 6 (Batstone 2002): k_m_ac = 8.0 d⁻¹. A unidade é d⁻¹ (taxa de consumo específica), não kgCOD/m³."),
     _parameter("K_S_ac", 0.15, KG_COD_M3, "biochemical", "canonical", "Constante de meia-saturação de acetato."),
     _parameter("K_I_nh3", 0.0018, MOLAR, "biochemical", "canonical", "Constante de inibição por amônia livre."),
     _parameter("pH_UL_ac", 7.0, DIMENSIONLESS, "biochemical", "canonical", "Limite superior de pH para acetoclásticos."),
@@ -154,6 +154,18 @@ FULL_PARAMETER_CATALOG = (
     _parameter("V_liq", 3400.0, M3, "operating", "canonical", "Volume líquido do benchmark BSM2 adotado no vendor."),
     _parameter("V_gas", 300.0, M3, "operating", "canonical", "Volume de headspace do benchmark BSM2 adotado no vendor."),
     _parameter("V_ad", 3700.0, M3, "operating", "derived", "Volume total do digestor.", notes="Derivado como V_liq + V_gas."),
+    # Runtime-derived parameters (computed in model.py from pH limits and solver config)
+    _parameter("K_pH_aa", 10 ** (-(4.0 + 5.5) / 2.0), DIMENSIONLESS, "biochemical", "derived", "Concentração [H+] no ponto médio de inibição por pH para acidogênicos/acetogênicos.", notes="Derivado em runtime: K_pH_aa = 10^(-½(pH_LL_aa + pH_UL_aa)). Varia com pH_LL_aa e pH_UL_aa."),
+    _parameter("nn_aa", 3.0 / max(5.5 - 4.0, 1e-9), DIMENSIONLESS, "biochemical", "derived", "Expoente de Hill para inibição por pH de acidogênicos/acetogênicos.", notes="Derivado em runtime: nn_aa = 3 / (pH_UL_aa - pH_LL_aa)."),
+    _parameter("K_pH_ac", 10 ** (-(6.0 + 7.0) / 2.0), DIMENSIONLESS, "biochemical", "derived", "Concentração [H+] no ponto médio de inibição por pH para acetoclásticos.", notes="Derivado em runtime: K_pH_ac = 10^(-½(pH_LL_ac + pH_UL_ac))."),
+    _parameter("n_ac", 3.0 / max(7.0 - 6.0, 1e-9), DIMENSIONLESS, "biochemical", "derived", "Expoente de Hill para inibição por pH de acetoclásticos.", notes="Derivado em runtime: n_ac = 3 / (pH_UL_ac - pH_LL_ac)."),
+    _parameter("K_pH_h2", 10 ** (-(5.0 + 6.0) / 2.0), DIMENSIONLESS, "biochemical", "derived", "Concentração [H+] no ponto médio de inibição por pH para hidrogenotróficos.", notes="Derivado em runtime: K_pH_h2 = 10^(-½(pH_LL_h2 + pH_UL_h2))."),
+    _parameter("n_h2", 3.0 / max(6.0 - 5.0, 1e-9), DIMENSIONLESS, "biochemical", "derived", "Expoente de Hill para inibição por pH de hidrogenotróficos.", notes="Derivado em runtime: n_h2 = 3 / (pH_UL_h2 - pH_LL_h2)."),
+    _parameter("q_ad", 170.0, "m3/d", "operating", "derived", "Vazão volumétrica do afluente.", notes="Valor de benchmark BSM2. Em runtime, derivado da configuração operacional."),
+    _parameter("p_atm", 1.01325, BAR, "physicochemical", "canonical", "Pressão atmosférica.", notes="Valor padrão de 1 atm = 1.01325 bar."),
+    _parameter("ph_solver_tol", 1e-12, DIMENSIONLESS, "numerical", "derived", "Tolerância do solver Newton-Raphson para pH.", notes="Controle numérico interno do solver de equilíbrio ácido-base."),
+    _parameter("max_newton_iterations", 1000.0, DIMENSIONLESS, "numerical", "derived", "Número máximo de iterações do solver Newton-Raphson.", notes="Limitação de segurança para convergência do solver de pH."),
+    _parameter("hydrogen_solver_tol", 1e-12, DIMENSIONLESS, "numerical", "derived", "Tolerância do solver de hidrogênio dissolvido.", notes="Controle numérico para resolver concentração de H2 no equilíbrio."),
 )
 
 FULL_PARAMETER_NAMES = tuple(parameter.name for parameter in FULL_PARAMETER_CATALOG)

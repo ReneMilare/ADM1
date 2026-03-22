@@ -67,6 +67,10 @@ def test_phase5_service_compare_backends_for_cstr_full_vs_pyadm1() -> None:
         shutil.rmtree(tmpdir, ignore_errors=True)
 
 
+import pytest
+
+
+@pytest.mark.slow
 def test_phase5_design_pipeline_accepts_full_for_all_reactors() -> None:
     """O backend full suporta todos os reatores incluindo plug_flow."""
     service, tmpdir = _make_service()

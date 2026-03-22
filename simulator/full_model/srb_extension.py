@@ -1,13 +1,17 @@
 """E4 — Redução de Sulfato por Bactérias SRB (Sulfate-Reducing Bacteria Extension).
 
 Adds sulfate reduction to the ADM1 framework, introducing competing pathways
-where SRB compete with acetogens and methanogens for H2 and acetate.
+where SRB compete with acetogens and methanogens for H2, acetate, propionate,
+and butyrate.
 
 States:
     S_SO4   (kmol/m³): Dissolved sulfate, limiting substrate for SRB
     S_H2S   (kmolS/m³): Total dissolved sulfide (H2S + HS⁻), produced by SRB
+    S_gas_H2S (kmolS/m³): Gas-phase H2S concentration
     X_SRB_ac (kgCOD/m³): SRB acetate-oxidizers (Desulfobacter group)
     X_SRB_h2 (kgCOD/m³): SRB H2-oxidizers (Desulfovibrio group)
+    X_SRB_pro (kgCOD/m³): SRB propionate-oxidizers
+    X_SRB_bu (kgCOD/m³): SRB butyrate-oxidizers
 
 Reactions:
   SRB acetate oxidation:
@@ -25,22 +29,24 @@ Reactions:
       ΔS_SO4 per kgCOD H2 = -(1-Y_SRB_h2) × (1/8) kmolS/kgCOD
       ΔS_H2S per kgCOD H2 = +(1-Y_SRB_h2) × (1/8) kmolS/kgCOD
 
-H2S stripping (simplified, first-order):
-    The gas-phase H2S state is not added (extension gas states don't receive gas
-    dynamics from rhs.py). Instead, stripping is modeled as a first-order loss
-    from S_H2S with rate constant k_La_H2S, representing the mass transfer to
-    the gas phase.
+  SRB propionate oxidation:
+      CH3CH2COO⁻ + 0.75 SO4²⁻ → CH3COO⁻ + CO2 + 0.75 HS⁻
+      Per kgCOD propionate: acetate yield = 64/112 = 0.5714 kgCOD/kgCOD
+
+  SRB butyrate oxidation:
+      CH3CH2CH2COO⁻ + 0.5 SO4²⁻ → 2 CH3COO⁻ + 0.5 HS⁻
+      Per kgCOD butyrate: acetate yield = 2×64/160 = 0.8 kgCOD/kgCOD
+
+H2S gas-liquid transfer (Henry's law):
+    rho_transfer = k_La_H2S * (S_H2S - K_H_H2S * p_gas_H2S)
+    where p_gas_H2S = S_gas_H2S * R * T / p_atm (similar to CH4/CO2/H2 in core).
 
 H2S inhibition on methanogenesis:
-    H2S inhibits acetoclastic methanogenesis (rho_11) and hydrogenotrophic
-    methanogenesis (rho_12) via first-order linear inhibition (Fedorovich 2003, Eq. 11):
+    H2S inhibits acetoclastic methanogenesis (rho_11), hydrogenotrophic
+    methanogenesis (rho_12), propionate degradation (rho_9), and butyrate
+    degradation (rho_8) via first-order linear inhibition (Fedorovich 2003, Eq. 11):
         I_H2S = max(0.0, 1.0 - S_H2S / K_I_H2S)
-    This is implemented via the InhibitionHookType mechanism in kinetics.py,
-    which multiplies the computed rates by the inhibition factor after all base
-    rates are assembled. K_I_H2S = 6.72e-3 kmolS/m³ ≈ 0.22 g S/L
-    (Fedorovich 2003, mean of reactors X3/X4). When S_H2S >= K_I_H2S, I_H2S = 0
-    (complete inhibition). The same linear form also applies to SRB self-inhibition
-    in _rates().
+    This is implemented via the InhibitionHookType mechanism in kinetics.py.
 
 Reference:
     Fedorovich, Lens & Kalyuzhnyi (2003). "Extension of Anaerobic Digestion Model
@@ -68,7 +74,7 @@ _KMOL_M3 = "kmol/m3"
 
 class _SRBExtension:
     name = "srb"
-    description = "E4: redução de sulfato por bactérias SRB competindo com metanogênese (Fedorovich 2003)."
+    description = "E4: redução de sulfato por 4 grupos SRB competindo com metanogênese (Fedorovich 2003)."
 
     def contribute(self) -> FullModelExtensionContribution:
         states = (
@@ -95,7 +101,19 @@ class _SRBExtension:
                 elemental_proxy=None,
                 source=_SRC,
                 notes="Units: kmolS/m³. Inhibitory above ~0.3 mM (free H2S). "
-                      "v1: no S_gas_H2S state; stripping modeled as first-order loss k_La_H2S.",
+                      "Gas-liquid transfer via k_La_H2S and Henry's law (K_H_H2S).",
+            ),
+            StateDefinition(
+                name="S_gas_H2S",
+                description="H2S na fase gasosa.",
+                unit=KMOL_S_M3,
+                phase="gas",
+                domain="soluble",
+                role="dynamic",
+                cod_role="inorganic",
+                elemental_proxy=None,
+                source=_SRC,
+                notes="Gas-phase H2S concentration. Gas-liquid transfer via k_La_H2S and Henry's law.",
             ),
             StateDefinition(
                 name="X_SRB_ac",
@@ -111,6 +129,28 @@ class _SRBExtension:
             StateDefinition(
                 name="X_SRB_h2",
                 description="Biomassa de SRB oxidadores de H2 (grupo Desulfovibrio).",
+                unit=KG_COD_M3,
+                phase="solid",
+                domain="active_biomass",
+                role="dynamic",
+                cod_role="cod",
+                elemental_proxy="C_bac",
+                source=_SRC,
+            ),
+            StateDefinition(
+                name="X_SRB_pro",
+                description="Biomassa de SRB oxidadores de propionato.",
+                unit=KG_COD_M3,
+                phase="solid",
+                domain="active_biomass",
+                role="dynamic",
+                cod_role="cod",
+                elemental_proxy="C_bac",
+                source=_SRC,
+            ),
+            StateDefinition(
+                name="X_SRB_bu",
+                description="Biomassa de SRB oxidadores de butirato.",
                 unit=KG_COD_M3,
                 phase="solid",
                 domain="active_biomass",
@@ -167,17 +207,60 @@ class _SRBExtension:
                 source=_SRC,
             ),
             ProcessDefinition(
-                name="rho_E4_H2S_stripping",
-                vendor_symbol="Rho_E4_5",
+                name="rho_E4_SRB_uptake_pro",
+                vendor_symbol="Rho_E4_5b",
                 family="biochemical",
-                description="Stripping simplificado de H2S da fase líquida (first-order loss).",
+                description="Oxidação de propionato por SRB: propionate + SO4²⁻ → products.",
                 rate_expression="computed_by_extension",
-                affected_states=("S_H2S",),
-                parameters=("k_La_H2S",),
+                affected_states=("S_pro", "S_SO4", "S_H2S", "S_ac", "S_IC", "S_IN", "X_SRB_pro"),
+                parameters=("k_m_SRB_pro", "K_S_SRB_pro", "K_S_SO4_pro", "Y_SRB_pro"),
+                inhibitions=("I_pH_aa",),
+                source=_SRC,
+            ),
+            ProcessDefinition(
+                name="rho_E4_SRB_uptake_bu",
+                vendor_symbol="Rho_E4_6b",
+                family="biochemical",
+                description="Oxidação de butirato por SRB: butyrate + SO4²⁻ → products.",
+                rate_expression="computed_by_extension",
+                affected_states=("S_bu", "S_SO4", "S_H2S", "S_ac", "S_IC", "S_IN", "X_SRB_bu"),
+                parameters=("k_m_SRB_bu", "K_S_SRB_bu", "K_S_SO4_bu", "Y_SRB_bu"),
+                inhibitions=("I_pH_aa",),
+                source=_SRC,
+            ),
+            ProcessDefinition(
+                name="rho_E4_decay_X_SRB_pro",
+                vendor_symbol="Rho_E4_7b",
+                family="biochemical",
+                description="Decaimento de X_SRB_pro → X_xc.",
+                rate_expression="computed_by_extension",
+                affected_states=("X_xc", "X_SRB_pro", "S_IC", "S_IN"),
+                parameters=("k_dec_X_SRB_pro",),
                 inhibitions=(),
                 source=_SRC,
-                notes="v1: first-order loss approximating gas stripping. No S_gas_H2S state. "
-                      "H2S_eq from Henry's law not applied (k_La_H2S is net loss rate).",
+            ),
+            ProcessDefinition(
+                name="rho_E4_decay_X_SRB_bu",
+                vendor_symbol="Rho_E4_8b",
+                family="biochemical",
+                description="Decaimento de X_SRB_bu → X_xc.",
+                rate_expression="computed_by_extension",
+                affected_states=("X_xc", "X_SRB_bu", "S_IC", "S_IN"),
+                parameters=("k_dec_X_SRB_bu",),
+                inhibitions=(),
+                source=_SRC,
+            ),
+            ProcessDefinition(
+                name="rho_E4_H2S_transfer",
+                vendor_symbol="Rho_E4_gas",
+                family="biochemical",
+                description="Transferência gás-líquido de H2S via Lei de Henry.",
+                rate_expression="computed_by_extension",
+                affected_states=("S_H2S", "S_gas_H2S"),
+                parameters=("k_La_H2S", "K_H_H2S"),
+                inhibitions=(),
+                source=_SRC,
+                notes="Gas-liquid H2S transfer: rho = k_La_H2S * (S_H2S - K_H_H2S * p_H2S).",
             ),
         )
 
@@ -299,15 +382,118 @@ class _SRBExtension:
             ),
             ParameterDefinition(
                 name="k_La_H2S",
-                value=0.5,
+                value=200.0,
                 unit=DAY_INV,
                 group="physicochemical",
-                classification="provisional",
-                description="Coeficiente de transferência de massa de H2S para a fase gasosa (d⁻¹).",
+                classification="calibrated",
+                description="Coeficiente volumétrico de transferência de massa para H2S (d⁻¹).",
                 source=_SRC,
-                notes="Net first-order stripping coefficient. Not a Henry's law implementation. "
-                      "Not tabulated in Fedorovich 2003. "
-                      "Effective k_La may range 0.1–2.0 d⁻¹ depending on mixing and headspace.",
+                notes="Same order of magnitude as k_La for CO2/CH4/H2 in ADM1 (200 d⁻¹). "
+                      "Represents gas-liquid mass transfer coefficient consistent with Henry's law formulation.",
+            ),
+            ParameterDefinition(
+                name="K_H_H2S",
+                value=0.099,
+                unit="kmol/m3/bar",
+                group="physicochemical",
+                classification="calibrated",
+                description="Constante de Henry para H2S (kmol/m³/bar a 35°C).",
+                source=_SRC,
+                notes="Sander 2015 compilation. H2S is much more soluble than CH4 or CO2.",
+            ),
+            # Propionate SRB parameters
+            ParameterDefinition(
+                name="k_m_SRB_pro",
+                value=9.5,
+                unit=DAY_INV,
+                group="biochemical",
+                classification="calibrated",
+                description="Taxa máxima de consumo de propionato por X_SRB_pro.",
+                source=_SRC,
+                notes="Fedorovich 2003: µ_max for propionate-oxidizing SRB.",
+            ),
+            ParameterDefinition(
+                name="K_S_SRB_pro",
+                value=0.20,
+                unit=KG_COD_M3,
+                group="biochemical",
+                classification="calibrated",
+                description="Meia-saturação para propionato (X_SRB_pro).",
+                source=_SRC,
+            ),
+            ParameterDefinition(
+                name="K_S_SO4_pro",
+                value=1.0e-4,
+                unit=_KMOL_M3,
+                group="biochemical",
+                classification="calibrated",
+                description="Meia-saturação para sulfato na oxidação de propionato.",
+                source=_SRC,
+            ),
+            ParameterDefinition(
+                name="Y_SRB_pro",
+                value=0.028,
+                unit=DIMENSIONLESS,
+                group="stoichiometric",
+                classification="calibrated",
+                description="Rendimento de biomassa de SRB_pro.",
+                source=_SRC,
+            ),
+            ParameterDefinition(
+                name="k_dec_X_SRB_pro",
+                value=0.015,
+                unit=DAY_INV,
+                group="biochemical",
+                classification="calibrated",
+                description="Taxa de decaimento de X_SRB_pro.",
+                source=_SRC,
+            ),
+            # Butyrate SRB parameters
+            ParameterDefinition(
+                name="k_m_SRB_bu",
+                value=9.0,
+                unit=DAY_INV,
+                group="biochemical",
+                classification="calibrated",
+                description="Taxa máxima de consumo de butirato por X_SRB_bu.",
+                source=_SRC,
+                notes="Fedorovich 2003: µ_max for butyrate-oxidizing SRB.",
+            ),
+            ParameterDefinition(
+                name="K_S_SRB_bu",
+                value=0.25,
+                unit=KG_COD_M3,
+                group="biochemical",
+                classification="calibrated",
+                description="Meia-saturação para butirato (X_SRB_bu).",
+                source=_SRC,
+            ),
+            ParameterDefinition(
+                name="K_S_SO4_bu",
+                value=1.0e-4,
+                unit=_KMOL_M3,
+                group="biochemical",
+                classification="calibrated",
+                description="Meia-saturação para sulfato na oxidação de butirato.",
+                source=_SRC,
+            ),
+            ParameterDefinition(
+                name="Y_SRB_bu",
+                value=0.021,
+                unit=DIMENSIONLESS,
+                group="stoichiometric",
+                classification="calibrated",
+                description="Rendimento de biomassa de SRB_bu.",
+                source=_SRC,
+            ),
+            ParameterDefinition(
+                name="k_dec_X_SRB_bu",
+                value=0.015,
+                unit=DAY_INV,
+                group="biochemical",
+                classification="calibrated",
+                description="Taxa de decaimento de X_SRB_bu.",
+                source=_SRC,
             ),
         )
 
@@ -329,7 +515,15 @@ class _SRBExtension:
         #     ΔS_SO4 = -(1-Y_SRB_h2) * 15.625 / 1000 = -(1-Y_SRB_h2) / 64  kmol/kgCOD
         #   S_IC = 0 for H2 (no C in H2); but S_IN = -Y*N_bac (biomass needs N)
         #
-        # H2S_stripping: direct first-order loss from S_H2S (not COD-based)
+        #   For SRB_pro (propionate oxidation):
+        #     CH3CH2COO⁻ + 0.75 SO4²⁻ → CH3COO⁻ + CO2 + 0.75 HS⁻
+        #     Acetate yield = 64/112 = 0.5714 kgCOD_ac / kgCOD_pro
+        #
+        #   For SRB_bu (butyrate oxidation):
+        #     CH3CH2CH2COO⁻ + 0.5 SO4²⁻ → 2 CH3COO⁻ + 0.5 HS⁻
+        #     Acetate yield = 2*64/160 = 0.8 kgCOD_ac / kgCOD_bu
+        #
+        # H2S_transfer: gas-liquid via Henry's law
         biochemical_stoichiometry_rows = {
             "rho_E4_SRB_uptake_ac": {
                 "S_ac": "-1",
@@ -359,9 +553,37 @@ class _SRBExtension:
                 "S_IC": "-s_13",
                 "S_IN": "N_bac - N_xc",
             },
-            "rho_E4_H2S_stripping": {
-                # H2S stripping: S_H2S decreases but no other state changes
-                # (in reality H2S enters gas phase, but we don't have S_gas_H2S)
+            "rho_E4_SRB_uptake_pro": {
+                "S_pro": "-1",
+                "S_ac": "(1.0 - Y_SRB_pro) * 0.5714",
+                "S_SO4": "-(1.0 - Y_SRB_pro) * 0.75 / 112.0",
+                "S_H2S": "(1.0 - Y_SRB_pro) * 0.75 / 112.0",
+                "S_IC": "C_pro - (1.0 - Y_SRB_pro) * 0.5714 * C_ac - Y_SRB_pro * C_bac",
+                "S_IN": "-Y_SRB_pro * N_bac",
+                "X_SRB_pro": "Y_SRB_pro",
+            },
+            "rho_E4_SRB_uptake_bu": {
+                "S_bu": "-1",
+                "S_ac": "(1.0 - Y_SRB_bu) * 0.8",
+                "S_SO4": "-(1.0 - Y_SRB_bu) * 0.5 / 160.0",
+                "S_H2S": "(1.0 - Y_SRB_bu) * 0.5 / 160.0",
+                "S_IC": "C_bu - (1.0 - Y_SRB_bu) * 0.8 * C_ac - Y_SRB_bu * C_bac",
+                "S_IN": "-Y_SRB_bu * N_bac",
+                "X_SRB_bu": "Y_SRB_bu",
+            },
+            "rho_E4_decay_X_SRB_pro": {
+                "X_xc": "1",
+                "X_SRB_pro": "-1",
+                "S_IC": "-s_13",
+                "S_IN": "N_bac - N_xc",
+            },
+            "rho_E4_decay_X_SRB_bu": {
+                "X_xc": "1",
+                "X_SRB_bu": "-1",
+                "S_IC": "-s_13",
+                "S_IN": "N_bac - N_xc",
+            },
+            "rho_E4_H2S_transfer": {
                 "S_H2S": "-1",
             },
         }
@@ -379,23 +601,33 @@ class _SRBExtension:
     def _rates(self, state: Mapping[str, float], params: Mapping[str, float]) -> dict[str, float]:
         s_ac = max(float(state.get("S_ac", 0.0)), 0.0)
         s_h2 = max(float(state.get("S_h2", 0.0)), 1e-12)
+        s_pro = max(float(state.get("S_pro", 0.0)), 0.0)
+        s_bu = max(float(state.get("S_bu", 0.0)), 0.0)
         s_so4 = max(float(state.get("S_SO4", 0.0)), 0.0)
         s_h2s = max(float(state.get("S_H2S", 0.0)), 0.0)
+        s_gas_h2s = max(float(state.get("S_gas_H2S", 0.0)), 0.0)
         x_srb_ac = max(float(state.get("X_SRB_ac", 0.0)), 0.0)
         x_srb_h2 = max(float(state.get("X_SRB_h2", 0.0)), 0.0)
+        x_srb_pro = max(float(state.get("X_SRB_pro", 0.0)), 0.0)
+        x_srb_bu = max(float(state.get("X_SRB_bu", 0.0)), 0.0)
         s_h_ion = max(float(state.get("S_H_ion", 1e-7)), 1e-14)
         s_in = max(float(state.get("S_IN", 1e-4)), 1e-12)
 
-        # pH inhibitions (use acetate pH limits for SRB_ac, H2-type for SRB_h2)
+        # pH inhibitions
         i_ph_ac = (params["K_pH_ac"] ** params["n_ac"]) / (s_h_ion ** params["n_ac"] + params["K_pH_ac"] ** params["n_ac"])
         i_ph_h2 = (params["K_pH_h2"] ** params["n_h2"]) / (s_h_ion ** params["n_h2"] + params["K_pH_h2"] ** params["n_h2"])
+        i_ph_aa = (params["K_pH_aa"] ** params["nn_aa"]) / (s_h_ion ** params["nn_aa"] + params["K_pH_aa"] ** params["nn_aa"])
         i_in_lim = 1.0 / (1.0 + params["K_S_IN"] / s_in)
 
         # Sulfate limitation (dual Monod: substrate × SO4)
         k_so4_ac = float(params["K_S_SO4_ac"])
         k_so4_h2 = float(params["K_S_SO4_h2"])
+        k_so4_pro = float(params["K_S_SO4_pro"])
+        k_so4_bu = float(params["K_S_SO4_bu"])
         i_so4_ac = s_so4 / (k_so4_ac + s_so4)
         i_so4_h2 = s_so4 / (k_so4_h2 + s_so4)
+        i_so4_pro = s_so4 / (k_so4_pro + s_so4)
+        i_so4_bu = s_so4 / (k_so4_bu + s_so4)
 
         # H2S inhibition on SRB themselves (feedback) — linear form: Fedorovich 2003 Eq. 11
         k_i_h2s = float(params.get("K_I_H2S", 6.72e-3))
@@ -419,25 +651,57 @@ class _SRBExtension:
             * i_in_lim
             * i_h2s
         )
+        rho_srb_pro = (
+            float(params["k_m_SRB_pro"])
+            * s_pro / (float(params["K_S_SRB_pro"]) + s_pro)
+            * i_so4_pro
+            * x_srb_pro
+            * i_ph_aa
+            * i_in_lim
+            * i_h2s
+        )
+        rho_srb_bu = (
+            float(params["k_m_SRB_bu"])
+            * s_bu / (float(params["K_S_SRB_bu"]) + s_bu)
+            * i_so4_bu
+            * x_srb_bu
+            * i_ph_aa
+            * i_in_lim
+            * i_h2s
+        )
         rho_dec_srb_ac = float(params["k_dec_X_SRB_ac"]) * x_srb_ac
         rho_dec_srb_h2 = float(params["k_dec_X_SRB_h2"]) * x_srb_h2
-        rho_strip = float(params["k_La_H2S"]) * s_h2s
+        rho_dec_srb_pro = float(params["k_dec_X_SRB_pro"]) * x_srb_pro
+        rho_dec_srb_bu = float(params["k_dec_X_SRB_bu"]) * x_srb_bu
+
+        # Gas-liquid H2S transfer via Henry's law
+        # p_gas_H2S = S_gas_H2S * R * T (simplified; consistent with core gas transfer)
+        r_gas = float(params.get("R", 8.314e-2))  # bar·L/(mol·K) = 8.314e-2 bar·m³/(kmol·K)
+        t_op = float(params.get("T_op", 308.15))
+        p_gas_h2s = s_gas_h2s * r_gas * t_op
+        k_h_h2s = float(params.get("K_H_H2S", 0.099))
+        rho_transfer = float(params["k_La_H2S"]) * (s_h2s - k_h_h2s * p_gas_h2s)
 
         return {
             "rho_E4_SRB_uptake_ac": rho_srb_ac,
             "rho_E4_SRB_uptake_h2": rho_srb_h2,
             "rho_E4_decay_X_SRB_ac": rho_dec_srb_ac,
             "rho_E4_decay_X_SRB_h2": rho_dec_srb_h2,
-            "rho_E4_H2S_stripping": rho_strip,
+            "rho_E4_SRB_uptake_pro": rho_srb_pro,
+            "rho_E4_SRB_uptake_bu": rho_srb_bu,
+            "rho_E4_decay_X_SRB_pro": rho_dec_srb_pro,
+            "rho_E4_decay_X_SRB_bu": rho_dec_srb_bu,
+            "rho_E4_H2S_transfer": rho_transfer,
         }
 
     def _inhibition(self, state: Mapping[str, float], params: Mapping[str, float]) -> dict[str, float]:
-        """H2S first-order linear inhibition on acetoclastic and hydrogenotrophic methanogenesis.
+        """H2S first-order linear inhibition on methanogenesis and VFA degradation.
 
         Fedorovich 2003 (ABB 109:33-45) Eq. 11 — first-order inhibition kinetics:
             I_H2S = max(0.0, 1.0 - S_H2S / K_I_H2S)
         When S_H2S >= K_I_H2S, complete inhibition (I_H2S = 0).
-        Applied to rho_11 (acetate → CH4) and rho_12 (H2 → CH4).
+        Applied to rho_11 (acetate → CH4), rho_12 (H2 → CH4),
+        rho_9 (propionate degradation), and rho_8 (butyrate degradation).
         """
         s_h2s = max(float(state.get("S_H2S", 0.0)), 0.0)
         k_i_h2s = float(params.get("K_I_H2S", 6.72e-3))
@@ -445,6 +709,8 @@ class _SRBExtension:
         return {
             "rho_11_uptake_acetate": i_h2s,
             "rho_12_uptake_hydrogen": i_h2s,
+            "rho_9_uptake_propionate": i_h2s,
+            "rho_8_uptake_c4": i_h2s,
         }
 
     def _diagnostics(
@@ -452,13 +718,19 @@ class _SRBExtension:
     ) -> dict[str, list[float]]:
         s_so4 = np.clip(matrix[:, assembly.full_state_index["S_SO4"]], 0.0, None)
         s_h2s = np.clip(matrix[:, assembly.full_state_index["S_H2S"]], 0.0, None)
+        s_gas_h2s = np.clip(matrix[:, assembly.full_state_index["S_gas_H2S"]], 0.0, None)
         x_srb_ac = np.clip(matrix[:, assembly.full_state_index["X_SRB_ac"]], 0.0, None)
         x_srb_h2 = np.clip(matrix[:, assembly.full_state_index["X_SRB_h2"]], 0.0, None)
+        x_srb_pro = np.clip(matrix[:, assembly.full_state_index["X_SRB_pro"]], 0.0, None)
+        x_srb_bu = np.clip(matrix[:, assembly.full_state_index["X_SRB_bu"]], 0.0, None)
         return {
             "S_SO4": s_so4.astype(float).tolist(),
             "S_H2S": s_h2s.astype(float).tolist(),
+            "S_gas_H2S": s_gas_h2s.astype(float).tolist(),
             "X_SRB_ac": x_srb_ac.astype(float).tolist(),
             "X_SRB_h2": x_srb_h2.astype(float).tolist(),
+            "X_SRB_pro": x_srb_pro.astype(float).tolist(),
+            "X_SRB_bu": x_srb_bu.astype(float).tolist(),
         }
 
 

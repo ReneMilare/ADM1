@@ -121,6 +121,8 @@ class ADM1SimulationService:
                 simulation=sim_config,
                 active_extensions=sim_config.full_extensions,
                 extension_parameter_overrides=sim_config.full_extension_parameter_overrides,
+                initial_state_overrides=sim_config.full_initial_state_overrides,
+                influent_state_overrides=sim_config.full_influent_state_overrides,
                 reactor_config=reactor_config,
             )
             time_days = np.asarray(backend_result["time_days"], dtype=float)
@@ -807,8 +809,16 @@ class ADM1SimulationService:
         if requested == "auto":
             if reactor.reactor_type == "cstr":
                 return _ResolvedBackend(requested=requested, used="pyadm1")
-            # Para outros reatores, full model é o backend mais fiel disponível
-            return _ResolvedBackend(requested=requested, used="full")
+            if reactor.reactor_type in ("uasb", "two_phase", "tpad", "batch"):
+                return _ResolvedBackend(requested=requested, used="full")
+            # plug_flow full model creates very large ODE systems (N_seg × 35+ states)
+            # that are computationally impractical for automated screening.
+            # Use reduced backend for auto mode; full is available via backend="full".
+            return _ResolvedBackend(
+                requested=requested,
+                used="reduced",
+                fallback_reason=f"Full model plug_flow ({reactor.reactor_type}) é computacionalmente intensivo para screening; usando reduced. Use backend='full' para análise detalhada.",
+            )
         raise ValueError(f"Unsupported backend '{requested}'")
 
     def _tail_convergence_metric(self, result: SimulationResult) -> float:

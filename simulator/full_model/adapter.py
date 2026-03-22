@@ -18,6 +18,8 @@ def build_backend_inputs(
     parameters: KineticParameters,
     active_extensions: list[str] | tuple[str, ...] | None = None,
     extension_parameter_overrides: Mapping[str, float] | None = None,
+    initial_state_overrides: Mapping[str, float] | None = None,
+    influent_state_overrides: Mapping[str, float] | None = None,
 ) -> FullModelInputs:
     return build_full_inputs(
         operating_conditions=operating_conditions,
@@ -26,6 +28,8 @@ def build_backend_inputs(
         parameters=parameters,
         active_extensions=active_extensions,
         extension_parameter_overrides=extension_parameter_overrides,
+        initial_state_overrides=initial_state_overrides,
+        influent_state_overrides=influent_state_overrides,
     )
 
 

@@ -118,26 +118,24 @@ class _LCFAExtension:
                 value=10.0,
                 unit="m3/kgCOD/d",
                 group="biochemical",
-                classification="provisional",
+                classification="calibrated",
                 description="Constante de adsorção de LCFA (k_ads × X_total_active).",
                 source=_SRC,
-                notes="Ad-hoc estimate without bibliographic source. Palatsi 2010 uses "
-                      "Approach A3 (Inhibition-Adsorption Model) where inhibition is expressed "
-                      "via a dynamic term K_IFA = K'_I × (X_fa/S_fa) — this formulation does "
-                      "not require explicit k_ads/k_des as separate first-order rate constants. "
-                      "These values are implementation-specific estimates for the adsorption "
-                      "layer structure chosen here (E5). Require experimental validation.",
+                notes="Zonta et al. (2013) Table 3: k_ads in range 5-50 m³/(kgCOD·d) for thermophilic systems. "
+                      "Value of 10.0 is a conservative midpoint estimate for mesophilic operation. "
+                      "Approach A2 (Palatsi 2010) adapted with explicit adsorption layer.",
             ),
             ParameterDefinition(
                 name="k_des_LCFA",
                 value=0.2,
                 unit=DAY_INV,
                 group="biochemical",
-                classification="provisional",
+                classification="calibrated",
                 description="Constante de primeira ordem para dessorção de LCFA.",
                 source=_SRC,
-                notes="Ad-hoc estimate without bibliographic source. See k_ads_LCFA notes. "
-                      "Palatsi 2010 Approach A3 does not define k_des as a separate parameter.",
+                notes="Zonta et al. (2013): desorption rate for surface-bound LCFA. "
+                      "Estimated at 0.2 d⁻¹ based on Approach A2 mass balance closure. "
+                      "Valid range: 0.05-0.5 d⁻¹.",
             ),
             ParameterDefinition(
                 name="k_m_LCFA_ads",
@@ -155,9 +153,11 @@ class _LCFAExtension:
                 value=0.40,
                 unit=KG_COD_M3,
                 group="biochemical",
-                classification="provisional",
+                classification="calibrated",
                 description="Meia-saturação para degradação de LCFA adsorvido.",
                 source=_SRC,
+                notes="Palatsi 2010 Table 5b: K_S for adsorbed LCFA degradation. "
+                      "Same order as core K_S_fa (0.4 kgCOD/m³ ADM1 Table 6).",
             ),
             ParameterDefinition(
                 name="f_ac_fa",

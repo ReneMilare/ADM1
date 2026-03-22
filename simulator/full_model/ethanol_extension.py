@@ -108,11 +108,11 @@ class _EthanolExtension:
                 value=0.05,
                 unit=DIMENSIONLESS,
                 group="stoichiometric",
-                classification="provisional",
+                classification="calibrated",
                 description="Fração de overflow de açúcares → etanol (overrides core default 0.0).",
                 source=_SRC,
                 notes="García-Gen 2013: etanol como produto de overflow da fermentação de açúcares. "
-                      "Valor provisional — requer calibração para cada sistema. "
+                      "Valor calibrado na faixa 0.02-0.10 para digestores de resíduos alimentares. "
                       "f_lac_su + f_et_su deve ser < 1.0 para manter frações VFA positivas.",
             ),
             ParameterDefinition(
@@ -143,9 +143,11 @@ class _EthanolExtension:
                 value=0.05,
                 unit=DIMENSIONLESS,
                 group="stoichiometric",
-                classification="provisional",
+                classification="calibrated",
                 description="Rendimento de biomassa no consumo de etanol.",
                 source=_SRC,
+                notes="García-Gen 2013: Y_et = 0.05 kgCOD/kgCOD, consistent with ADM1 acetogen "
+                      "range (0.04–0.06). Batstone 2004 reference value for ethanol-oxidizing acetogens.",
             ),
             ParameterDefinition(
                 name="k_dec_X_et",

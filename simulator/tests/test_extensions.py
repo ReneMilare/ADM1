@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from simulator.core.defaults import make_default_kinetics, make_default_operating_conditions
+from simulator.core.defaults import make_default_feed, make_default_initial_state, make_default_kinetics, make_default_operating_conditions
 from simulator.core.models import OperatingConditions, SimulationConfig
 from simulator.full_model.adapter import build_backend_inputs_from_state_maps
 from simulator.full_model.extension_registry import resolve_full_model_assembly
@@ -23,6 +23,7 @@ from simulator.full_model.lcfa_extension import LCFA_EXTENSION
 from simulator.full_model.srb_extension import SRB_EXTENSION
 from simulator.full_model.model import FULL_STATE_NAMES, resolve_full_parameter_values
 from simulator.full_model.solver import simulate_with_full_inputs
+from simulator.service import ADM1SimulationService
 
 
 # ---------------------------------------------------------------------------
@@ -237,7 +238,7 @@ class TestPhenolicsExtension:
         state["S_IN"] = 0.01
         params = _make_params("phenolics")
         rates = PHENOLICS_EXTENSION._rates(state, params)
-        assert set(rates.keys()) == {"rho_E11_uptake_phenolics", "rho_E11_decay_X_phen"}
+        assert set(rates.keys()) == {"rho_E11_uptake_phenolics", "rho_E11_uptake_benzoate", "rho_E11_decay_X_phen", "rho_E11_decay_X_ben"}
         assert all(v >= 0.0 for v in rates.values())
 
     def test_high_phenol_reduces_rate(self):
@@ -334,7 +335,11 @@ class TestSRBExtension:
             "rho_E4_SRB_uptake_h2",
             "rho_E4_decay_X_SRB_ac",
             "rho_E4_decay_X_SRB_h2",
-            "rho_E4_H2S_stripping",
+            "rho_E4_SRB_uptake_pro",
+            "rho_E4_SRB_uptake_bu",
+            "rho_E4_decay_X_SRB_pro",
+            "rho_E4_decay_X_SRB_bu",
+            "rho_E4_H2S_transfer",
         } <= process_names
 
     def test_assembly_builds_without_error(self):
@@ -356,9 +361,16 @@ class TestSRBExtension:
             "rho_E4_SRB_uptake_h2",
             "rho_E4_decay_X_SRB_ac",
             "rho_E4_decay_X_SRB_h2",
-            "rho_E4_H2S_stripping",
+            "rho_E4_SRB_uptake_pro",
+            "rho_E4_SRB_uptake_bu",
+            "rho_E4_decay_X_SRB_pro",
+            "rho_E4_decay_X_SRB_bu",
+            "rho_E4_H2S_transfer",
         }
-        assert all(v >= 0.0 for v in rates.values())
+        # Gas-liquid transfer can be negative (re-absorption), so check only biochemical rates
+        for k, v in rates.items():
+            if k != "rho_E4_H2S_transfer":
+                assert v >= 0.0, f"{k} = {v} < 0"
 
     def test_no_sulfate_no_srb_activity(self):
         """SRB rates must be zero when S_SO4 = 0."""
@@ -371,16 +383,18 @@ class TestSRBExtension:
         assert rates["rho_E4_SRB_uptake_h2"] == pytest.approx(0.0, abs=1e-10)
 
     def test_h2s_stripping_proportional_to_h2s(self):
-        """rho_E4_H2S_stripping must equal k_La_H2S * S_H2S."""
+        """rho_E4_H2S_transfer must use Henry's law formulation."""
         assembly = resolve_full_model_assembly(["srb"])
         state = {name: 0.0 for name in assembly.full_state_names}
         state["S_H2S"] = 0.05
+        state["S_gas_H2S"] = 0.0
         state["S_H_ion"] = 1e-7
         state["S_IN"] = 0.01
         params = _make_params("srb")
         rates = SRB_EXTENSION._rates(state, params)
+        # With S_gas_H2S=0, transfer = k_La_H2S * S_H2S
         expected = params["k_La_H2S"] * 0.05
-        assert rates["rho_E4_H2S_stripping"] == pytest.approx(expected, rel=1e-9)
+        assert rates["rho_E4_H2S_transfer"] == pytest.approx(expected, rel=1e-9)
 
     def test_simulation_runs_without_crash(self):
         result = _run_extension("srb", {"S_SO4": 0.01, "X_SRB_ac": 0.3, "X_SRB_h2": 0.1})
@@ -464,5 +478,45 @@ class TestMultipleExtensions:
         result = simulate_with_full_inputs(inputs=inputs, simulation=sim)
         assert "profiles" in result
         assert result["profiles"]["biogas_m3_day"][-1] >= 0.0
+
+
+class TestExtensionStateOverrides:
+    def test_service_applies_srb_state_overrides_to_full_backend(self):
+        service = ADM1SimulationService()
+        feed = make_default_feed().model_copy(update={"acetate": 0.8, "propionate": 0.35})
+        initial = make_default_initial_state(feed)
+        simulation = SimulationConfig(
+            duration_days=10.0,
+            evaluation_points=21,
+            solver="BDF",
+            backend="full",
+            persist=False,
+            full_extensions=["srb"],
+            full_initial_state_overrides={
+                "S_SO4": 0.02,
+                "X_SRB_ac": 0.4,
+                "X_SRB_h2": 0.1,
+                "X_SRB_pro": 0.05,
+            },
+            full_influent_state_overrides={"S_SO4": 0.02},
+        )
+
+        result = service.simulate(
+            "cstr",
+            operating_conditions=make_default_operating_conditions(),
+            feed=feed,
+            initial_state=initial,
+            parameters=make_default_kinetics(),
+            simulation=simulation,
+        )
+
+        sulfate_series = result.series.get("S_SO4")
+        sulfide_series = result.series.get("S_H2S")
+        assert sulfate_series is not None
+        assert sulfide_series is not None
+        assert max(sulfate_series) > 0.0
+        assert max(result.series.get("X_SRB_ac", [])) > 0.0
+        assert sulfate_series[-1] < sulfate_series[0] + 1e-6
+        assert sulfide_series[-1] >= sulfide_series[0]
 
 

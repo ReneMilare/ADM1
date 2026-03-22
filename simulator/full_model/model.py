@@ -49,6 +49,8 @@ def build_full_inputs(
     parameters: KineticParameters,
     active_extensions: list[str] | tuple[str, ...] | None = None,
     extension_parameter_overrides: Mapping[str, float] | None = None,
+    initial_state_overrides: Mapping[str, float] | None = None,
+    influent_state_overrides: Mapping[str, float] | None = None,
 ) -> FullModelInputs:
     influent_frame = _build_influent_frame(
         time_grid=np.asarray([0.0], dtype=float),
@@ -56,11 +58,17 @@ def build_full_inputs(
         operating_conditions=operating_conditions,
     )
     initial_frame = _build_initial_frame(initial_state=initial_state, feed=feed)
+    influent_values = {name: float(influent_frame.iloc[0][name]) for name in influent_frame.columns if name != "time"}
+    initial_values = {name: float(initial_frame.iloc[0][name]) for name in initial_frame.columns}
+    for name, value in (influent_state_overrides or {}).items():
+        influent_values[name] = float(value)
+    for name, value in (initial_state_overrides or {}).items():
+        initial_values[name] = float(value)
     return build_full_inputs_from_state_maps(
         operating_conditions=operating_conditions,
         parameters=parameters,
-        influent_values={name: float(influent_frame.iloc[0][name]) for name in influent_frame.columns if name != "time"},
-        initial_values={name: float(initial_frame.iloc[0][name]) for name in initial_frame.columns},
+        influent_values=influent_values,
+        initial_values=initial_values,
         flow_rate_m3_day=float(feed.flow_rate_m3_day or (operating_conditions.volume_m3 / operating_conditions.hrt_days)),
         active_extensions=active_extensions,
         extension_parameter_overrides=extension_parameter_overrides,

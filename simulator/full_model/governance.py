@@ -208,6 +208,70 @@ def audit_governance() -> GovernanceAuditReport:
     )
 
 
+def audit_governance_with_assembly(assembly: object | None = None) -> GovernanceAuditReport:
+    """Audit governance including extension parameters from a resolved FullModelAssembly.
+
+    If *assembly* is provided, its ``parameter_catalog`` (which includes all active
+    extension parameters merged into the base catalog) is audited instead of only
+    the base ``FULL_PARAMETER_CATALOG``.  This ensures that provisional, missing-source,
+    or mis-classified extension parameters are captured by the governance gate.
+    """
+    traceability_rows = build_traceability_rows()
+    classification_counts: dict[str, int] = {}
+    provisional_parameters: list[str] = []
+    missing_source: list[str] = []
+    missing_classification: list[str] = []
+    invalid_classification: list[str] = []
+
+    catalog = assembly.parameter_catalog if assembly is not None else FULL_PARAMETER_CATALOG
+
+    for parameter in catalog:
+        classification_counts[parameter.classification] = classification_counts.get(parameter.classification, 0) + 1
+        if parameter.classification == "provisional":
+            provisional_parameters.append(parameter.name)
+        if not str(parameter.source).strip():
+            missing_source.append(parameter.name)
+        if not str(parameter.classification).strip():
+            missing_classification.append(parameter.name)
+        elif parameter.classification not in VALID_PARAMETER_CLASSIFICATIONS:
+            invalid_classification.append(parameter.name)
+
+    missing_reviews = _missing_files(REQUIRED_PHASE_REVIEW_FILES)
+    missing_matrices = _missing_files(REQUIRED_PHASE_MATRIX_FILES)
+    missing_templates = _missing_files(REQUIRED_TEMPLATE_FILES)
+    missing_governance_files = _missing_files(REQUIRED_GOVERNANCE_FILES)
+    governance_folder_exists = PROJECT_GOVERNANCE_ROOT.exists()
+
+    all_checks_pass = not any(
+        (
+            provisional_parameters,
+            missing_source,
+            missing_classification,
+            invalid_classification,
+            missing_reviews,
+            missing_matrices,
+            missing_templates,
+            missing_governance_files,
+            not governance_folder_exists,
+        )
+    )
+
+    return GovernanceAuditReport(
+        traceability_rows=traceability_rows,
+        parameter_classification_counts=classification_counts,
+        provisional_parameters=tuple(provisional_parameters),
+        parameters_without_source=tuple(missing_source),
+        parameters_without_classification=tuple(missing_classification),
+        parameters_with_invalid_classification=tuple(invalid_classification),
+        missing_review_files=missing_reviews,
+        missing_matrix_files=missing_matrices,
+        missing_template_files=missing_templates,
+        missing_governance_files=missing_governance_files,
+        governance_folder_exists=governance_folder_exists,
+        all_checks_pass=all_checks_pass,
+    )
+
+
 def render_traceability_markdown(rows: Iterable[TraceabilityRow], *, title: str = "Matriz de Rastreabilidade - ADM1 Full - Consolidada") -> str:
     lines = [
         "---",

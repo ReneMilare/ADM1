@@ -268,8 +268,9 @@ class FullPlugFlowRhs:
         v_liq_seg = self._seg_params["V_liq"]
         v_gas_seg = self._seg_params["V_gas"]
 
-        # Current segment state (from y vector)
-        segments = [y[i * m : (i + 1) * m] for i in range(n)]
+        # Current segment state (from y vector) — clamp negatives to prevent
+        # numeric divergence in multi-segment stiff systems.
+        segments = [np.clip(y[i * m : (i + 1) * m], 0.0, None) for i in range(n)]
 
         for seg_i in range(n):
             seg_y = segments[seg_i]
@@ -547,7 +548,9 @@ def build_reactor_mode(
         return FullUASBRhs(inputs=inputs, biomass_washout_factor=washout)
 
     if reactor_type == "plug_flow":
-        n_seg = 6
+        # Default 2 segments for full model (35+ states per segment → ~70 ODEs).
+        # More segments can be requested via ReactorConfig but increase computation time significantly.
+        n_seg = 2
         if cfg is not None:
             n_seg = cfg.segments
         return FullPlugFlowRhs(inputs=inputs, n_segments=n_seg)

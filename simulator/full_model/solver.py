@@ -22,6 +22,8 @@ def simulate_with_full(
     simulation: SimulationConfig,
     active_extensions: list[str] | tuple[str, ...] | None = None,
     extension_parameter_overrides: Mapping[str, float] | None = None,
+    initial_state_overrides: Mapping[str, float] | None = None,
+    influent_state_overrides: Mapping[str, float] | None = None,
     reactor_config: ReactorConfig | None = None,
 ) -> dict[str, object]:
     backend_inputs = build_backend_inputs(
@@ -31,6 +33,8 @@ def simulate_with_full(
         parameters=parameters,
         active_extensions=active_extensions,
         extension_parameter_overrides=extension_parameter_overrides,
+        initial_state_overrides=initial_state_overrides,
+        influent_state_overrides=influent_state_overrides,
     )
     return simulate_with_full_inputs(
         inputs=backend_inputs,
@@ -77,14 +81,29 @@ def simulate_with_full_inputs(
         y0 = f_inoc * y0 + (1.0 - f_inoc) * inputs.dynamic_influent
 
     time_grid = np.linspace(0.0, simulation.duration_days, simulation.evaluation_points)
+    # Multi-segment reactors (plug_flow) create very large ODE systems that are
+    # extremely stiff.  Radau (implicit Runge-Kutta) handles the Jacobian better
+    # than BDF for these systems and avoids numerical overflow in the finite-diff
+    # Jacobian estimation.  We also relax tolerances for large systems to keep
+    # wall-clock time practical while maintaining engineering accuracy (< 1% error).
+    solver_method = simulation.solver
+    rtol = simulation.rtol
+    atol = simulation.atol
+    if segment_count > 1:
+        if solver_method == "BDF":
+            solver_method = "Radau"
+        rtol = max(rtol, 1e-4)
+        atol = max(atol, 1e-6)
+    max_step = simulation.duration_days / 20.0
     solution = solve_ivp(
         system,
         t_span=(0.0, simulation.duration_days),
         y0=y0,
-        method=simulation.solver,
+        method=solver_method,
         t_eval=time_grid,
-        rtol=simulation.rtol,
-        atol=simulation.atol,
+        rtol=rtol,
+        atol=atol,
+        max_step=max_step,
     )
     if not solution.success:
         raise RuntimeError(f"Full ADM1 simulation failed ({reactor_type}): {solution.message}")

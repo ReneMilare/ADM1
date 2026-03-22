@@ -135,6 +135,8 @@ def build_simulation_config(
     persist: bool,
     ammonia_inhibition_mode: str = "simple",
     full_extensions: list[str] | None = None,
+    full_initial_state_overrides: dict[str, float] | None = None,
+    full_influent_state_overrides: dict[str, float] | None = None,
 ) -> SimulationConfig:
     base = make_default_simulation_config()
     return base.model_copy(
@@ -145,6 +147,8 @@ def build_simulation_config(
             "backend": backend,
             "persist": bool(persist),
             "full_extensions": list(full_extensions or []),
+            "full_initial_state_overrides": dict(full_initial_state_overrides or {}),
+            "full_influent_state_overrides": dict(full_influent_state_overrides or {}),
         }
     )
 
@@ -283,6 +287,14 @@ def build_user_simulation_preset_payload(session_values: Mapping[str, Any]) -> d
             "solver": str(session_values.get("solver_choice", "BDF")),
             "persist": bool(session_values.get("persist_case", True)),
         },
+        "full_extension_state_inputs": {
+            "srb_influent_so4": float(session_values.get("srb_influent_so4", 0.01)),
+            "srb_initial_so4": float(session_values.get("srb_initial_so4", 0.01)),
+            "srb_initial_srb_ac": float(session_values.get("srb_initial_srb_ac", 0.10)),
+            "srb_initial_srb_h2": float(session_values.get("srb_initial_srb_h2", 0.05)),
+            "srb_initial_srb_pro": float(session_values.get("srb_initial_srb_pro", 0.05)),
+            "srb_initial_srb_bu": float(session_values.get("srb_initial_srb_bu", 0.05)),
+        },
         "manual_feed_values": {
             "name": str(session_values.get("manual_feed_name", "Manual feed")),
             "particulate_cod": float(session_values.get("manual_particulate_cod", 0.0)),
@@ -311,6 +323,7 @@ def apply_user_simulation_preset(session_state: Any, payload: Mapping[str, Any])
     operating = payload.get("operating", {}) if isinstance(payload.get("operating"), dict) else {}
     simulation = payload.get("simulation", {}) if isinstance(payload.get("simulation"), dict) else {}
     manual_feed_values = payload.get("manual_feed_values", {}) if isinstance(payload.get("manual_feed_values"), dict) else {}
+    full_extension_state_inputs = payload.get("full_extension_state_inputs", {}) if isinstance(payload.get("full_extension_state_inputs"), dict) else {}
 
     session_state["volume_active"] = float(operating.get("volume_m3", 3000.0))
     session_state["temperature_active"] = float(operating.get("temperature_c", 35.0))
@@ -332,6 +345,16 @@ def apply_user_simulation_preset(session_state: Any, payload: Mapping[str, Any])
         "manual_feed_ph": 7.0,
     }.items():
         session_state[key] = manual_feed_values.get(key.removeprefix("manual_"), manual_feed_values.get(key, fallback))
+
+    for key, fallback in {
+        "srb_influent_so4": 0.01,
+        "srb_initial_so4": 0.01,
+        "srb_initial_srb_ac": 0.10,
+        "srb_initial_srb_h2": 0.05,
+        "srb_initial_srb_pro": 0.05,
+        "srb_initial_srb_bu": 0.05,
+    }.items():
+        session_state[key] = float(full_extension_state_inputs.get(key, fallback))
 
 
 
@@ -392,6 +415,8 @@ def run_simulation(
     variant_config: dict[str, Any] | None = None,
     blend: CoDigestionBlend | None = None,
     full_extensions: list[str] | None = None,
+    full_initial_state_overrides: dict[str, float] | None = None,
+    full_influent_state_overrides: dict[str, float] | None = None,
 ) -> SimulationResult:
     # If blend not provided explicitly, auto-derive from co-digestion preset
     if blend is None and substrate_mode == "codigestion" and preset_id:
@@ -412,6 +437,8 @@ def run_simulation(
         persist=persist,
         ammonia_inhibition_mode=ammonia_inhibition_mode,
         full_extensions=full_extensions,
+        full_initial_state_overrides=full_initial_state_overrides,
+        full_influent_state_overrides=full_influent_state_overrides,
     )
     reactor_config = _build_reactor_config(reactor_type, variant_config)
     kinetics = KineticParameters(ammonia_inhibition_mode=ammonia_inhibition_mode)  # type: ignore[arg-type]
@@ -430,6 +457,10 @@ def run_simulation(
         metadata["variant_config"] = variant_config
     if full_extensions:
         metadata["full_extensions_requested"] = full_extensions
+    if full_initial_state_overrides:
+        metadata["full_initial_state_overrides_requested"] = dict(full_initial_state_overrides)
+    if full_influent_state_overrides:
+        metadata["full_influent_state_overrides_requested"] = dict(full_influent_state_overrides)
 
     return service.simulate(
         reactor_config,

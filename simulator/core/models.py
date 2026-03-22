@@ -319,6 +319,14 @@ class SimulationConfig(StrictModel):
         default_factory=dict,
         description="Overrides pontuais de par?metros do assembly full, incluindo extens?es ativas.",
     )
+    full_initial_state_overrides: dict[str, float] = Field(
+        default_factory=dict,
+        description="Overrides pontuais do estado inicial completo do backend full, incluindo estados de extens?es.",
+    )
+    full_influent_state_overrides: dict[str, float] = Field(
+        default_factory=dict,
+        description="Overrides pontuais do afluente completo do backend full, incluindo estados de extens?es.",
+    )
 
     @model_validator(mode="after")
     def normalize_full_extensions(self) -> "SimulationConfig":
