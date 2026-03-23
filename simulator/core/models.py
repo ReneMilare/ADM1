@@ -65,6 +65,24 @@ class FeedDefinition(StrictModel):
             self.alkalinity,
         ]
 
+    @model_validator(mode="after")
+    def validate_feed_composition(self) -> "FeedDefinition":
+        # VFA fractions must be a subset of soluble COD
+        vfa = self.acetate + self.propionate
+        if vfa > self.soluble_cod + 1e-6:
+            raise ValueError(
+                f"Acetate ({self.acetate:.3f}) + propionate ({self.propionate:.3f}) "
+                f"= {vfa:.3f} kgCOD/m³ exceeds soluble_cod ({self.soluble_cod:.3f} kgCOD/m³). "
+                "VFAs must be a subset of soluble COD."
+            )
+        # At least some substrate must be present
+        if self.particulate_cod + self.soluble_cod == 0.0:
+            raise ValueError(
+                "Total feed COD (particulate_cod + soluble_cod) must be > 0 kgCOD/m³. "
+                "A feed with no substrate cannot sustain anaerobic digestion."
+            )
+        return self
+
 
 class SubstrateFraction(StrictModel):
     feed: FeedDefinition
@@ -332,6 +350,16 @@ class SimulationConfig(StrictModel):
     def normalize_full_extensions(self) -> "SimulationConfig":
         unique_extensions = list(dict.fromkeys(self.full_extensions))
         object.__setattr__(self, "full_extensions", unique_extensions)
+        return self
+
+    @model_validator(mode="after")
+    def validate_solver_tolerances(self) -> "SimulationConfig":
+        if self.atol > self.rtol:
+            raise ValueError(
+                f"atol ({self.atol:.2e}) must be ≤ rtol ({self.rtol:.2e}). "
+                "Absolute tolerance must not exceed relative tolerance — "
+                "inverted tolerances destabilize the ODE solver."
+            )
         return self
 
 
