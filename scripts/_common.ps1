@@ -1,7 +1,7 @@
 Set-StrictMode -Version Latest
 
 $Script:Adm1ProjectRoot = Split-Path -Parent $PSScriptRoot
-$Script:Adm1DefaultEmbedModel = "nomic-embed-text"
+$Script:Adm1DefaultEmbedModel = "bge-m3"
 
 function Get-Adm1ProjectRoot {
     return $Script:Adm1ProjectRoot

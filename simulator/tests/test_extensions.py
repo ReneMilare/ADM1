@@ -1,4 +1,4 @@
-"""Tests for ADM1 extensions (E4-SRB, E5-LCFA, E6-Lactate, E10-Ethanol, E11-Phenolics, E12, E7, E8).
+"""Tests for ADM1 extensions (E4-SRB, E5-LCFA, E6-Lactate, E10-Ethanol, E11-Phenolics, E12, E7, E8, E20, E15, E9).
 
 Tests validate:
   1. Each extension can be contributed (contribute() runs without error)
@@ -24,6 +24,9 @@ from simulator.full_model.srb_extension import SRB_EXTENSION
 from simulator.full_model.multi_population_extension import MULTI_POPULATION_EXTENSION
 from simulator.full_model.phosphorus_extension import PHOSPHORUS_EXTENSION
 from simulator.full_model.iron_extension import IRON_EXTENSION
+from simulator.full_model.microalgae_extension import MICROALGAE_EXTENSION
+from simulator.full_model.syngas_extension import SYNGAS_EXTENSION
+from simulator.full_model.trace_elements_extension import TRACE_ELEMENTS_EXTENSION
 from simulator.full_model.model import FULL_STATE_NAMES, resolve_full_parameter_values
 from simulator.full_model.solver import simulate_with_full_inputs
 from simulator.service import ADM1SimulationService
@@ -83,30 +86,61 @@ def _make_params(ext_name: str | list[str]) -> dict:
     )
 
 
-def _run_extension(ext_name: str, extra_initial: dict[str, float] | None = None, hrt_days: float = 20.0) -> dict:
-    """Build inputs with one extension active, run simulation, return results."""
+def _run_extensions(
+    ext_names: str | list[str],
+    *,
+    extra_initial: dict[str, float] | None = None,
+    extra_influent: dict[str, float] | None = None,
+    parameter_overrides: dict[str, float] | None = None,
+    hrt_days: float = 20.0,
+    duration_days: float = 10.0,
+    evaluation_points: int = 21,
+) -> dict:
+    """Build inputs with one or more extensions active, run simulation, return results."""
+    ext_list = [ext_names] if isinstance(ext_names, str) else list(ext_names)
     oc = OperatingConditions(volume_m3=3400.0, temperature_c=35.0, hrt_days=hrt_days)
     initial = _base_state()
     if extra_initial:
         initial.update(extra_initial)
     influent = dict(initial)
+    if extra_influent:
+        influent.update(extra_influent)
     inputs = build_backend_inputs_from_state_maps(
         operating_conditions=oc,
         parameters=make_default_kinetics(),
         influent_values=influent,
         initial_values=initial,
         flow_rate_m3_day=3400.0 / hrt_days,
-        active_extensions=[ext_name],
+        active_extensions=ext_list,
+        extension_parameter_overrides=parameter_overrides,
     )
     sim = SimulationConfig(
-        duration_days=10.0,
-        evaluation_points=21,
+        duration_days=duration_days,
+        evaluation_points=evaluation_points,
         solver="BDF",
         backend="full",
         persist=False,
-        full_extensions=[ext_name],
+        full_extensions=ext_list,
     )
     return simulate_with_full_inputs(inputs=inputs, simulation=sim)
+
+
+def _run_extension(
+    ext_name: str,
+    extra_initial: dict[str, float] | None = None,
+    hrt_days: float = 20.0,
+    parameter_overrides: dict[str, float] | None = None,
+    extra_influent: dict[str, float] | None = None,
+    duration_days: float = 10.0,
+) -> dict:
+    return _run_extensions(
+        [ext_name],
+        extra_initial=extra_initial,
+        extra_influent=extra_influent,
+        parameter_overrides=parameter_overrides,
+        hrt_days=hrt_days,
+        duration_days=duration_days,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -680,30 +714,23 @@ class TestFullModelSolverMetadata:
 # E12 — Multi-população de acetoclásticos e hidrogenotróficos
 # ---------------------------------------------------------------------------
 
-def _run_multi_extension(ext_names: list[str], extra_initial: dict | None = None) -> dict:
+def _run_multi_extension(
+    ext_names: list[str],
+    extra_initial: dict | None = None,
+    hrt_days: float = 20.0,
+    parameter_overrides: dict[str, float] | None = None,
+    extra_influent: dict[str, float] | None = None,
+    duration_days: float = 10.0,
+) -> dict:
     """Run simulation with multiple extensions active."""
-    oc = OperatingConditions(volume_m3=3400.0, temperature_c=35.0, hrt_days=20.0)
-    initial = _base_state()
-    if extra_initial:
-        initial.update(extra_initial)
-    influent = dict(initial)
-    inputs = build_backend_inputs_from_state_maps(
-        operating_conditions=oc,
-        parameters=make_default_kinetics(),
-        influent_values=influent,
-        initial_values=initial,
-        flow_rate_m3_day=170.0,
-        active_extensions=ext_names,
+    return _run_extensions(
+        ext_names,
+        extra_initial=extra_initial,
+        extra_influent=extra_influent,
+        parameter_overrides=parameter_overrides,
+        hrt_days=hrt_days,
+        duration_days=duration_days,
     )
-    sim = SimulationConfig(
-        duration_days=10.0,
-        evaluation_points=21,
-        solver="BDF",
-        backend="full",
-        persist=False,
-        full_extensions=ext_names,
-    )
-    return simulate_with_full_inputs(inputs=inputs, simulation=sim)
 
 
 class TestMultiPopulationExtension:
@@ -1044,3 +1071,452 @@ class TestIronExtension:
         assert "S_Fe2" in profiles
         assert "X_FeS" in profiles
         assert "X_VIV" in profiles
+
+
+# ---------------------------------------------------------------------------
+# E20 — Microalgas (Microalgae)
+# ---------------------------------------------------------------------------
+
+class TestMicroalgaeExtension:
+    def test_contribute_returns_1_state(self):
+        contribution = MICROALGAE_EXTENSION.contribute()
+        state_names = {s.name for s in contribution.states}
+        assert state_names == {"X_alg"}
+
+    def test_contribute_returns_1_process(self):
+        contribution = MICROALGAE_EXTENSION.contribute()
+        assert len(contribution.processes) == 1
+        assert contribution.processes[0].name == "rho_E20_dis_alg"
+
+    def test_stoichiometry_rows_cover_all_biochemical_processes(self):
+        contribution = MICROALGAE_EXTENSION.contribute()
+        process_names = {p.name for p in contribution.processes if p.family == "biochemical"}
+        stoich_names = set(contribution.biochemical_stoichiometry_rows.keys())
+        assert process_names == stoich_names
+
+    def test_assembly_builds_without_error(self):
+        assembly = resolve_full_model_assembly(["microalgae"])
+        assert "X_alg" in assembly.full_state_index
+        assert "rho_E20_dis_alg" in assembly.full_process_index
+
+    def test_assembly_has_30_dynamic_states(self):
+        assembly = resolve_full_model_assembly(["microalgae"])
+        assert len(assembly.dynamic_state_names) == 30
+
+    def test_rate_function_returns_correct_keys(self):
+        assembly = resolve_full_model_assembly(["microalgae"])
+        state = {name: 0.0 for name in assembly.full_state_names}
+        state.update({"X_alg": 0.5, "S_IN": 0.01})
+        params = _make_params("microalgae")
+        rates = MICROALGAE_EXTENSION._rates(state, params)
+        assert set(rates.keys()) == {"rho_E20_dis_alg"}
+        assert rates["rho_E20_dis_alg"] > 0.0
+
+    def test_base_rate_modifier_returns_hydrolysis_processes(self):
+        assembly = resolve_full_model_assembly(["microalgae"])
+        state = {name: 0.0 for name in assembly.full_state_names}
+        state.update({"X_ch": 0.5, "X_pr": 0.4, "X_li": 0.3, "X_su": 0.2, "X_aa": 0.2, "X_fa": 0.2})
+        params = _make_params("microalgae")
+        modifiers = MICROALGAE_EXTENSION._base_rate_modifier(state, params)
+        assert set(modifiers) == {
+            "rho_2_hydrolysis_carbohydrates",
+            "rho_3_hydrolysis_proteins",
+            "rho_4_hydrolysis_lipids",
+        }
+        assert all(value >= 0.0 for value in modifiers.values())
+
+    def test_lower_f_hyd_alg_reduces_hydrolysis_modifier(self):
+        assembly = resolve_full_model_assembly(["microalgae"])
+        state = {name: 0.0 for name in assembly.full_state_names}
+        state.update({"X_ch": 0.6, "X_pr": 0.6, "X_li": 0.6, "X_su": 0.2, "X_aa": 0.2, "X_fa": 0.2})
+        params_default = _make_params("microalgae")
+        params_low = dict(params_default)
+        params_low["f_hyd_alg"] = 0.5
+        modifiers_default = MICROALGAE_EXTENSION._base_rate_modifier(state, params_default)
+        modifiers_low = MICROALGAE_EXTENSION._base_rate_modifier(state, params_low)
+        assert modifiers_low["rho_2_hydrolysis_carbohydrates"] < modifiers_default["rho_2_hydrolysis_carbohydrates"]
+        assert modifiers_low["rho_3_hydrolysis_proteins"] < modifiers_default["rho_3_hydrolysis_proteins"]
+        assert modifiers_low["rho_4_hydrolysis_lipids"] < modifiers_default["rho_4_hydrolysis_lipids"]
+
+    def test_validate_hook_accepts_default_fractions(self):
+        assembly = resolve_full_model_assembly(["microalgae"])
+        MICROALGAE_EXTENSION._validate(assembly)
+
+    def test_simulation_does_not_crash(self):
+        result = _run_extension("microalgae", extra_initial={"X_alg": 0.5})
+        assert "profiles" in result
+
+    def test_x_alg_decreases_over_time(self):
+        result = _run_extension(
+            "microalgae",
+            extra_initial={"X_alg": 0.5},
+            extra_influent={"X_alg": 0.0},
+            hrt_days=500.0,
+        )
+        profiles = result["profiles"]
+        assert "X_alg" in profiles
+        assert profiles["X_alg"][-1] < profiles["X_alg"][0] + 1e-9
+
+    def test_diagnostics_profiles_present(self):
+        result = _run_extension("microalgae", extra_initial={"X_alg": 0.5})
+        profiles = result["profiles"]
+        assert "X_alg" in profiles
+        assert "hydrolysis_modifier_ch" in profiles
+        assert "hydrolysis_modifier_pr" in profiles
+        assert "hydrolysis_modifier_li" in profiles
+
+
+# ---------------------------------------------------------------------------
+# E15 — Biometanação de Syngas (Syngas)
+# ---------------------------------------------------------------------------
+
+class TestSyngasExtension:
+    def test_contribute_returns_3_states(self):
+        contribution = SYNGAS_EXTENSION.contribute()
+        state_names = {s.name for s in contribution.states}
+        assert state_names == {"S_CO", "S_gas_CO", "X_met_CO"}
+
+    def test_contribute_returns_4_processes(self):
+        contribution = SYNGAS_EXTENSION.contribute()
+        assert len(contribution.processes) == 4
+        process_names = {p.name for p in contribution.processes}
+        assert process_names == {
+            "rho_E15_CO_uptake",
+            "rho_E15_CO_acetate",
+            "rho_E15_decay_X_met_CO",
+            "rho_E15_CO_transfer",
+        }
+
+    def test_stoichiometry_rows_cover_all_biochemical_processes(self):
+        contribution = SYNGAS_EXTENSION.contribute()
+        process_names = {p.name for p in contribution.processes if p.family == "biochemical"}
+        stoich_names = set(contribution.biochemical_stoichiometry_rows.keys())
+        assert process_names == stoich_names
+
+    def test_assembly_builds_without_error(self):
+        assembly = resolve_full_model_assembly(["syngas"])
+        assert "S_CO" in assembly.full_state_index
+        assert "S_gas_CO" in assembly.full_state_index
+        assert "X_met_CO" in assembly.full_state_index
+
+    def test_assembly_has_32_dynamic_states(self):
+        assembly = resolve_full_model_assembly(["syngas"])
+        assert len(assembly.dynamic_state_names) == 32
+
+    def test_s_gas_co_is_gas_state(self):
+        assembly = resolve_full_model_assembly(["syngas"])
+        assert "S_gas_CO" in assembly.dynamic_gas_state_names
+
+    def test_parameter_defaults_follow_local_paper(self):
+        assembly = resolve_full_model_assembly(["syngas"])
+        defaults = assembly.parameter_defaults
+        assert defaults["k_m_met_CO"] == pytest.approx(75.0)
+        assert defaults["K_S_CO"] == pytest.approx(8.0e-6)
+        assert defaults["Y_met_CO"] == pytest.approx(0.025)
+        assert defaults["k_dec_X_met_CO"] == pytest.approx(0.02)
+        assert defaults["k_m_ac"] == pytest.approx(12.5)
+        assert defaults["k_m_h2"] == pytest.approx(90.0)
+        assert defaults["K_S_ac"] == pytest.approx(0.05)
+        assert defaults["K_S_h2"] == pytest.approx(1.0e-6)
+        assert defaults["f_co_to_h2"] == pytest.approx(0.65)
+
+    def test_rate_function_returns_correct_keys(self):
+        assembly = resolve_full_model_assembly(["syngas"])
+        state = {name: 0.0 for name in assembly.full_state_names}
+        state.update({"S_CO": 0.01, "X_met_CO": 0.1, "S_gas_CO": 0.5, "S_IN": 0.01, "S_H_ion": 1e-7})
+        params = _make_params("syngas")
+        rates = SYNGAS_EXTENSION._rates(state, params)
+        assert set(rates.keys()) == {
+            "rho_E15_CO_uptake",
+            "rho_E15_CO_acetate",
+            "rho_E15_decay_X_met_CO",
+            "rho_E15_CO_transfer",
+        }
+
+    def test_co_split_respects_f_co_to_h2(self):
+        assembly = resolve_full_model_assembly(["syngas"])
+        state = {name: 0.0 for name in assembly.full_state_names}
+        state.update({"S_CO": 0.05, "X_met_CO": 0.5, "S_gas_CO": 0.0, "S_IN": 0.01, "S_H_ion": 1e-7})
+        params = _make_params("syngas")
+        params["f_co_to_h2"] = 0.35
+        rates = SYNGAS_EXTENSION._rates(state, params)
+        rho_total = rates["rho_E15_CO_uptake"] + rates["rho_E15_CO_acetate"]
+        assert rho_total > 0.0
+        assert rates["rho_E15_CO_uptake"] / rho_total == pytest.approx(0.35)
+        assert rates["rho_E15_CO_acetate"] / rho_total == pytest.approx(0.65)
+
+    def test_inhibition_hook_targets_acetate_and_hydrogen_uptake(self):
+        assembly = resolve_full_model_assembly(["syngas"])
+        state = {name: 0.0 for name in assembly.full_state_names}
+        state["S_CO"] = 0.01
+        params = _make_params("syngas")
+        factors = SYNGAS_EXTENSION._inhibition(state, params)
+        assert set(factors) == {"rho_11_uptake_acetate", "rho_12_uptake_hydrogen"}
+        assert factors["rho_11_uptake_acetate"] < factors["rho_12_uptake_hydrogen"]
+
+    def test_co_uptake_zero_without_biomass(self):
+        assembly = resolve_full_model_assembly(["syngas"])
+        state = {name: 0.0 for name in assembly.full_state_names}
+        state.update({"S_CO": 0.05, "X_met_CO": 0.0, "S_IN": 0.01, "S_H_ion": 1e-7})
+        params = _make_params("syngas")
+        rates = SYNGAS_EXTENSION._rates(state, params)
+        assert rates["rho_E15_CO_uptake"] == pytest.approx(0.0)
+        assert rates["rho_E15_CO_acetate"] == pytest.approx(0.0)
+
+    def test_biochemical_rates_are_nonnegative(self):
+        assembly = resolve_full_model_assembly(["syngas"])
+        state = {name: 0.0 for name in assembly.full_state_names}
+        state.update({"S_CO": 0.05, "X_met_CO": 0.5, "S_gas_CO": 0.5, "S_IN": 0.01, "S_H_ion": 1e-7})
+        params = _make_params("syngas")
+        rates = SYNGAS_EXTENSION._rates(state, params)
+        assert rates["rho_E15_CO_uptake"] >= 0.0
+        assert rates["rho_E15_CO_acetate"] >= 0.0
+        assert rates["rho_E15_decay_X_met_CO"] >= 0.0
+        assert isinstance(rates["rho_E15_CO_transfer"], float)
+
+    def test_simulation_does_not_crash(self):
+        result = _run_extension(
+            "syngas",
+            extra_initial={"S_CO": 0.01, "S_gas_CO": 0.5, "X_met_CO": 0.05},
+        )
+        assert "profiles" in result
+
+    def test_co_decreases_when_biomass_present(self):
+        result = _run_extension(
+            "syngas",
+            extra_initial={"S_CO": 0.05, "S_gas_CO": 1.0, "X_met_CO": 0.5},
+            extra_influent={"S_CO": 0.0, "S_gas_CO": 0.0, "X_met_CO": 0.0},
+            hrt_days=500.0,
+        )
+        profiles = result["profiles"]
+        assert "S_CO" in profiles
+        assert profiles["S_CO"][-1] <= profiles["S_CO"][0] + 1e-6
+
+    def test_diagnostics_profiles_present(self):
+        result = _run_extension(
+            "syngas",
+            extra_initial={"S_CO": 0.01, "S_gas_CO": 0.5, "X_met_CO": 0.05},
+        )
+        profiles = result["profiles"]
+        assert "S_CO" in profiles
+        assert "S_gas_CO" in profiles
+        assert "X_met_CO" in profiles
+        assert "CO_conversion" in profiles
+
+
+# ---------------------------------------------------------------------------
+# E9 — Trace Elements (Ni, Co, Fe)
+# ---------------------------------------------------------------------------
+
+class TestTraceElementsExtension:
+    def test_contribute_returns_7_states(self):
+        contribution = TRACE_ELEMENTS_EXTENSION.contribute()
+        state_names = {s.name for s in contribution.states}
+        assert state_names == {"S_Ni", "S_Co", "S_Fe2_te", "X_NiS", "X_CoS", "X_FeS_te", "X_FeCO3"}
+
+    def test_contribute_returns_8_processes(self):
+        contribution = TRACE_ELEMENTS_EXTENSION.contribute()
+        assert len(contribution.processes) == 8
+        process_names = {p.name for p in contribution.processes}
+        assert process_names == {
+            "rho_E9_NiS_precip",
+            "rho_E9_NiS_dissolv",
+            "rho_E9_CoS_precip",
+            "rho_E9_CoS_dissolv",
+            "rho_E9_FeS_precip",
+            "rho_E9_FeS_dissolv",
+            "rho_E9_FeCO3_precip",
+            "rho_E9_FeCO3_dissolv",
+        }
+
+    def test_stoichiometry_rows_cover_all_processes(self):
+        contribution = TRACE_ELEMENTS_EXTENSION.contribute()
+        process_names = {p.name for p in contribution.processes if p.family == "biochemical"}
+        stoich_names = set(contribution.biochemical_stoichiometry_rows.keys())
+        assert process_names == stoich_names
+
+    def test_base_stoichiometry_does_not_reference_s_h2s(self):
+        contribution = TRACE_ELEMENTS_EXTENSION.contribute()
+        for row in contribution.biochemical_stoichiometry_rows.values():
+            assert "S_H2S" not in row
+
+    def test_conditional_patch_declares_srb_dependency(self):
+        contribution = TRACE_ELEMENTS_EXTENSION.contribute()
+        patches = contribution.conditional_stoichiometry_patches
+        assert "srb" in patches
+        assert patches["srb"]["rho_E9_NiS_precip"]["S_H2S"] == "-1"
+        assert patches["srb"]["rho_E9_FeS_dissolv"]["S_H2S"] == "1"
+
+    def test_assembly_builds_without_srb(self):
+        assembly = resolve_full_model_assembly(["trace_elements"])
+        assert "S_Ni" in assembly.full_state_index
+        assert "S_Co" in assembly.full_state_index
+        assert "S_Fe2_te" in assembly.full_state_index
+        assert "X_FeCO3" in assembly.full_state_index
+
+    def test_assembly_builds_with_srb_and_h2s_rows(self):
+        assembly = resolve_full_model_assembly(["srb", "trace_elements"])
+        assert "S_H2S" in assembly.full_state_index
+        assert "S_H2S" in assembly.biochemical_stoichiometry_rows["rho_E9_NiS_precip"]
+        assert "S_H2S" in assembly.biochemical_stoichiometry_rows["rho_E9_CoS_precip"]
+        assert "S_H2S" in assembly.biochemical_stoichiometry_rows["rho_E9_FeS_precip"]
+
+    def test_validate_hook_raises_when_combined_with_iron(self):
+        with pytest.raises(ValueError, match="não pode ser combinado com E8"):
+            resolve_full_model_assembly(["srb", "phosphorus", "iron", "trace_elements"])
+
+    def test_assembly_has_36_dynamic_states(self):
+        assembly = resolve_full_model_assembly(["trace_elements"])
+        assert len(assembly.dynamic_state_names) == 36
+
+    def test_rate_function_returns_correct_keys(self):
+        assembly = resolve_full_model_assembly(["trace_elements"])
+        state = {name: 0.0 for name in assembly.full_state_names}
+        state.update({"S_Ni": 2e-6, "S_Co": 5e-7, "S_Fe2_te": 1e-5, "X_NiS": 0.0, "X_CoS": 0.0, "X_FeS_te": 0.0, "X_FeCO3": 0.0})
+        params = _make_params("trace_elements")
+        rates = TRACE_ELEMENTS_EXTENSION._rates(state, params)
+        assert set(rates.keys()) == {
+            "rho_E9_NiS_precip",
+            "rho_E9_NiS_dissolv",
+            "rho_E9_CoS_precip",
+            "rho_E9_CoS_dissolv",
+            "rho_E9_FeS_precip",
+            "rho_E9_FeS_dissolv",
+            "rho_E9_FeCO3_precip",
+            "rho_E9_FeCO3_dissolv",
+        }
+
+    def test_precipitation_rate_zero_without_h2s(self):
+        assembly = resolve_full_model_assembly(["trace_elements"])
+        state = {name: 0.0 for name in assembly.full_state_names}
+        state.update({"S_Ni": 2e-6, "S_Co": 5e-7, "S_Fe2_te": 1e-5})
+        params = _make_params("trace_elements")
+        rates = TRACE_ELEMENTS_EXTENSION._rates(state, params)
+        assert rates["rho_E9_NiS_precip"] == pytest.approx(0.0)
+        assert rates["rho_E9_CoS_precip"] == pytest.approx(0.0)
+        assert rates["rho_E9_FeS_precip"] == pytest.approx(0.0)
+
+    def test_feco3_precipitation_positive_when_iron_and_ic_are_high(self):
+        assembly = resolve_full_model_assembly(["trace_elements"])
+        state = {name: 0.0 for name in assembly.full_state_names}
+        state.update({"S_Fe2_te": 1e-4, "S_IC": 0.2, "S_H_ion": 1e-7})
+        params = _make_params("trace_elements")
+        rates = TRACE_ELEMENTS_EXTENSION._rates(state, params)
+        assert rates["rho_E9_FeCO3_precip"] > 0.0
+
+    def test_dissolution_rates_positive_when_precipitates_present(self):
+        assembly = resolve_full_model_assembly(["trace_elements"])
+        state = {name: 0.0 for name in assembly.full_state_names}
+        state.update({"X_NiS": 1e-5, "X_CoS": 1e-5, "X_FeS_te": 1e-5, "X_FeCO3": 1e-5, "S_H_ion": 1e-7})
+        params = _make_params("trace_elements")
+        rates = TRACE_ELEMENTS_EXTENSION._rates(state, params)
+        assert rates["rho_E9_NiS_dissolv"] > 0.0
+        assert rates["rho_E9_CoS_dissolv"] > 0.0
+        assert rates["rho_E9_FeS_dissolv"] > 0.0
+        assert rates["rho_E9_FeCO3_dissolv"] > 0.0
+
+    def test_all_rates_nonnegative(self):
+        assembly = resolve_full_model_assembly(["trace_elements"])
+        state = {name: 0.0 for name in assembly.full_state_names}
+        state.update({"S_Ni": 2e-6, "S_Co": 5e-7, "S_Fe2_te": 1e-5, "S_IC": 0.2, "S_H_ion": 1e-7})
+        params = _make_params("trace_elements")
+        rates = TRACE_ELEMENTS_EXTENSION._rates(state, params)
+        for k, v in rates.items():
+            assert v >= -1e-15, f"Rate {k} negative: {v}"
+
+    def test_complexation_reduces_free_metal_fraction(self):
+        assembly = resolve_full_model_assembly(["trace_elements"])
+        state = {name: 0.0 for name in assembly.full_state_names}
+        state.update({"S_Ni": 2e-6, "S_Co": 5e-7, "S_Fe2_te": 1e-5})
+        params_low = _make_params("trace_elements")
+        params_high = dict(params_low)
+        params_high["S_DOM_TE"] = 1.0
+        low = TRACE_ELEMENTS_EXTENSION._diagnostics(
+            __import__('numpy').array([[state.get(name, 0.0) for name in assembly.full_state_names]], dtype=float),
+            assembly,
+            params_low,
+        )
+        high = TRACE_ELEMENTS_EXTENSION._diagnostics(
+            __import__('numpy').array([[state.get(name, 0.0) for name in assembly.full_state_names]], dtype=float),
+            assembly,
+            params_high,
+        )
+        assert high["S_Ni_free"][0] < low["S_Ni_free"][0]
+        assert high["S_Co_free"][0] < low["S_Co_free"][0]
+
+    def test_simulation_does_not_crash(self):
+        result = _run_extension(
+            "trace_elements",
+            extra_initial={"S_Ni": 2e-6, "S_Co": 5e-7, "S_Fe2_te": 1e-5},
+        )
+        assert "profiles" in result
+
+    def test_trace_element_states_remain_nonnegative(self):
+        result = _run_extension(
+            "trace_elements",
+            extra_initial={"S_Ni": 2e-6, "S_Co": 5e-7, "S_Fe2_te": 1e-5},
+        )
+        profiles = result["profiles"]
+        for key in ("S_Ni", "S_Co", "S_Fe2_te"):
+            if key in profiles:
+                assert all(v >= -1e-12 for v in profiles[key]), f"{key} went negative"
+
+    def test_diagnostics_profiles_present(self):
+        result = _run_extension(
+            "trace_elements",
+            extra_initial={"S_Ni": 2e-6, "S_Co": 5e-7, "S_Fe2_te": 1e-5},
+        )
+        profiles = result["profiles"]
+        assert "S_Ni_free" in profiles
+        assert "S_Co_free" in profiles
+        assert "S_Fe2_te" in profiles
+        assert "X_FeCO3" in profiles
+
+
+class TestTraceElementsCombinations:
+    def test_e4_e9_conditional_patch_present_in_stoichiometry(self):
+        assembly = resolve_full_model_assembly(["srb", "trace_elements"])
+        assert "S_H2S" in assembly.biochemical_stoichiometry_rows["rho_E9_NiS_precip"]
+        assert "S_H2S" in assembly.biochemical_stoichiometry_rows["rho_E9_CoS_precip"]
+        assert "S_H2S" in assembly.biochemical_stoichiometry_rows["rho_E9_FeS_precip"]
+
+    def test_e9_standalone_no_h2s_in_stoichiometry(self):
+        assembly = resolve_full_model_assembly(["trace_elements"])
+        assert "S_H2S" not in assembly.biochemical_stoichiometry_rows["rho_E9_NiS_precip"]
+        assert "S_H2S" not in assembly.biochemical_stoichiometry_rows["rho_E9_CoS_precip"]
+        assert "S_H2S" not in assembly.biochemical_stoichiometry_rows["rho_E9_FeS_precip"]
+
+    def test_e7_e9_assembly_compiles_without_error(self):
+        assembly = resolve_full_model_assembly(["phosphorus", "trace_elements"])
+        assert "S_IP" in assembly.full_state_index
+        assert "S_Fe2_te" in assembly.full_state_index
+
+    def test_e4_e9_h2s_decreases_when_precipitating_metals_present(self):
+        result = _run_multi_extension(
+            ["srb", "trace_elements"],
+            extra_initial={"S_H2S": 0.01, "S_Ni": 5e-5, "S_Co": 1e-5, "S_Fe2_te": 1e-4},
+            extra_influent={"S_H2S": 0.0, "S_Ni": 0.0, "S_Co": 0.0, "S_Fe2_te": 0.0},
+            hrt_days=500.0,
+        )
+        profiles = result["profiles"]
+        assert profiles["S_H2S"][-1] < profiles["S_H2S"][0]
+
+    def test_fe_dynamic_depletes_under_feco3_precipitation(self):
+        result = _run_extension(
+            "trace_elements",
+            extra_initial={"S_Fe2_te": 1e-4, "S_IC": 0.2},
+            extra_influent={"S_Fe2_te": 0.0},
+            hrt_days=500.0,
+        )
+        profiles = result["profiles"]
+        assert profiles["S_Fe2_te"][-1] < profiles["S_Fe2_te"][0]
+        assert profiles["X_FeCO3"][-1] >= profiles["X_FeCO3"][0]
+
+    def test_fe_limitation_activates_below_threshold(self):
+        assembly = resolve_full_model_assembly(["trace_elements"])
+        state = {name: 0.0 for name in assembly.full_state_names}
+        state.update({"S_Ni": 5e-6, "S_Co": 5e-6, "S_Fe2_te": 1e-8})
+        params = _make_params("trace_elements")
+        inhibitions = TRACE_ELEMENTS_EXTENSION._inhibition(state, params)
+        assert inhibitions["rho_11_uptake_acetate"] < 0.5
+        assert inhibitions["rho_12_uptake_hydrogen"] < 0.5

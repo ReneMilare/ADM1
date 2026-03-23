@@ -1,10 +1,17 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Mapping
 
 from simulator.full_model.catalog_types import ParameterDefinition, ProcessDefinition, RelationDefinition, StateDefinition
-from simulator.full_model.extensions import AssemblyValidationHook, DiagnosticHook, InhibitionHookType, ProcessRateFunction
+from simulator.full_model.extensions import (
+    AssemblyValidationHook,
+    BaseRateModifierHookType,
+    ConditionalStoichiometryPatchesType,
+    DiagnosticHook,
+    InhibitionHookType,
+    ProcessRateFunction,
+)
 from simulator.full_model.parameters import FULL_PARAMETER_CATALOG
 from simulator.full_model.process_catalog import FULL_PROCESS_CATALOG
 from simulator.full_model.state_catalog import FULL_STATE_CATALOG
@@ -22,6 +29,7 @@ class FullModelAssembly:
     gas_transfer_relations: dict[str, RelationDefinition]
     extension_rate_functions: tuple[ProcessRateFunction, ...]
     extension_inhibition_hooks: tuple[InhibitionHookType, ...]
+    extension_base_rate_modifier_hooks: tuple[BaseRateModifierHookType, ...]
     diagnostics_hooks: tuple[DiagnosticHook, ...]
     validation_hooks: tuple[AssemblyValidationHook, ...]
 
@@ -54,8 +62,10 @@ def build_full_model_assembly(*, extensions: tuple[object, ...] = (), extension_
     gas_transfer_relations = dict(GAS_TRANSFER_RELATIONS)
     rate_functions: list[ProcessRateFunction] = []
     inhibition_hooks: list[InhibitionHookType] = []
+    base_rate_modifier_hooks: list[BaseRateModifierHookType] = []
     diagnostics_hooks: list[DiagnosticHook] = []
     validation_hooks: list[AssemblyValidationHook] = []
+    conditional_stoichiometry_patches: list[ConditionalStoichiometryPatchesType] = []
 
     for extension in extensions:
         contribution = extension.contribute()
@@ -74,16 +84,31 @@ def build_full_model_assembly(*, extensions: tuple[object, ...] = (), extension_
             if process_name not in biochemical_rows:
                 raise ValueError(f"Patch estequiométrico referencia processo inexistente: '{process_name}'")
             biochemical_rows[process_name].update({name: str(expr) for name, expr in patch.items()})
+        if contribution.conditional_stoichiometry_patches:
+            conditional_stoichiometry_patches.append(contribution.conditional_stoichiometry_patches)
         _merge_unique_relations(acid_base_relations, contribution.acid_base_relations, "ácido-base")
         _merge_unique_relations(gas_transfer_relations, contribution.gas_transfer_relations, "gasosa")
         if contribution.rate_function is not None:
             rate_functions.append(contribution.rate_function)
         if contribution.inhibition_hook is not None:
             inhibition_hooks.append(contribution.inhibition_hook)
+        if contribution.base_rate_modifier_hook is not None:
+            base_rate_modifier_hooks.append(contribution.base_rate_modifier_hook)
         if contribution.diagnostics_hook is not None:
             diagnostics_hooks.append(contribution.diagnostics_hook)
         if contribution.validate_hook is not None:
             validation_hooks.append(contribution.validate_hook)
+
+    for conditional_group in conditional_stoichiometry_patches:
+        for required_extension, patch_group in conditional_group.items():
+            if required_extension not in extension_names:
+                continue
+            for process_name, patch in patch_group.items():
+                if process_name not in biochemical_rows:
+                    raise ValueError(
+                        f"Patch estequiométrico condicional referencia processo inexistente: '{process_name}'"
+                    )
+                biochemical_rows[process_name].update({name: str(expr) for name, expr in patch.items()})
 
     full_state_names = tuple(state.name for state in state_catalog)
     full_state_index = {name: index for index, name in enumerate(full_state_names)}
@@ -116,6 +141,7 @@ def build_full_model_assembly(*, extensions: tuple[object, ...] = (), extension_
         gas_transfer_relations=gas_transfer_relations,
         extension_rate_functions=tuple(rate_functions),
         extension_inhibition_hooks=tuple(inhibition_hooks),
+        extension_base_rate_modifier_hooks=tuple(base_rate_modifier_hooks),
         diagnostics_hooks=tuple(diagnostics_hooks),
         validation_hooks=tuple(validation_hooks),
         full_state_names=full_state_names,

@@ -66,9 +66,9 @@ class SimulateReactorInput(BaseModel):
     ph: float = Field(default=7.1, ge=5.0, le=8.5)
     segments: int = Field(default=6, ge=2, le=20)
     ammonia_inhibition_mode: str = Field(default="simple", description="One of: simple or fan.")
-    full_extensions: list[str] = Field(default_factory=list, description="Active extensions for the full backend, e.g. ['srb', 'lactate']. Use list_extensions to see available options.")
-    full_extension_parameter_overrides: dict[str, float] = Field(default_factory=dict, description="Parameter overrides for extensions, e.g. {'K_I_H2S': 0.01}.")
-    full_initial_state_overrides: dict[str, float] = Field(default_factory=dict, description="Initial state overrides for extensions, e.g. {'S_SO4': 0.005}.")
+    full_extensions: list[str] = Field(default_factory=list, description="Active extensions for the full backend, e.g. ['srb', 'microalgae', 'syngas', 'trace_elements']. Use list_extensions to see available options.")
+    full_extension_parameter_overrides: dict[str, float] = Field(default_factory=dict, description="Parameter overrides for extensions, e.g. {'f_hyd_alg': 1.0, 'f_co_to_h2': 0.65, 'S_DOM_TE': 0.5, 'K_c_Ni': 27.54, 'K_c_Co': 23.99}.")
+    full_initial_state_overrides: dict[str, float] = Field(default_factory=dict, description="Initial state overrides for extension states, e.g. {'X_alg': 0.5, 'S_CO': 0.01, 'S_gas_CO': 0.5, 'X_met_CO': 0.05, 'S_Ni': 2e-6, 'S_Co': 5e-7, 'S_Fe2_te': 1e-5}.")
 
 
 class ProfileInput(BaseModel):
@@ -102,9 +102,9 @@ class CompareBackendsInput(BaseModel):
     ph: float = Field(default=7.1, ge=5.0, le=8.5)
     segments: int = Field(default=6, ge=2, le=20)
     ammonia_inhibition_mode: str = Field(default="simple", description="One of: simple or fan.")
-    full_extensions: list[str] = Field(default_factory=list, description="Active extensions for the full backend, e.g. ['srb', 'lactate'].")
-    full_extension_parameter_overrides: dict[str, float] = Field(default_factory=dict, description="Parameter overrides for extensions.")
-    full_initial_state_overrides: dict[str, float] = Field(default_factory=dict, description="Initial state overrides for extensions.")
+    full_extensions: list[str] = Field(default_factory=list, description="Active extensions for the full backend, e.g. ['srb', 'microalgae', 'syngas', 'trace_elements'].")
+    full_extension_parameter_overrides: dict[str, float] = Field(default_factory=dict, description="Parameter overrides for extensions, e.g. {'f_hyd_alg': 1.0, 'f_co_to_h2': 0.65, 'S_DOM_TE': 0.5, 'K_c_Ni': 27.54, 'K_c_Co': 23.99}.")
+    full_initial_state_overrides: dict[str, float] = Field(default_factory=dict, description="Initial state overrides for extension states, e.g. {'X_alg': 0.5, 'S_CO': 0.01, 'S_gas_CO': 0.5, 'X_met_CO': 0.05, 'S_Ni': 2e-6, 'S_Co': 5e-7, 'S_Fe2_te': 1e-5}.")
 
 
 class OptimizeParameterInput(BaseModel):
@@ -169,9 +169,9 @@ class DesignReactorInput(BaseModel):
     candidate_reactors: list[str] = Field(default_factory=lambda: ["cstr", "uasb", "plug_flow"])
     persist_note: bool = Field(default=False)
     note_title: str | None = Field(default=None)
-    full_extensions: list[str] = Field(default_factory=list, description="Active extensions for the full backend, e.g. ['srb', 'lactate'].")
-    full_extension_parameter_overrides: dict[str, float] = Field(default_factory=dict, description="Parameter overrides for extensions.")
-    full_initial_state_overrides: dict[str, float] = Field(default_factory=dict, description="Initial state overrides for extensions.")
+    full_extensions: list[str] = Field(default_factory=list, description="Active extensions for the full backend, e.g. ['srb', 'microalgae', 'syngas', 'trace_elements'].")
+    full_extension_parameter_overrides: dict[str, float] = Field(default_factory=dict, description="Parameter overrides for extensions, e.g. {'f_hyd_alg': 1.0, 'f_co_to_h2': 0.65, 'S_DOM_TE': 0.5, 'K_c_Ni': 27.54, 'K_c_Co': 23.99}.")
+    full_initial_state_overrides: dict[str, float] = Field(default_factory=dict, description="Initial state overrides for extension states, e.g. {'X_alg': 0.5, 'S_CO': 0.01, 'S_gas_CO': 0.5, 'X_met_CO': 0.05, 'S_Ni': 2e-6, 'S_Co': 5e-7, 'S_Fe2_te': 1e-5}.")
 
 
 def _build_feed(

@@ -29,8 +29,8 @@ Models competition between sulfate-reducing bacteria (SRB) and methanogens for a
 
 | Parameter | Default | Unit | Description |
 |-----------|---------|------|-------------|
-| `k_m_SRB_ac` | 8.0 | d⁻¹ | Max uptake rate, SRB acetate |
-| `k_m_SRB_h2` | 35.0 | d⁻¹ | Max uptake rate, SRB hydrogen |
+| `k_m_SRB_ac` | 7.1 | d⁻¹ | Max uptake rate, SRB acetate |
+| `k_m_SRB_h2` | 26.7 | d⁻¹ | Max uptake rate, SRB hydrogen |
 | `K_I_H2S` | 6.72e-3 | kmolS/m³ | H₂S inhibition threshold |
 | `K_S_SO4_ac` | 3.1e-4 | kmol/m³ | SO₄ half-saturation (acetate SRB) |
 

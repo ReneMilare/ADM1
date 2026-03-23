@@ -35,7 +35,7 @@ streamlit run webapp/app.py
 ## Variaveis de ambiente
 
 - `ADM1_OLLAMA_HOST`: host HTTP do Ollama. Padrao: `http://127.0.0.1:11434`
-- `ADM1_EMBED_MODEL`: modelo de embedding. Padrao: `nomic-embed-text`
+- `ADM1_EMBED_MODEL`: modelo de embedding. Padrao: `bge-m3`
 - `ADM1_CHROMA_COLLECTION`: nome da colecao Chroma. Padrao: `adm1_docs`
 - `ADM1_CHUNK_TOKENS`: tamanho alvo dos chunks. Padrao: `450`
 - `ADM1_CHUNK_OVERLAP`: overlap fracionario entre janelas. Padrao: `0.2`
@@ -80,7 +80,7 @@ O setup prepara o `.venv`, instala as dependencias Python e pergunta se o usuari
 
 - O projeto principal roda sem RAG.
 - Sem RAG, os fluxos de simulacao, comparacao, design e validacao continuam funcionais.
-- A tela `Consulta Tecnica` passa a depender de indice local em `rag/db`, Ollama local e modelo de embedding `nomic-embed-text`.
+- A tela `Consulta Tecnica` passa a depender de indice local em `rag/db`, Ollama local e modelo de embedding `bge-m3`.
 - O setup tenta detectar `Ollama` e o modelo; se nao encontrar, pergunta se o usuario quer instalar/baixar.
 
 ## Clonando do GitHub

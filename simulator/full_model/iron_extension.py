@@ -271,8 +271,8 @@ class _IronExtension:
         # rho_E8_Fe3_red_h2: Fe3 + 0.5 H2 → Fe2 + H+
         #   Rate in kmolFe/m³/d. Per kmolFe reduced: consumes 0.5 kmol H2.
         #   H2 in ADM1 is kgCOD/m³. 1 mol H2 = 2 g, COD(H2) = 2 × 8 gO2/g = 16 gCOD.
-        #   So 1 kmol H2 = 16 kgCOD → 0.5 kmol H2 = 8 gCOD = 0.008 kgCOD.
-        #   Therefore: S_h2 coefficient = -0.008 kgCOD per kmolFe reduced.
+        #   So 1 kmol H2 = 16 kgCOD → 0.5 kmol H2 = 8 kgCOD.
+        #   Therefore: S_h2 coefficient = -8.0 kgCOD per kmolFe reduced.
         #
         # rho_E8_Fe3_red_h2s: 2Fe3 + H2S → 2Fe2 + S0 + 2H+
         #   Per kmolFe reduced: 0.5 kmol H2S consumed.
@@ -288,7 +288,7 @@ class _IronExtension:
         biochemical_stoichiometry_rows = {
             "rho_E8_Fe3_red_h2": {
                 "S_Fe2": "1",      # 1 kmolFe²⁺ produced per kmolFe reduced
-                "S_h2": "-0.008",  # 0.5 mol H₂ = 0.008 kgCOD consumed per kmolFe
+                "S_h2": "-8.0",    # 0.5 kmol H₂ = 8 kgCOD consumed per kmolFe
             },
             "rho_E8_Fe3_red_h2s": {
                 "S_Fe2": "1",    # 1 kmolFe²⁺ produced

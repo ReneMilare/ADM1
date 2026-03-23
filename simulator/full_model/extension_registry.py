@@ -11,6 +11,9 @@ from simulator.full_model.srb_extension import SRB_EXTENSION
 from simulator.full_model.multi_population_extension import MULTI_POPULATION_EXTENSION
 from simulator.full_model.phosphorus_extension import PHOSPHORUS_EXTENSION
 from simulator.full_model.iron_extension import IRON_EXTENSION
+from simulator.full_model.microalgae_extension import MICROALGAE_EXTENSION
+from simulator.full_model.syngas_extension import SYNGAS_EXTENSION
+from simulator.full_model.trace_elements_extension import TRACE_ELEMENTS_EXTENSION
 
 _REGISTERED_EXTENSIONS: dict[str, FullModelExtension] = {
     PILOT_TRACER_EXTENSION.name: PILOT_TRACER_EXTENSION,
@@ -22,6 +25,9 @@ _REGISTERED_EXTENSIONS: dict[str, FullModelExtension] = {
     MULTI_POPULATION_EXTENSION.name: MULTI_POPULATION_EXTENSION,
     PHOSPHORUS_EXTENSION.name: PHOSPHORUS_EXTENSION,
     IRON_EXTENSION.name: IRON_EXTENSION,
+    MICROALGAE_EXTENSION.name: MICROALGAE_EXTENSION,
+    SYNGAS_EXTENSION.name: SYNGAS_EXTENSION,
+    TRACE_ELEMENTS_EXTENSION.name: TRACE_ELEMENTS_EXTENSION,
 }
 
 
