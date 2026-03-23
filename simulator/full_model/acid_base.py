@@ -4,6 +4,65 @@ from dataclasses import dataclass
 from typing import Mapping
 
 
+def _phosphate_charge_contribution(
+    s_ip: float,
+    params: Mapping[str, float],
+    s_h_ion: float,
+) -> tuple[float, float]:
+    """Contribution of dissolved inorganic phosphate to the charge-balance residual and gradient.
+
+    Called automatically in the Newton loop when S_IP > 0, i.e., when the
+    phosphorus extension (E7) is active. When E7 is inactive, S_IP is absent
+    from total_state and this function is never called (s_ip guard below).
+
+    The three phosphate species at digestor pH (6–8):
+        H3PO4 → H2PO4⁻ → HPO4²⁻ → PO4³⁻
+    pKa1 ≈ 2.15 (negligible), pKa2 ≈ 7.20, pKa3 ≈ 12.34 (negligible).
+    All three species are included for generality; pKa1 and pKa3 contribute
+    negligibly at typical digester pH.
+
+    Speciation from S_IP (total dissolved P):
+        denom  = [H+]² + Ka2·[H+] + Ka2·Ka3
+        H2PO4⁻ = S_IP · [H+]² / denom   (monovalent anion, charge –1)
+        HPO4²⁻ = S_IP · Ka2·[H+] / denom (divalent anion, charge –2)
+        PO4³⁻  = S_IP · Ka2·Ka3 / denom  (trivalent anion, charge –3)
+
+    Contribution to charge-balance residual (phosphates are anions → subtract):
+        Δresidual = −(H2PO4⁻ + 2·HPO4²⁻ + 3·PO4³⁻)
+
+    Returns:
+        (delta_residual, delta_gradient): both floats to be *added* to the Newton
+        residual and gradient respectively.
+    """
+    if s_ip <= 0.0:
+        return 0.0, 0.0
+
+    ka2 = float(params.get("Ka_H2PO4", 6.31e-8))
+    ka3 = float(params.get("Ka_HPO4", 4.57e-13))
+
+    denom = s_h_ion * s_h_ion + ka2 * s_h_ion + ka2 * ka3
+    if denom <= 0.0:
+        return 0.0, 0.0
+
+    s_h2po4 = s_ip * s_h_ion * s_h_ion / denom
+    s_hpo4 = s_ip * ka2 * s_h_ion / denom
+    s_po4 = s_ip * ka2 * ka3 / denom
+
+    # Charge contribution (phosphate anions reduce the residual)
+    delta_residual = -(s_h2po4 + 2.0 * s_hpo4 + 3.0 * s_po4)
+
+    # Analytical gradient: d(delta_residual)/d(s_h_ion)
+    # Let N_k = numerator of species k, D = denom, dD/dh = 2h + Ka2
+    d_denom = 2.0 * s_h_ion + ka2
+    d_s_h2po4 = s_ip * (2.0 * s_h_ion * denom - s_h_ion * s_h_ion * d_denom) / (denom * denom)
+    d_s_hpo4 = s_ip * ka2 * (denom - s_h_ion * d_denom) / (denom * denom)
+    d_s_po4 = s_ip * ka2 * ka3 * (-d_denom) / (denom * denom)
+
+    delta_gradient = -(d_s_h2po4 + 2.0 * d_s_hpo4 + 3.0 * d_s_po4)
+
+    return float(delta_residual), float(delta_gradient)
+
+
 @dataclass(frozen=True, slots=True)
 class AcidBaseState:
     s_h_ion: float
@@ -57,6 +116,13 @@ def solve_acid_base(
             + (params["K_a_va"] * max(float(total_state["S_va"]), 0.0) / ((params["K_a_va"] + s_h_ion) ** 2)) / 208.0
             + params["K_w"] / (s_h_ion * s_h_ion)
         )
+        # Phosphate contribution (active when E7 phosphorus extension is enabled).
+        # S_IP is a dynamic liquid state added by E7; when absent, get() returns 0.0.
+        s_ip = float(total_state.get("S_IP", 0.0))
+        if s_ip > 0.0:
+            dr_p, dg_p = _phosphate_charge_contribution(s_ip, params, s_h_ion)
+            residual += dr_p
+            gradient += dg_p
         if abs(residual) <= tol:
             converged = True
             break

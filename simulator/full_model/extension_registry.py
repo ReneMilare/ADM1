@@ -8,6 +8,9 @@ from simulator.full_model.ethanol_extension import ETHANOL_EXTENSION
 from simulator.full_model.phenolics_extension import PHENOLICS_EXTENSION
 from simulator.full_model.lcfa_extension import LCFA_EXTENSION
 from simulator.full_model.srb_extension import SRB_EXTENSION
+from simulator.full_model.multi_population_extension import MULTI_POPULATION_EXTENSION
+from simulator.full_model.phosphorus_extension import PHOSPHORUS_EXTENSION
+from simulator.full_model.iron_extension import IRON_EXTENSION
 
 _REGISTERED_EXTENSIONS: dict[str, FullModelExtension] = {
     PILOT_TRACER_EXTENSION.name: PILOT_TRACER_EXTENSION,
@@ -16,6 +19,9 @@ _REGISTERED_EXTENSIONS: dict[str, FullModelExtension] = {
     PHENOLICS_EXTENSION.name: PHENOLICS_EXTENSION,
     LCFA_EXTENSION.name: LCFA_EXTENSION,
     SRB_EXTENSION.name: SRB_EXTENSION,
+    MULTI_POPULATION_EXTENSION.name: MULTI_POPULATION_EXTENSION,
+    PHOSPHORUS_EXTENSION.name: PHOSPHORUS_EXTENSION,
+    IRON_EXTENSION.name: IRON_EXTENSION,
 }
 
 

@@ -145,6 +145,9 @@ class ADM1DesignPipeline:
         evaluation_points: int = 181,
         persist_note: bool = False,
         note_title: str | None = None,
+        active_extensions: list[str] | None = None,
+        extension_parameter_overrides: dict[str, float] | None = None,
+        extension_initial_state_overrides: dict[str, float] | None = None,
     ) -> dict[str, Any]:
         if design_goal not in GOAL_WEIGHTS:
             raise ValueError(f"Unsupported design_goal '{design_goal}'. Expected one of: {', '.join(sorted(GOAL_WEIGHTS))}")
@@ -165,6 +168,9 @@ class ADM1DesignPipeline:
             evaluation_points=evaluation_points,
             backend=backend,
             persist=False,
+            full_extensions=active_extensions or [],
+            full_extension_parameter_overrides=extension_parameter_overrides or {},
+            full_initial_state_overrides=extension_initial_state_overrides or {},
         )
 
         candidates: list[dict[str, Any]] = []
@@ -438,7 +444,15 @@ def main() -> None:
     parser.add_argument("--duration-days", type=float, default=45.0)
     parser.add_argument("--evaluation-points", type=int, default=181)
     parser.add_argument("--persist-note", action="store_true")
+    parser.add_argument("--extensions", nargs="*", default=[], help="Active full model extensions, e.g. srb lactate phenolics.")
+    parser.add_argument("--extension-params", nargs="*", default=[], help="Extension parameter overrides as key=value pairs, e.g. K_I_H2S=0.01.")
     args = parser.parse_args()
+    ext_overrides: dict[str, float] = {}
+    for item in args.extension_params:
+        if "=" not in item:
+            parser.error(f"--extension-params expects key=value format, got '{item}'")
+        key, val = item.split("=", 1)
+        ext_overrides[key.strip()] = float(val.strip())
     pipeline = ADM1DesignPipeline()
     result = pipeline.run(
         substrate=args.substrate,
@@ -447,6 +461,8 @@ def main() -> None:
         duration_days=args.duration_days,
         evaluation_points=args.evaluation_points,
         persist_note=args.persist_note,
+        active_extensions=args.extensions or None,
+        extension_parameter_overrides=ext_overrides or None,
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

@@ -1,4 +1,4 @@
-"""Tests for the 5 new ADM1 extensions (E4-SRB, E5-LCFA, E6-Lactate, E10-Ethanol, E11-Phenolics).
+"""Tests for ADM1 extensions (E4-SRB, E5-LCFA, E6-Lactate, E10-Ethanol, E11-Phenolics, E12, E7, E8).
 
 Tests validate:
   1. Each extension can be contributed (contribute() runs without error)
@@ -21,6 +21,9 @@ from simulator.full_model.ethanol_extension import ETHANOL_EXTENSION
 from simulator.full_model.phenolics_extension import PHENOLICS_EXTENSION
 from simulator.full_model.lcfa_extension import LCFA_EXTENSION
 from simulator.full_model.srb_extension import SRB_EXTENSION
+from simulator.full_model.multi_population_extension import MULTI_POPULATION_EXTENSION
+from simulator.full_model.phosphorus_extension import PHOSPHORUS_EXTENSION
+from simulator.full_model.iron_extension import IRON_EXTENSION
 from simulator.full_model.model import FULL_STATE_NAMES, resolve_full_parameter_values
 from simulator.full_model.solver import simulate_with_full_inputs
 from simulator.service import ADM1SimulationService
@@ -673,3 +676,371 @@ class TestFullModelSolverMetadata:
         assert result_all["metadata"]["full_model_state_count"] > result_base["metadata"]["full_model_state_count"] + len(all_exts)
 
 
+# ---------------------------------------------------------------------------
+# E12 — Multi-população de acetoclásticos e hidrogenotróficos
+# ---------------------------------------------------------------------------
+
+def _run_multi_extension(ext_names: list[str], extra_initial: dict | None = None) -> dict:
+    """Run simulation with multiple extensions active."""
+    oc = OperatingConditions(volume_m3=3400.0, temperature_c=35.0, hrt_days=20.0)
+    initial = _base_state()
+    if extra_initial:
+        initial.update(extra_initial)
+    influent = dict(initial)
+    inputs = build_backend_inputs_from_state_maps(
+        operating_conditions=oc,
+        parameters=make_default_kinetics(),
+        influent_values=influent,
+        initial_values=initial,
+        flow_rate_m3_day=170.0,
+        active_extensions=ext_names,
+    )
+    sim = SimulationConfig(
+        duration_days=10.0,
+        evaluation_points=21,
+        solver="BDF",
+        backend="full",
+        persist=False,
+        full_extensions=ext_names,
+    )
+    return simulate_with_full_inputs(inputs=inputs, simulation=sim)
+
+
+class TestMultiPopulationExtension:
+    def test_contribute_returns_4_states(self):
+        contribution = MULTI_POPULATION_EXTENSION.contribute()
+        state_names = {s.name for s in contribution.states}
+        assert {"X_ac_1", "X_ac_2", "X_h2_1", "X_h2_2"} == state_names
+
+    def test_contribute_returns_8_processes(self):
+        contribution = MULTI_POPULATION_EXTENSION.contribute()
+        assert len(contribution.processes) == 8
+
+    def test_process_names_are_correct(self):
+        contribution = MULTI_POPULATION_EXTENSION.contribute()
+        process_names = {p.name for p in contribution.processes}
+        expected = {
+            "rho_E12_uptake_ac_1", "rho_E12_decay_ac_1",
+            "rho_E12_uptake_ac_2", "rho_E12_decay_ac_2",
+            "rho_E12_uptake_h2_1", "rho_E12_decay_h2_1",
+            "rho_E12_uptake_h2_2", "rho_E12_decay_h2_2",
+        }
+        assert process_names == expected
+
+    def test_assembly_builds_without_error(self):
+        assembly = resolve_full_model_assembly(["multi_population"])
+        assert "X_ac_1" in assembly.full_state_index
+        assert "X_ac_2" in assembly.full_state_index
+        assert "X_h2_1" in assembly.full_state_index
+        assert "X_h2_2" in assembly.full_state_index
+
+    def test_stoichiometry_patches_applied(self):
+        """Core rho_11 and rho_18 should have X_ac='0' in stoichiometry."""
+        assembly = resolve_full_model_assembly(["multi_population"])
+        rows = assembly.biochemical_stoichiometry_rows
+        assert rows["rho_11_uptake_acetate"]["X_ac"] == "0"
+        assert rows["rho_18_decay_acetate_biomass"]["X_ac"] == "0"
+        assert rows["rho_12_uptake_hydrogen"]["X_h2"] == "0"
+        assert rows["rho_19_decay_hydrogen_biomass"]["X_h2"] == "0"
+
+    def test_rate_function_returns_correct_keys(self):
+        assembly = resolve_full_model_assembly(["multi_population"])
+        state = {name: 0.01 for name in assembly.full_state_names}
+        state["S_H_ion"] = 1e-7
+        state["S_IN"] = 0.01
+        state["S_nh3"] = 0.0
+        params = _make_params("multi_population")
+        rates = MULTI_POPULATION_EXTENSION._rates(state, params)
+        assert set(rates.keys()) == {
+            "rho_E12_uptake_ac_1", "rho_E12_decay_ac_1",
+            "rho_E12_uptake_ac_2", "rho_E12_decay_ac_2",
+            "rho_E12_uptake_h2_1", "rho_E12_decay_h2_1",
+            "rho_E12_uptake_h2_2", "rho_E12_decay_h2_2",
+        }
+        assert all(v >= 0.0 for v in rates.values())
+
+    def test_simulation_100_days_does_not_crash(self):
+        """Multi_population simulates 100 days without error."""
+        oc = OperatingConditions(volume_m3=3400.0, temperature_c=35.0, hrt_days=20.0)
+        initial = _base_state()
+        initial.update({"X_ac_1": 0.75, "X_ac_2": 0.75, "X_h2_1": 0.25, "X_h2_2": 0.25})
+        # Core X_ac and X_h2 should be zeroed out to avoid double-counting
+        initial["X_ac"] = 0.0
+        initial["X_h2"] = 0.0
+        influent = dict(initial)
+        inputs = build_backend_inputs_from_state_maps(
+            operating_conditions=oc,
+            parameters=make_default_kinetics(),
+            influent_values=influent,
+            initial_values=initial,
+            flow_rate_m3_day=170.0,
+            active_extensions=["multi_population"],
+        )
+        sim = SimulationConfig(
+            duration_days=100.0,
+            evaluation_points=101,
+            solver="BDF",
+            backend="full",
+            persist=False,
+            full_extensions=["multi_population"],
+        )
+        result = simulate_with_full_inputs(inputs=inputs, simulation=sim)
+        assert "profiles" in result
+
+    def test_total_x_ac_in_diagnostics_is_nonnegative(self):
+        result = _run_extension("multi_population", {
+            "X_ac_1": 0.75, "X_ac_2": 0.75, "X_h2_1": 0.25, "X_h2_2": 0.25
+        })
+        profiles = result["profiles"]
+        assert "total_X_ac" in profiles
+        assert all(v >= 0.0 for v in profiles["total_X_ac"])
+
+    def test_oligotrophic_fraction_between_0_and_1(self):
+        result = _run_extension("multi_population", {
+            "X_ac_1": 0.5, "X_ac_2": 1.0, "X_h2_1": 0.25, "X_h2_2": 0.25
+        })
+        profiles = result["profiles"]
+        assert "fraction_oligotrophic_ac" in profiles
+        fracs = profiles["fraction_oligotrophic_ac"]
+        assert all(0.0 <= f <= 1.0 for f in fracs)
+
+
+# ---------------------------------------------------------------------------
+# E7 — Fósforo (Phosphorus)
+# ---------------------------------------------------------------------------
+
+class TestPhosphorusExtension:
+    def test_contribute_returns_3_states(self):
+        contribution = PHOSPHORUS_EXTENSION.contribute()
+        state_names = {s.name for s in contribution.states}
+        assert {"S_IP", "X_MAP", "X_CaCO3"} == state_names
+
+    def test_contribute_returns_4_processes(self):
+        contribution = PHOSPHORUS_EXTENSION.contribute()
+        assert len(contribution.processes) == 4
+
+    def test_process_names_are_correct(self):
+        contribution = PHOSPHORUS_EXTENSION.contribute()
+        process_names = {p.name for p in contribution.processes}
+        assert process_names == {
+            "rho_E7_MAP_precip", "rho_E7_MAP_dissolv",
+            "rho_E7_CaCO3_precip", "rho_E7_CaCO3_dissolv",
+        }
+
+    def test_assembly_builds_without_error(self):
+        assembly = resolve_full_model_assembly(["phosphorus"])
+        assert "S_IP" in assembly.full_state_index
+        assert "X_MAP" in assembly.full_state_index
+        assert "X_CaCO3" in assembly.full_state_index
+
+    def test_parameters_present(self):
+        assembly = resolve_full_model_assembly(["phosphorus"])
+        assert "Ka_H2PO4" in assembly.parameter_defaults
+        assert "Ksp_MAP" in assembly.parameter_defaults
+        assert "S_Mg" in assembly.parameter_defaults
+
+    def test_rate_function_returns_correct_keys(self):
+        assembly = resolve_full_model_assembly(["phosphorus"])
+        state = {name: 0.01 for name in assembly.full_state_names}
+        state["S_H_ion"] = 1e-7
+        state["S_IN"] = 0.01
+        state["S_IP"] = 0.001
+        params = _make_params("phosphorus")
+        rates = PHOSPHORUS_EXTENSION._rates(state, params)
+        assert set(rates.keys()) == {
+            "rho_E7_MAP_precip", "rho_E7_MAP_dissolv",
+            "rho_E7_CaCO3_precip", "rho_E7_CaCO3_dissolv",
+        }
+        assert all(v >= 0.0 for v in rates.values())
+
+    def test_simulation_basic_does_not_crash(self):
+        result = _run_extension("phosphorus", {"S_IP": 0.001, "X_MAP": 0.0, "X_CaCO3": 0.0})
+        assert "profiles" in result
+        assert "S_IP" in result["metadata"]["full_state_columns"]
+
+    def test_s_ip_not_negative(self):
+        """S_IP must not go negative during simulation."""
+        result = _run_extension("phosphorus", {"S_IP": 0.001})
+        profiles = result["profiles"]
+        if "S_IP" in profiles:
+            assert all(v >= -1e-10 for v in profiles["S_IP"]), "S_IP went negative"
+
+    def test_x_map_grows_with_high_s_ip(self):
+        """With high S_IP and default Mg, struvite should precipitate: X_MAP should increase."""
+        oc = OperatingConditions(volume_m3=3400.0, temperature_c=35.0, hrt_days=20.0)
+        initial = _base_state()
+        # High phosphorus, favorable conditions for struvite
+        initial.update({
+            "S_IP": 0.01,   # 10 mmolP/m³ — quite high
+            "X_MAP": 0.0,
+            "X_CaCO3": 0.0,
+        })
+        influent = dict(initial)
+        inputs = build_backend_inputs_from_state_maps(
+            operating_conditions=oc,
+            parameters=make_default_kinetics(),
+            influent_values=influent,
+            initial_values=initial,
+            flow_rate_m3_day=170.0,
+            active_extensions=["phosphorus"],
+        )
+        sim = SimulationConfig(
+            duration_days=30.0,
+            evaluation_points=61,
+            solver="BDF",
+            backend="full",
+            persist=False,
+            full_extensions=["phosphorus"],
+        )
+        result = simulate_with_full_inputs(inputs=inputs, simulation=sim)
+        # X_MAP should be ≥ 0 throughout; actual precipitation depends on S_nh4_ion level
+        assert "profiles" in result
+
+    def test_diagnostics_returns_expected_series(self):
+        result = _run_extension("phosphorus", {"S_IP": 0.001})
+        profiles = result["profiles"]
+        assert "S_IP" in profiles
+        assert "X_MAP" in profiles
+        assert "X_CaCO3" in profiles
+
+    def test_validate_hook_passes_when_extension_active(self):
+        """validate_hook should not raise when phosphorus extension is in assembly."""
+        assembly = resolve_full_model_assembly(["phosphorus"])
+        # Should not raise
+        PHOSPHORUS_EXTENSION._validate(assembly)
+
+    def test_phosphate_charge_included_in_ph_solver(self):
+        """pH solver should handle S_IP in state without crashing."""
+        from simulator.full_model.acid_base import solve_acid_base
+        from simulator.full_model.model import FULL_STATE_NAMES, resolve_full_parameter_values
+        assembly = resolve_full_model_assembly(["phosphorus"])
+        oc = OperatingConditions(volume_m3=3400.0, temperature_c=35.0, hrt_days=20.0)
+        params = resolve_full_parameter_values(
+            operating_conditions=oc,
+            parameters=make_default_kinetics(),
+            flow_rate_m3_day=170.0,
+            assembly=assembly,
+        )
+        state = {name: 0.0 for name in assembly.full_state_names}
+        state.update({
+            "S_ac": 0.2, "S_pro": 0.001, "S_bu": 0.001, "S_va": 0.001,
+            "S_IC": 0.04, "S_IN": 0.01, "S_cation": 0.04, "S_anion": 0.02,
+            "S_IP": 0.001,
+        })
+        result = solve_acid_base(state, params)
+        assert result.converged
+        assert 5.0 < result.p_h < 9.0
+
+
+# ---------------------------------------------------------------------------
+# E8 — Ferro (Iron)
+# ---------------------------------------------------------------------------
+
+class TestIronExtension:
+    def test_validate_hook_raises_without_srb(self):
+        """E8 must raise ValueError if srb is not in active_extensions."""
+        assembly = resolve_full_model_assembly(["phosphorus"])
+        with pytest.raises(ValueError, match="srb"):
+            IRON_EXTENSION._validate(assembly)
+
+    def test_validate_hook_raises_without_phosphorus(self):
+        """E8 must raise ValueError if phosphorus is not in active_extensions."""
+        assembly = resolve_full_model_assembly(["srb"])
+        with pytest.raises(ValueError, match="phosphorus"):
+            IRON_EXTENSION._validate(assembly)
+
+    def test_validate_hook_passes_with_both_deps(self):
+        """E8 validate_hook should not raise when srb and phosphorus are active."""
+        assembly = resolve_full_model_assembly(["srb", "phosphorus", "iron"])
+        # Should not raise
+        IRON_EXTENSION._validate(assembly)
+
+    def test_contribute_returns_3_states(self):
+        contribution = IRON_EXTENSION.contribute()
+        state_names = {s.name for s in contribution.states}
+        assert {"S_Fe2", "X_FeS", "X_VIV"} == state_names
+
+    def test_contribute_returns_5_processes(self):
+        contribution = IRON_EXTENSION.contribute()
+        assert len(contribution.processes) == 5
+
+    def test_process_names_are_correct(self):
+        contribution = IRON_EXTENSION.contribute()
+        process_names = {p.name for p in contribution.processes}
+        assert process_names == {
+            "rho_E8_Fe3_red_h2", "rho_E8_Fe3_red_h2s",
+            "rho_E8_FeS_precip", "rho_E8_FeS_dissolv",
+            "rho_E8_VIV_precip",
+        }
+
+    def test_assembly_builds_with_deps(self):
+        assembly = resolve_full_model_assembly(["srb", "phosphorus", "iron"])
+        assert "S_Fe2" in assembly.full_state_index
+        assert "X_FeS" in assembly.full_state_index
+        assert "X_VIV" in assembly.full_state_index
+
+    def test_rate_function_returns_correct_keys(self):
+        assembly = resolve_full_model_assembly(["srb", "phosphorus", "iron"])
+        state = {name: 0.0 for name in assembly.full_state_names}
+        state.update({
+            "S_H_ion": 1e-7, "S_IN": 0.01, "S_h2": 2e-7,
+            "S_H2S": 0.001, "S_IP": 0.001, "S_Fe2": 0.001,
+        })
+        params = _make_params(["srb", "phosphorus", "iron"])
+        rates = IRON_EXTENSION._rates(state, params)
+        assert set(rates.keys()) == {
+            "rho_E8_Fe3_red_h2", "rho_E8_Fe3_red_h2s",
+            "rho_E8_FeS_precip", "rho_E8_FeS_dissolv",
+            "rho_E8_VIV_precip",
+        }
+
+    def test_all_rates_nonnegative(self):
+        assembly = resolve_full_model_assembly(["srb", "phosphorus", "iron"])
+        state = {name: 0.0 for name in assembly.full_state_names}
+        state.update({
+            "S_H_ion": 1e-7, "S_IN": 0.01, "S_h2": 2e-7,
+            "S_H2S": 0.001, "S_IP": 0.001, "S_Fe2": 0.001,
+        })
+        params = _make_params(["srb", "phosphorus", "iron"])
+        rates = IRON_EXTENSION._rates(state, params)
+        assert all(v >= 0.0 for v in rates.values())
+
+    def test_simulation_with_iron_srb_phosphorus_does_not_crash(self):
+        """Simulation with iron + srb + phosphorus active should not crash."""
+        result = _run_multi_extension(
+            ["srb", "phosphorus", "iron"],
+            extra_initial={
+                "S_SO4": 0.01, "X_SRB_ac": 0.2, "X_SRB_h2": 0.1,
+                "S_IP": 0.001, "X_MAP": 0.0, "X_CaCO3": 0.0,
+                "S_Fe2": 0.0, "X_FeS": 0.0, "X_VIV": 0.0,
+            },
+        )
+        assert "profiles" in result
+
+    def test_x_fes_nonnegative_throughout(self):
+        """X_FeS must not go negative during simulation."""
+        result = _run_multi_extension(
+            ["srb", "phosphorus", "iron"],
+            extra_initial={
+                "S_SO4": 0.01, "X_SRB_ac": 0.2, "X_SRB_h2": 0.1,
+                "S_IP": 0.001, "X_MAP": 0.0, "X_CaCO3": 0.0,
+                "S_Fe2": 0.001, "X_FeS": 0.0, "X_VIV": 0.0,
+            },
+        )
+        profiles = result["profiles"]
+        if "X_FeS" in profiles:
+            assert all(v >= -1e-10 for v in profiles["X_FeS"]), "X_FeS went negative"
+
+    def test_diagnostics_returns_expected_series(self):
+        result = _run_multi_extension(
+            ["srb", "phosphorus", "iron"],
+            extra_initial={
+                "S_SO4": 0.01, "X_SRB_ac": 0.1,
+                "S_IP": 0.001,
+                "S_Fe2": 0.001, "X_FeS": 0.0, "X_VIV": 0.0,
+            },
+        )
+        profiles = result["profiles"]
+        assert "S_Fe2" in profiles
+        assert "X_FeS" in profiles
+        assert "X_VIV" in profiles

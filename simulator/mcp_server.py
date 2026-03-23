@@ -24,6 +24,7 @@ from simulator.core.models import (
     TwoPhaseConfig,
 )
 from simulator.design_pipeline import ADM1DesignPipeline, SUBSTRATE_ALIASES, SUBSTRATE_PRESETS
+from simulator.full_model import list_registered_extensions as _list_registered_extensions
 from simulator.service import ADM1SimulationService
 from simulator.validation import run_phase3_validation as run_phase3_validation_report
 
@@ -65,6 +66,9 @@ class SimulateReactorInput(BaseModel):
     ph: float = Field(default=7.1, ge=5.0, le=8.5)
     segments: int = Field(default=6, ge=2, le=20)
     ammonia_inhibition_mode: str = Field(default="simple", description="One of: simple or fan.")
+    full_extensions: list[str] = Field(default_factory=list, description="Active extensions for the full backend, e.g. ['srb', 'lactate']. Use list_extensions to see available options.")
+    full_extension_parameter_overrides: dict[str, float] = Field(default_factory=dict, description="Parameter overrides for extensions, e.g. {'K_I_H2S': 0.01}.")
+    full_initial_state_overrides: dict[str, float] = Field(default_factory=dict, description="Initial state overrides for extensions, e.g. {'S_SO4': 0.005}.")
 
 
 class ProfileInput(BaseModel):
@@ -98,6 +102,9 @@ class CompareBackendsInput(BaseModel):
     ph: float = Field(default=7.1, ge=5.0, le=8.5)
     segments: int = Field(default=6, ge=2, le=20)
     ammonia_inhibition_mode: str = Field(default="simple", description="One of: simple or fan.")
+    full_extensions: list[str] = Field(default_factory=list, description="Active extensions for the full backend, e.g. ['srb', 'lactate'].")
+    full_extension_parameter_overrides: dict[str, float] = Field(default_factory=dict, description="Parameter overrides for extensions.")
+    full_initial_state_overrides: dict[str, float] = Field(default_factory=dict, description="Initial state overrides for extensions.")
 
 
 class OptimizeParameterInput(BaseModel):
@@ -162,6 +169,9 @@ class DesignReactorInput(BaseModel):
     candidate_reactors: list[str] = Field(default_factory=lambda: ["cstr", "uasb", "plug_flow"])
     persist_note: bool = Field(default=False)
     note_title: str | None = Field(default=None)
+    full_extensions: list[str] = Field(default_factory=list, description="Active extensions for the full backend, e.g. ['srb', 'lactate'].")
+    full_extension_parameter_overrides: dict[str, float] = Field(default_factory=dict, description="Parameter overrides for extensions.")
+    full_initial_state_overrides: dict[str, float] = Field(default_factory=dict, description="Initial state overrides for extensions.")
 
 
 def _build_feed(
@@ -267,6 +277,9 @@ async def simulate_reactor(
     ph: float = 7.1,
     segments: int = 6,
     ammonia_inhibition_mode: str = "simple",
+    full_extensions: list[str] | None = None,
+    full_extension_parameter_overrides: dict[str, float] | None = None,
+    full_initial_state_overrides: dict[str, float] | None = None,
 ) -> str:
     """Run a persisted ADM1-oriented simulation for a configured reactor."""
 
@@ -287,6 +300,9 @@ async def simulate_reactor(
         ph=ph,
         segments=segments,
         ammonia_inhibition_mode=ammonia_inhibition_mode,
+        full_extensions=full_extensions or [],
+        full_extension_parameter_overrides=full_extension_parameter_overrides or {},
+        full_initial_state_overrides=full_initial_state_overrides or {},
     )
     feed = _build_feed(
         feed_cod_kg_m3=params.feed_cod_kg_m3,
@@ -303,7 +319,13 @@ async def simulate_reactor(
         segments=params.segments if params.reactor_type == "plug_flow" else 1,
     )
     operating = OperatingConditions(volume_m3=params.volume_m3, temperature_c=params.temperature_c, hrt_days=params.hrt_days)
-    simulation = SimulationConfig(duration_days=params.duration_days, backend=params.backend)
+    simulation = SimulationConfig(
+        duration_days=params.duration_days,
+        backend=params.backend,
+        full_extensions=params.full_extensions,
+        full_extension_parameter_overrides=params.full_extension_parameter_overrides,
+        full_initial_state_overrides=params.full_initial_state_overrides,
+    )
     result = _get_service().simulate(
         reactor=reactor_config,
         operating_conditions=operating,
@@ -335,13 +357,22 @@ async def simulate_codigestion(
     duration_days: float = 60.0,
     ammonia_inhibition_mode: str = "fan",
     segments: int = 6,
+    full_extensions: list[str] | None = None,
+    full_extension_parameter_overrides: dict[str, float] | None = None,
+    full_initial_state_overrides: dict[str, float] | None = None,
 ) -> str:
     """Simulate weighted co-digestion of multiple substrate presets."""
 
     blend = _build_blend_from_json(substrates_json)
     reactor_config = ReactorConfig(reactor_type=reactor_type, segments=segments if reactor_type == "plug_flow" else 1)
     operating = OperatingConditions(volume_m3=volume_m3, temperature_c=temperature_c, hrt_days=hrt_days)
-    simulation = SimulationConfig(duration_days=duration_days, backend=backend)
+    simulation = SimulationConfig(
+        duration_days=duration_days,
+        backend=backend,
+        full_extensions=full_extensions or [],
+        full_extension_parameter_overrides=full_extension_parameter_overrides or {},
+        full_initial_state_overrides=full_initial_state_overrides or {},
+    )
     result = _get_service().simulate(
         reactor=reactor_config,
         operating_conditions=operating,
@@ -381,6 +412,9 @@ async def simulate_two_phase(
     phase1_ph_setpoint: float = 5.5,
     phase2_ph_setpoint: float = 7.2,
     ammonia_inhibition_mode: str = "fan",
+    full_extensions: list[str] | None = None,
+    full_extension_parameter_overrides: dict[str, float] | None = None,
+    full_initial_state_overrides: dict[str, float] | None = None,
 ) -> str:
     """Simulate two-phase anaerobic digestion with acidogenic and methanogenic stages."""
 
@@ -403,7 +437,13 @@ async def simulate_two_phase(
         ),
     )
     operating = OperatingConditions(volume_m3=volume_m3, temperature_c=temperature_c, hrt_days=hrt_days)
-    simulation = SimulationConfig(duration_days=duration_days, backend=backend)
+    simulation = SimulationConfig(
+        duration_days=duration_days,
+        backend=backend,
+        full_extensions=full_extensions or [],
+        full_extension_parameter_overrides=full_extension_parameter_overrides or {},
+        full_initial_state_overrides=full_initial_state_overrides or {},
+    )
     result = _get_service().simulate(
         reactor=reactor_config,
         operating_conditions=operating,
@@ -443,6 +483,9 @@ async def simulate_tpad(
     meso_temperature_c: float = 35.0,
     meso_hrt_days: float = 15.0,
     ammonia_inhibition_mode: str = "fan",
+    full_extensions: list[str] | None = None,
+    full_extension_parameter_overrides: dict[str, float] | None = None,
+    full_initial_state_overrides: dict[str, float] | None = None,
 ) -> str:
     """Simulate temperature-phased anaerobic digestion."""
 
@@ -466,7 +509,13 @@ async def simulate_tpad(
         ),
     )
     operating = OperatingConditions(volume_m3=volume_m3, temperature_c=meso_temperature_c, hrt_days=hrt_days)
-    simulation = SimulationConfig(duration_days=duration_days, backend=backend)
+    simulation = SimulationConfig(
+        duration_days=duration_days,
+        backend=backend,
+        full_extensions=full_extensions or [],
+        full_extension_parameter_overrides=full_extension_parameter_overrides or {},
+        full_initial_state_overrides=full_initial_state_overrides or {},
+    )
     result = _get_service().simulate(
         reactor=reactor_config,
         operating_conditions=operating,
@@ -503,6 +552,9 @@ async def simulate_batch(
     ph: float = 7.1,
     inoculum_fraction: float = 0.3,
     ammonia_inhibition_mode: str = "fan",
+    full_extensions: list[str] | None = None,
+    full_extension_parameter_overrides: dict[str, float] | None = None,
+    full_initial_state_overrides: dict[str, float] | None = None,
 ) -> str:
     """Simulate a batch ADM1 case such as BMP tests."""
 
@@ -518,7 +570,13 @@ async def simulate_batch(
     )
     reactor_config = ReactorConfig(reactor_type="batch", batch=BatchConfig(inoculum_fraction=inoculum_fraction))
     operating = OperatingConditions(volume_m3=volume_m3, temperature_c=temperature_c, hrt_days=max(duration_days, 0.1))
-    simulation = SimulationConfig(duration_days=duration_days, backend=backend)
+    simulation = SimulationConfig(
+        duration_days=duration_days,
+        backend=backend,
+        full_extensions=full_extensions or [],
+        full_extension_parameter_overrides=full_extension_parameter_overrides or {},
+        full_initial_state_overrides=full_initial_state_overrides or {},
+    )
     result = _get_service().simulate(
         reactor=reactor_config,
         operating_conditions=operating,
@@ -611,6 +669,9 @@ async def compare_backends(
     ph: float = 7.1,
     segments: int = 6,
     ammonia_inhibition_mode: str = "simple",
+    full_extensions: list[str] | None = None,
+    full_extension_parameter_overrides: dict[str, float] | None = None,
+    full_initial_state_overrides: dict[str, float] | None = None,
 ) -> str:
     """Compare explicit backend executions for the same ADM1 case."""
 
@@ -631,6 +692,9 @@ async def compare_backends(
         ph=ph,
         segments=segments,
         ammonia_inhibition_mode=ammonia_inhibition_mode,
+        full_extensions=full_extensions or [],
+        full_extension_parameter_overrides=full_extension_parameter_overrides or {},
+        full_initial_state_overrides=full_initial_state_overrides or {},
     )
     feed = _build_feed(
         feed_cod_kg_m3=params.feed_cod_kg_m3,
@@ -647,7 +711,14 @@ async def compare_backends(
         segments=params.segments if params.reactor_type == "plug_flow" else 1,
     )
     operating = OperatingConditions(volume_m3=params.volume_m3, temperature_c=params.temperature_c, hrt_days=params.hrt_days)
-    simulation = SimulationConfig(duration_days=params.duration_days, backend=params.backends[0], persist=False)
+    simulation = SimulationConfig(
+        duration_days=params.duration_days,
+        backend=params.backends[0],
+        persist=False,
+        full_extensions=params.full_extensions,
+        full_extension_parameter_overrides=params.full_extension_parameter_overrides,
+        full_initial_state_overrides=params.full_initial_state_overrides,
+    )
     payload = _get_service().compare_backends(
         params.backends,
         reactor=reactor_config,
@@ -835,6 +906,9 @@ async def design_reactor(
     candidate_reactors: list[str] | None = None,
     persist_note: bool = False,
     note_title: str | None = None,
+    full_extensions: list[str] | None = None,
+    full_extension_parameter_overrides: dict[str, float] | None = None,
+    full_initial_state_overrides: dict[str, float] | None = None,
 ) -> str:
     """Run the design workflow for a substrate preset and recommend a reactor configuration."""
 
@@ -850,6 +924,9 @@ async def design_reactor(
         candidate_reactors=candidate_reactors or ["cstr", "uasb", "plug_flow"],
         persist_note=persist_note,
         note_title=note_title,
+        full_extensions=full_extensions or [],
+        full_extension_parameter_overrides=full_extension_parameter_overrides or {},
+        full_initial_state_overrides=full_initial_state_overrides or {},
     )
     payload = _get_pipeline().run(
         substrate=params.substrate,
@@ -863,7 +940,47 @@ async def design_reactor(
         reactor_candidates=params.candidate_reactors,
         persist_note=params.persist_note,
         note_title=params.note_title,
+        active_extensions=params.full_extensions,
+        extension_parameter_overrides=params.full_extension_parameter_overrides,
+        extension_initial_state_overrides=params.full_initial_state_overrides,
     )
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+@mcp.tool(
+    name="list_extensions",
+    annotations={
+        "title": "List Available Full Model Extensions",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+async def list_extensions() -> str:
+    """List all registered ADM1 full model extensions with descriptions."""
+
+    from simulator.full_model import resolve_full_model_assembly
+
+    extensions = _list_registered_extensions()
+    items = []
+    for name in extensions:
+        try:
+            assembly = resolve_full_model_assembly([name])
+            ext_states = [s for s in assembly.full_state_names if s not in ("X_tracer",)]
+            items.append({
+                "name": name,
+                "total_states": len(assembly.full_state_names),
+                "total_processes": len(assembly.full_process_names),
+            })
+        except Exception:
+            items.append({"name": name, "error": "failed to resolve"})
+
+    payload = {
+        "available_extensions": list(extensions),
+        "note": "Pass extension names in the 'full_extensions' parameter of simulate_reactor, design_reactor, etc. Backend must be 'full' to activate extensions.",
+        "details": items,
+    }
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
