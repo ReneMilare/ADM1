@@ -84,8 +84,8 @@ def _line_chart(result: SimulationResult, *, series_names: list[str], title: str
     _all_vals = [v for name in series_names for v in (result.series.get(name) or []) if v is not None]
     if _all_vals:
         _max_abs = max(abs(v) for v in _all_vals)
-        if _max_abs < 1e-3 or _max_abs > 1e4:
-            figure.update_yaxes(exponentformat="power", tickformat=".2e")
+        if _max_abs > 0 and (_max_abs < 1e-3 or _max_abs > 1e4):
+            figure.update_yaxes(exponentformat="power")
             figure.update_traces(hovertemplate="%{x:.2f}d<br>%{y:.3e}<extra></extra>")
     base_color = _COLOR_MAP[color_key]
     for trace in figure.data:
