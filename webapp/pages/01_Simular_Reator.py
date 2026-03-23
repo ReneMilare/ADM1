@@ -1448,6 +1448,10 @@ if result is not None:
                             height=280,
                             margin={"t": 30, "b": 30, "l": 10, "r": 10},
                         )
+                        _max_abs = max((abs(v) for v in _vals if v is not None), default=0.0)
+                        if _max_abs < 1e-3 or _max_abs > 1e4:
+                            _fig.update_yaxes(exponentformat="power", tickformat=".2e")
+                            _fig.update_traces(hovertemplate="%{x:.2f}d<br>%{y:.3e}<extra></extra>")
                         _cols[i % 2].plotly_chart(_fig, use_container_width=True)
 
         # SRB KPI metrics

@@ -15,7 +15,10 @@ def render_input_table(result: SimulationResult) -> None:
 
 
 def render_series_preview(result: SimulationResult, rows: int = 12) -> None:
-    st.dataframe(result_series_frame(result).head(rows), use_container_width=True, hide_index=True)
+    df = result_series_frame(result).head(rows)
+    float_cols = [c for c in df.columns if df[c].dtype == float]
+    styled = df.style.format({c: "{:.4g}" for c in float_cols})
+    st.dataframe(styled, use_container_width=True, hide_index=True)
 
 
 def render_frame(frame) -> None:

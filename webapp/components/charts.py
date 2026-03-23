@@ -80,6 +80,13 @@ def _line_chart(result: SimulationResult, *, series_names: list[str], title: str
     figure.update_layout(**_base_layout(title, height=340))
     figure.update_xaxes(title_text="Time [days]")
     figure.update_yaxes(title_text=y_axis_title, gridcolor="rgba(20, 34, 48, 0.08)")
+    # Auto scientific notation when values are very small or very large
+    _all_vals = [v for name in series_names for v in (result.series.get(name) or []) if v is not None]
+    if _all_vals:
+        _max_abs = max(abs(v) for v in _all_vals)
+        if _max_abs < 1e-3 or _max_abs > 1e4:
+            figure.update_yaxes(exponentformat="power", tickformat=".2e")
+            figure.update_traces(hovertemplate="%{x:.2f}d<br>%{y:.3e}<extra></extra>")
     base_color = _COLOR_MAP[color_key]
     for trace in figure.data:
         trace.line.color = base_color
