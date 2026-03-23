@@ -380,17 +380,38 @@ class _IronExtension:
         s_fe2 = np.clip(matrix[:, assembly.full_state_index["S_Fe2"]], 0.0, None)
         x_fes = np.clip(matrix[:, assembly.full_state_index["X_FeS"]], 0.0, None)
         x_viv = np.clip(matrix[:, assembly.full_state_index["X_VIV"]], 0.0, None)
+        # S_H2S from E4 (required dependency)
+        s_h2s = np.clip(matrix[:, assembly.full_state_index["S_H2S"]], 0.0, None)
+        # S_IP from E7 (required dependency)
+        s_ip = np.clip(matrix[:, assembly.full_state_index["S_IP"]], 0.0, None)
+        # S_H_ion is an algebraic state stored in the full state matrix
+        s_h_ion = np.clip(matrix[:, assembly.full_state_index["S_H_ion"]], 1e-14, None)
 
-        # Simple rate proxy: dX_FeS/dt (finite difference)
-        h2s_removed_by_fes = np.diff(x_fes, prepend=x_fes[0])
-        # Clamp to positive only (removal = increase in X_FeS)
-        h2s_removed_by_fes = np.maximum(h2s_removed_by_fes, 0.0)
+        # --- FeS saturation index IP_FeS = [Fe²⁺][S²⁻] / Ksp_FeS ---
+        # Note: S_H2S in ADM1 is total dissolved sulfide (H2S + HS- + S²-)
+        # For Ksp_FeS we use total H2S as a proxy (conservative approximation)
+        ksp_fes = float(params["Ksp_FeS"])
+        ip_fes = (s_fe2 * s_h2s) / max(ksp_fes, 1e-30)
+
+        # --- Vivianite saturation index IP_VIV = [Fe²⁺]³[PO₄³⁻]² / Ksp_VIV ---
+        ka2 = float(params.get("Ka_H2PO4", 6.31e-8))
+        ka3 = float(params.get("Ka_HPO4", 4.57e-13))
+        denom_p = s_h_ion ** 2 + ka2 * s_h_ion + ka2 * ka3
+        s_po4 = s_ip * ka2 * ka3 / np.maximum(denom_p, 1e-30)
+
+        ksp_viv = float(params["Ksp_VIV"])
+        ip_viv = (s_fe2 ** 3 * s_po4 ** 2) / max(ksp_viv, 1e-30)
+
+        # Simple rate proxy: cumulative FeS formed (proxy for H2S removed)
+        h2s_removed_by_fes = np.maximum(np.diff(x_fes, prepend=x_fes[0]), 0.0)
 
         return {
             "S_Fe2": s_fe2.astype(float).tolist(),
             "X_FeS": x_fes.astype(float).tolist(),
             "X_VIV": x_viv.astype(float).tolist(),
             "H2S_removed_by_FeS_cumulative": x_fes.astype(float).tolist(),
+            "IP_FeS": np.clip(ip_fes, 0.0, None).astype(float).tolist(),
+            "IP_VIV": np.clip(ip_viv, 0.0, None).astype(float).tolist(),
         }
 
     def _validate(self, assembly: FullModelAssembly) -> None:

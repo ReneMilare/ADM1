@@ -382,17 +382,38 @@ class _PhosphorusExtension:
         s_ip = np.clip(matrix[:, assembly.full_state_index["S_IP"]], 0.0, None)
         x_map = np.clip(matrix[:, assembly.full_state_index["X_MAP"]], 0.0, None)
         x_caco3 = np.clip(matrix[:, assembly.full_state_index["X_CaCO3"]], 0.0, None)
+        s_ic = np.clip(matrix[:, assembly.full_state_index["S_IC"]], 0.0, None)
+        # S_H_ion and S_nh4_ion are algebraic states stored in the full state matrix
+        s_h_ion = np.clip(matrix[:, assembly.full_state_index["S_H_ion"]], 1e-14, None)
+        s_nh4 = np.clip(matrix[:, assembly.full_state_index["S_nh4_ion"]], 0.0, None)
 
-        # Compute saturation indices from the time series for diagnostics
-        # Use simplified approximations (no S_H_ion time series available here directly)
-        # — return raw state values plus simple derived quantities
-        p_precip_rate = np.diff(x_map, prepend=x_map[0])  # change in X_MAP per time step
+        # --- Struvite (MAP) saturation index IP_MAP = [Mg²⁺][NH₄⁺][PO₄³⁻] / Ksp ---
+        ka2 = float(params["Ka_H2PO4"])
+        ka3 = float(params["Ka_HPO4"])
+        denom_p = s_h_ion ** 2 + ka2 * s_h_ion + ka2 * ka3
+        s_po4 = s_ip * ka2 * ka3 / np.maximum(denom_p, 1e-30)
+
+        s_mg = float(params["S_Mg"])
+        ksp_map = float(params["Ksp_MAP"])
+        ip_map = s_mg * s_nh4 * s_po4 / max(ksp_map, 1e-30)
+
+        # --- Calcite (CaCO3) saturation index IP_CaCO3 = [Ca²⁺][CO₃²⁻] / Ksp ---
+        ka_co2 = float(params.get("K_a_co2", 4.47e-7))
+        ka_hco3 = 4.68e-11  # pKa for HCO3-/CO3²⁻ at 35°C
+        s_hco3 = ka_co2 * s_ic / np.maximum(ka_co2 + s_h_ion, 1e-30)
+        s_co3 = ka_hco3 * s_hco3 / np.maximum(s_h_ion, 1e-14)
+
+        s_ca = float(params["S_Ca"])
+        ksp_caco3 = float(params["Ksp_CaCO3"])
+        ip_caco3 = s_ca * s_co3 / max(ksp_caco3, 1e-30)
 
         return {
             "S_IP": s_ip.astype(float).tolist(),
             "X_MAP": x_map.astype(float).tolist(),
             "X_CaCO3": x_caco3.astype(float).tolist(),
             "P_precipitated_MAP_cumulative": x_map.astype(float).tolist(),
+            "IP_MAP": np.clip(ip_map, 0.0, None).astype(float).tolist(),
+            "IP_CaCO3": np.clip(ip_caco3, 0.0, None).astype(float).tolist(),
         }
 
     def _validate(self, assembly: FullModelAssembly) -> None:

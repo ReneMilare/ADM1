@@ -26,5 +26,6 @@ adm1-theme-probe.png
 dynamic_out.csv
 
 documentation/Biological Wastewater Treatment - Principles - Modelling - Design.pdf
+documentation/*.pdf
 
 vaultObsidian/.obsidian/workspace.json

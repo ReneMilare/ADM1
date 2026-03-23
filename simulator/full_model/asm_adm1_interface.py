@@ -31,7 +31,9 @@ Reference:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+
+from simulator.full_model.mappings.asm1_fractions import ASM1ToADM1Fractions  # re-exported
 
 
 @dataclass
@@ -58,27 +60,9 @@ class ASM1State:
     S_ALK: float  # Alkalinity (mol HCO3-/m³)
 
 
-@dataclass
-class ASM1ToADM1Fractions:
-    """Fractionation factors for distributing ASM1 COD pools into ADM1 substrates.
-
-    Defaults follow BSM2 interface (Nopens et al. 2009, Table 1).
-
-    S_S splits into soluble sugars (S_su) and amino acids (S_aa).
-    X_S splits into particulate carbohydrates (X_ch), proteins (X_pr), lipids (X_li).
-    Constraint: f_su_Ss + f_aa_Ss = 1.0 and f_ch_Xs + f_pr_Xs + f_li_Xs = 1.0.
-    """
-
-    f_su_Ss: float = 0.75    # Fraction of S_S → S_su (sugars)
-    f_aa_Ss: float = 0.25    # Fraction of S_S → S_aa (amino acids)
-    f_ch_Xs: float = 0.275   # Fraction of X_S → X_ch (carbohydrates)
-    f_pr_Xs: float = 0.275   # Fraction of X_S → X_pr (proteins)
-    f_li_Xs: float = 0.45    # Fraction of X_S → X_li (lipids)
-
-    def __post_init__(self) -> None:
-        # Soft validation: warn if fractions don't sum to 1.0 but don't raise
-        # (user may intentionally leave room for unlisted pathways)
-        pass
+# ASM1ToADM1Fractions is defined in mappings/asm1_fractions.py and re-exported
+# here to keep the public API stable (importers of asm_adm1_interface still work).
+__all__ = ["ASM1State", "ASM1ToADM1Fractions", "asm1_to_adm1_influent", "verify_asm1_adm1_balance"]
 
 
 def asm1_to_adm1_influent(

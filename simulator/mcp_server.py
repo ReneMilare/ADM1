@@ -984,5 +984,99 @@ async def list_extensions() -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
+class _ConvertASM1Params(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    S_S: float = Field(default=100.0, description="Readily biodegradable soluble COD (gCOD/m³)")
+    S_I: float = Field(default=30.0, description="Soluble inert COD (gCOD/m³)")
+    X_S: float = Field(default=200.0, description="Slowly biodegradable particulate COD (gCOD/m³)")
+    X_I: float = Field(default=50.0, description="Particulate inert COD (gCOD/m³)")
+    X_BH: float = Field(default=300.0, description="Active heterotrophic biomass (gCOD/m³)")
+    X_BA: float = Field(default=40.0, description="Active autotrophic (nitrifying) biomass (gCOD/m³)")
+    X_P: float = Field(default=80.0, description="Particulate products from biomass decay (gCOD/m³)")
+    S_ND: float = Field(default=2.0, description="Soluble biodegradable organic nitrogen (gN/m³)")
+    X_ND: float = Field(default=4.0, description="Particulate biodegradable organic nitrogen (gN/m³)")
+    S_NH: float = Field(default=20.0, description="Free and saline ammonia (gN/m³)")
+    S_NO: float = Field(default=5.0, description="Nitrate and nitrite nitrogen (gN/m³)")
+    S_ALK: float = Field(default=4.0, description="Alkalinity (mol HCO3-/m³)")
+    # Optional fractionation overrides (BSM2 defaults used when omitted)
+    f_su_Ss: float | None = Field(default=None, description="Fraction of S_S → S_su (default 0.75)")
+    f_aa_Ss: float | None = Field(default=None, description="Fraction of S_S → S_aa (default 0.25)")
+    f_ch_Xs: float | None = Field(default=None, description="Fraction of X_S → X_ch (default 0.275)")
+    f_pr_Xs: float | None = Field(default=None, description="Fraction of X_S → X_pr (default 0.275)")
+    f_li_Xs: float | None = Field(default=None, description="Fraction of X_S → X_li (default 0.45)")
+
+
+@mcp.tool(
+    name="convert_asm1_to_adm1_influent",
+    annotations={
+        "title": "Convert ASM1 State to ADM1 Influent (BSM2 Interface — E14)",
+        "readOnlyHint": True,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+)
+async def convert_asm1_to_adm1_influent(params: _ConvertASM1Params) -> str:
+    """Convert an ASM1 effluent state vector to ADM1 influent_values (BSM2 E14 interface).
+
+    Transforms IWA ASM1 variables (gCOD/m³, gN/m³) into ADM1 influent concentrations
+    (kgCOD/m³, kmol/m³) following the BSM2 fractionation methodology
+    (Nopens et al. 2009, Water Research 43:1913–1923).
+
+    Use this to feed a wastewater treatment plant clarifier effluent into an ADM1
+    anaerobic digester simulation. The returned dict can be passed directly as
+    influent_values to simulate_reactor with backend='full'.
+    """
+    from simulator.full_model.asm_adm1_interface import (
+        ASM1State,
+        ASM1ToADM1Fractions,
+        asm1_to_adm1_influent,
+        verify_asm1_adm1_balance,
+    )
+
+    asm1 = ASM1State(
+        S_S=params.S_S, S_I=params.S_I, X_S=params.X_S, X_I=params.X_I,
+        X_BH=params.X_BH, X_BA=params.X_BA, X_P=params.X_P,
+        S_ND=params.S_ND, X_ND=params.X_ND, S_NH=params.S_NH,
+        S_NO=params.S_NO, S_ALK=params.S_ALK,
+    )
+
+    fractions_kwargs = {}
+    if params.f_su_Ss is not None:
+        fractions_kwargs["f_su_Ss"] = params.f_su_Ss
+    if params.f_aa_Ss is not None:
+        fractions_kwargs["f_aa_Ss"] = params.f_aa_Ss
+    if params.f_ch_Xs is not None:
+        fractions_kwargs["f_ch_Xs"] = params.f_ch_Xs
+    if params.f_pr_Xs is not None:
+        fractions_kwargs["f_pr_Xs"] = params.f_pr_Xs
+    if params.f_li_Xs is not None:
+        fractions_kwargs["f_li_Xs"] = params.f_li_Xs
+
+    fractions = ASM1ToADM1Fractions(**fractions_kwargs)
+    adm1_influent = asm1_to_adm1_influent(asm1, fractions)
+    balance = verify_asm1_adm1_balance(asm1, adm1_influent)
+
+    payload = {
+        "adm1_influent_values": adm1_influent,
+        "balance_check": {
+            "cod_error_pct": balance["cod_error_pct"],
+            "n_error_pct": balance["n_error_pct"],
+            "note": (
+                "COD error should be < 1% when fractions sum to 1. "
+                "N error can be large because organic N (S_ND, X_ND) is not mapped to S_IN."
+            ),
+        },
+        "fractions_used": {
+            "f_su_Ss": fractions.f_su_Ss, "f_aa_Ss": fractions.f_aa_Ss,
+            "f_ch_Xs": fractions.f_ch_Xs, "f_pr_Xs": fractions.f_pr_Xs,
+            "f_li_Xs": fractions.f_li_Xs,
+        },
+        "reference": "Nopens et al. (2009) Water Research 43(7):1913–1923 doi:10.1016/j.watres.2009.01.012",
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
 if __name__ == "__main__":
     mcp.run()
