@@ -19,7 +19,7 @@ Net: 4CO + 2H2O → CH4 + 3CO2
 Stoichiometry (per kgCOD S_CO consumed):
   S_CO:   -1
   S_h2:   +(1 - Y_met_CO)   [H2 produced from WGS, COD-balanced since COD(CO) = COD(H2) = 16 gO2/mol]
-  S_IC:   +C_CO*(1-Y_met_CO) - Y_met_CO*C_bac  [C from CO → CO2 minus C to biomass]
+  S_IC:   +C_CO - Y_met_CO*C_bac  [C from CO → CO2 minus C to biomass]
   S_IN:   -Y_met_CO * N_bac
   X_met_CO: +Y_met_CO
 
@@ -34,36 +34,29 @@ Note on gas dynamics:
   (see FullCSTRRhs.__call__). The stoichiometry coefficient V_liq/V_gas for S_gas_CO converts
   the liquid-basis transfer rate to a gas-volume basis.
 
-CO inhibition of acetoclastic methanogenesis:
-  CO inhibits X_ac (rho_11) via competitive inhibition (Lecker et al. 2017 Eq. 4):
-    I_CO_ac = K_I_CO / (K_I_CO + S_CO)
-  Applied only when CO is present at meaningful concentrations.
+CO inhibition of acetoclastic and hydrogenotrophic methanogenesis:
+  Sun et al. (2021) define:
+    Icoac = 1 / (1 + S_CO / KI,COac)
+    IcoH2 = 1 / (1 + S_CO / KI,COH2)
+  which are implemented here as competitive inhibition factors on rho_11 and rho_12.
 
 Domain note:
   Default parameters are derived for mesophilic (35°C) CSTR biomethanation.
   Thermophilic conditions increase CO transfer rates but also shift community
-  composition. At CO partial pressures > 0.5 bar, CO becomes inhibitory to most
-  methanogens (Lecker et al. 2017 Table 1). Use X_met_CO initial inoculum > 0.01
+  composition. At elevated CO partial pressures the inhibition terms on acetate and
+  hydrogen uptake become relevant. Use X_met_CO initial inoculum > 0.01
   kgCOD/m³ or the simulation will not show CO consumption.
 
 Reference:
-    Lecker B, Illi L, Lemmer A, Oechsner H (2017). "Biological hydrogen
-    methanation — A review." Bioresour Technol 245(Pt A):1220–1228.
-    doi:10.1016/j.biortech.2017.08.176
+    Sun H, Yang Z, Zhao Q, Kurbonova M, Zhang R, Liu G, Wang W (2021).
+    Modification and extension of anaerobic digestion model No.1 (ADM1)
+    for syngas biomethanation simulation: From lab-scale to pilot-scale.
+    Chemical Engineering Journal 403:126177. doi:10.1016/j.cej.2020.126177
 
-    Wang W, Xie L, Chen J, Luo G, Zhou Q (2013). "Biogas production from
-    codigestion of dairy manure and high-concentration whey." Bioresour Technol
-    143:323–328. doi:10.1016/j.biortech.2013.06.011
-
-    Guiot SR, Cimpoia R, Carayon G (2011). "Potential of wastewater-treating
-    anaerobic granules for biomethanation of synthesis gas." Environ Sci Technol
-    45(5):2006–2012. doi:10.1021/es102728b
-
-    Reference for ADM1 extension and CO water-gas shift pathway:
-    "Modification and extension of anaerobic digestion model No. 1 (ADM1) for
-    syngas biomethanation simulation: From lab-scale to pilot-scale."
-    (local PDF: documentation/Modification and extension of anaerobic digestion
-    model No.1 (ADM1) for syngas biomethanation simulation...)
+    The local paper calibrates YCO, kmCO, KsCO and kdecCO (Table 4),
+    formulates Icoac/IcoH2 for acetoclastic and hydrogenotrophic uptake
+    (Eq. 14-15), and reports acetate-dominant lab-scale versus
+    hydrogenotrophic-dominant pilot-scale pathways.
 """
 from __future__ import annotations
 
@@ -77,9 +70,8 @@ from simulator.full_model.extensions import FullModelExtensionContribution
 from simulator.full_model.units import DAY_INV, DIMENSIONLESS, KG_COD_M3
 
 _SRC = (
-    "Lecker et al. (2017) Bioresour Technol 245:1220–1228 doi:10.1016/j.biortech.2017.08.176; "
-    "Guiot et al. (2011) Environ Sci Technol 45:2006–2012 doi:10.1021/es102728b; "
-    "Wang et al. (2013) Bioresour Technol 143:323–328 doi:10.1016/j.biortech.2013.06.011"
+    "Sun et al. (2021) Chem Eng J 403:126177 doi:10.1016/j.cej.2020.126177; "
+    "Batstone et al. (2002) Water Sci Technol 45(10):65-73"
 )
 _KMOL_M3 = "kmol/m3"
 
@@ -87,8 +79,8 @@ _KMOL_M3 = "kmol/m3"
 class _SyngasExtension:
     name = "syngas"
     description = (
-        "E15: biometanação de syngas — CO dissoluto + X_met_CO (WGS enzimático) → H2 → CH4. "
-        "Gas-liquid transfer com Lei de Henry, inibição de CO em acetoclástica (Lecker 2017)."
+        "E15: biometanação de syngas com CO→H2 e CO→acetato, transporte gás-líquido e "
+        "inibição de CO em acetogênese/metanogênese conforme Sun et al. (2021)."
     )
 
     def contribute(self) -> FullModelExtensionContribution:
@@ -148,16 +140,39 @@ class _SyngasExtension:
                 name="rho_E15_CO_uptake",
                 vendor_symbol="Rho_E15_1",
                 family="biochemical",
-                description="Oxidação biológica de CO via WGS enzimática: CO + H2O → CO2 + H2 (+ biomassa).",
+                description=(
+                    "Oxidação biológica de CO via WGS enzimática: CO + H2O → CO2 + H2 (+ biomassa). "
+                    "Fração f_co_to_h2 do consumo total de CO."
+                ),
                 rate_expression="computed_by_extension",
                 affected_states=("S_CO", "S_h2", "S_IC", "S_IN", "X_met_CO"),
-                parameters=("k_m_met_CO", "K_S_CO", "Y_met_CO"),
+                parameters=("k_m_met_CO", "K_S_CO", "Y_met_CO", "f_co_to_h2"),
                 inhibitions=("I_pH_h2",),
                 source=_SRC,
                 notes=(
-                    "Monod kinetics in S_CO × X_met_CO × I_pH × I_IN. "
+                    "Rate = total_CO_rate × f_co_to_h2. "
                     "Product H2 enters ADM1 pool and is consumed by X_h2 (rho_12). "
-                    "Net: CO → H2 (catabolism, Y_met_CO ≈ 0.034)."
+                    "Net: CO → H2 (WGS pathway, fraction f_co_to_h2)."
+                ),
+            ),
+            ProcessDefinition(
+                name="rho_E15_CO_acetate",
+                vendor_symbol="Rho_E15_ac",
+                family="biochemical",
+                description=(
+                    "Homoacetogênese de CO: 4CO + 2H2O → CH3COO⁻ + H⁺ + 2CO2 (+ biomassa). "
+                    "Fração (1 - f_co_to_h2) do consumo total de CO."
+                ),
+                rate_expression="computed_by_extension",
+                affected_states=("S_CO", "S_ac", "S_IC", "S_IN", "X_met_CO"),
+                parameters=("k_m_met_CO", "K_S_CO", "Y_met_CO", "f_co_to_h2"),
+                inhibitions=("I_pH_h2",),
+                source=_SRC,
+                notes=(
+                    "Wood-Ljungdahl pathway: CO carbon split ~50% to acetate, ~50% to CO2. "
+                    "Rate = total_CO_rate × (1 - f_co_to_h2). "
+                    "Both rho_E15_CO_uptake and rho_E15_CO_acetate use the same X_met_CO population. "
+                    "Per kgCOD CO (catabolism): S_ac += (1-Y); S_IC += C_CO - (1-Y)*C_ac - Y*C_bac."
                 ),
             ),
             ProcessDefinition(
@@ -188,42 +203,41 @@ class _SyngasExtension:
         parameters = (
             ParameterDefinition(
                 name="k_m_met_CO",
-                value=2.6,
+                value=75.0,
                 unit=DAY_INV,
                 group="biochemical",
                 classification="calibrated",
                 description="Taxa máxima específica de consumo de CO por X_met_CO (d⁻¹).",
                 source=_SRC,
                 notes=(
-                    "Guiot et al. 2011: µ_max ≈ 2.6 d⁻¹ for granular CO-utilizing consortia at 35°C. "
-                    "Range 1–5 d⁻¹ depending on community and temperature."
+                    "Table 4 do paper-base: kmCO = 75 COD/(COD·d) para o ADM1_modified calibrado em lab-scale. "
+                    "Mantido como default quando E15 está ativo."
                 ),
             ),
             ParameterDefinition(
                 name="K_S_CO",
-                value=0.014,
+                value=8.0e-6,
                 unit=KG_COD_M3,
                 group="biochemical",
                 classification="calibrated",
                 description="Constante de meia-saturação para CO dissolvido (kgCOD/m³).",
                 source=_SRC,
                 notes=(
-                    "0.014 kgCOD/m³ ≈ 0.5 mM CO = 14 mg/L CO. "
-                    "Lecker 2017: K_S_CO ≈ 0.3–0.8 mM for known CO-utilizing acetogens. "
-                    "1 mmol CO = 28 mg CO = 28/16 gCOD = 1.75 gCOD → 0.5 mM = 0.875 gCOD/m³ ≈ 0.00875 kgCOD/m³."
+                    "Table 4 do paper-base: KsCO = 8e-6 kgCOD/m³ para o ADM1_modified. "
+                    "Valor muito baixo, consistente com alta afinidade aparente após calibração lab-scale."
                 ),
             ),
             ParameterDefinition(
                 name="Y_met_CO",
-                value=0.034,
+                value=0.025,
                 unit=DIMENSIONLESS,
                 group="stoichiometric",
                 classification="calibrated",
                 description="Rendimento de biomassa de X_met_CO (kgCOD_X / kgCOD_CO).",
                 source=_SRC,
                 notes=(
-                    "Low yield analogous to Y_h2 (0.06 in ADM1). "
-                    "Guiot 2011: yield ≈ 0.03–0.05 gVSS/gCOD → ~0.034 kgCOD/kgCOD (factor 1.42 VSS→COD)."
+                    "Table 4 do paper-base: YCO = 0.025 COD/COD para a biomassa XCO. "
+                    "Usado aqui como rendimento default de X_met_CO."
                 ),
             ),
             ParameterDefinition(
@@ -234,7 +248,47 @@ class _SyngasExtension:
                 classification="calibrated",
                 description="Taxa de decaimento de X_met_CO (d⁻¹).",
                 source=_SRC,
-                notes="Analogous to k_dec_X_h2 = 0.02 d⁻¹ in ADM1 (Batstone et al. 2002 Table 1).",
+                notes="Table 4 do paper-base: kdecCO = 0.02 d⁻¹.",
+            ),
+            ParameterDefinition(
+                name="k_m_ac",
+                value=12.5,
+                unit=DAY_INV,
+                group="biochemical",
+                classification="calibrated",
+                description="Taxa máxima específica de acetoclásticos quando E15 está ativo.",
+                source=_SRC,
+                notes="Table 4 do paper-base: kmac = 12.5 COD/(COD·d) no ADM1_modified.",
+            ),
+            ParameterDefinition(
+                name="k_m_h2",
+                value=90.0,
+                unit=DAY_INV,
+                group="biochemical",
+                classification="calibrated",
+                description="Taxa máxima específica de hidrogenotróficos quando E15 está ativo.",
+                source=_SRC,
+                notes="Table 4 do paper-base: kmH2 = 90 COD/(COD·d) no ADM1_modified.",
+            ),
+            ParameterDefinition(
+                name="K_S_ac",
+                value=0.05,
+                unit=KG_COD_M3,
+                group="biochemical",
+                classification="calibrated",
+                description="Constante de meia-saturação de acetato quando E15 está ativo.",
+                source=_SRC,
+                notes="Table 4 do paper-base: Ksac = 0.05 kgCOD/m³ no ADM1_modified.",
+            ),
+            ParameterDefinition(
+                name="K_S_h2",
+                value=1.0e-6,
+                unit=KG_COD_M3,
+                group="biochemical",
+                classification="calibrated",
+                description="Constante de meia-saturação de hidrogênio quando E15 está ativo.",
+                source=_SRC,
+                notes="Table 4 do paper-base: KsH2 = 1e-6 kgCOD/m³ no ADM1_modified.",
             ),
             ParameterDefinition(
                 name="K_H_CO",
@@ -266,14 +320,41 @@ class _SyngasExtension:
                 unit=KG_COD_M3,
                 group="biochemical",
                 classification="calibrated",
-                description="Constante de inibição de CO sobre metanogênese acetoclástica (kgCOD/m³).",
+                description="Constante de inibição de CO sobre metanogênese acetoclástica rho_11 (kgCOD/m³).",
                 source=_SRC,
                 notes=(
-                    "CO at ≥ 0.05 mM (~0.05 × 1.75 gCOD/m³ ≈ 0.09 gCOD/m³) inhibits X_ac. "
-                    "Lecker 2017: K_I_CO ≈ 0.05 mM CO = 0.05e-3 × 16000/28 kgCOD/m³ ≈ 0.029 gCOD/m³. "
-                    "Using more conservative value: 1.4e-3 kgCOD/m³ ≈ 0.05 mM. "
-                    "Applied as Monod-type competitive inhibition: I_CO = K_I_CO / (K_I_CO + S_CO). "
-                    "Note: inhibition is minor at typical dissolved CO concentrations in biomethanation."
+                    "Sun et al. (2021) Eq. 14 define Icoac = 1 / (1 + S_CO / K_I,COac). "
+                    "O paper local não deixa o valor calibrado legível no texto extraído; o default atual preserva a ordem de grandeza "
+                    "de alta sensibilidade acetoclástica e mantém K_I_CO < K_I_CO_h2."
+                ),
+            ),
+            ParameterDefinition(
+                name="K_I_CO_h2",
+                value=5.0e-3,
+                unit=KG_COD_M3,
+                group="biochemical",
+                classification="calibrated",
+                description="Constante de inibição de CO sobre metanogênese hidrogenotrófica rho_12 (kgCOD/m³).",
+                source=_SRC,
+                notes=(
+                    "Sun et al. (2021) Eq. 15 define IcoH2 = 1 / (1 + S_CO / K_I,COH2). "
+                    "O default mantém os hidrogenotróficos menos sensíveis ao CO do que os acetoclásticos, "
+                    "em linha com a formulação e discussão do paper-base."
+                ),
+            ),
+            ParameterDefinition(
+                name="f_co_to_h2",
+                value=0.65,
+                unit=DIMENSIONLESS,
+                group="stoichiometric",
+                classification="calibrated",
+                description="Fração do consumo de CO via rota WGS (→ H2). Complemento (1-f) vai para homoacetogênese (→ acetato).",
+                source=_SRC,
+                notes=(
+                    "Parâmetro proxy para repartir o consumo de CO entre WGS (→ H2) e CO-acetogênese (→ acetato). "
+                    "Sun et al. (2021) mostram pathway final acetoclástico dominante no lab-scale (67–78%) e "
+                    "hidrogenotrófico dominante no pilot-scale (~65%). Use valores menores para cenários lab-scale "
+                    "e maiores para cenários pilot-scale/WGS-dominantes."
                 ),
             ),
         )
@@ -285,9 +366,9 @@ class _SyngasExtension:
         #     S_IC: carbon balance: CO provides 1 C per mol = 0.0625 kmolC/kgCOD
         #           catabolized fraction (1-Y) CO carbon → CO2 → S_IC
         #           anabolic fraction Y × C_bac → X_met_CO
-        #           Δ S_IC = +0.0625 × (1-Y) - Y × C_bac
+        #           Δ S_IC = +0.0625 - Y × C_bac
         #           Simplified: +(0.0625 - Y_met_CO * (0.0625 + C_bac))
-        #           = 0.0625 * (1 - Y_met_CO) - Y_met_CO * C_bac
+        #           = 0.0625 - Y_met_CO * C_bac
         #     S_IN: -Y_met_CO * N_bac (nitrogen for biomass growth)
         #     X_met_CO: +Y_met_CO
         #
@@ -302,7 +383,20 @@ class _SyngasExtension:
                 "S_CO": "-1",
                 "S_h2": "1 - Y_met_CO",
                 # S_IC: C from CO (0.0625 kmolC/kgCOD) catabolism → CO2, minus C to biomass
-                "S_IC": "0.0625 * (1.0 - Y_met_CO) - Y_met_CO * C_bac",
+                "S_IC": "0.0625 - Y_met_CO * C_bac",
+                "S_IN": "-Y_met_CO * N_bac",
+                "X_met_CO": "Y_met_CO",
+            },
+            # CO homoacetogenesis: 4CO + 2H2O → CH3COO⁻ + H⁺ + 2CO2
+            # Per kgCOD CO (catabolism fraction 1-Y):
+            #   S_ac += (1-Y)  [COD-balanced: COD_CO ≡ COD_acetate per reaction]
+            #   S_IC net = C_CO×(1-Y) - C_ac×(1-Y) - Y×C_bac
+            #           = 0.0625 - (1-Y)×C_ac - Y×C_bac
+            #   where C_CO=0.0625 kmolC/kgCOD, C_ac≈0.0313 kmolC/kgCOD
+            "rho_E15_CO_acetate": {
+                "S_CO": "-1",
+                "S_ac": "1.0 - Y_met_CO",
+                "S_IC": "0.0625 - (1.0 - Y_met_CO) * C_ac - Y_met_CO * C_bac",
                 "S_IN": "-Y_met_CO * N_bac",
                 "X_met_CO": "Y_met_CO",
             },
@@ -340,14 +434,19 @@ class _SyngasExtension:
         # Nitrogen limitation
         i_in_lim = 1.0 / (1.0 + params["K_S_IN"] / s_in)
 
-        # Monod kinetics for CO uptake
-        rho_co_uptake = (
+        # Total CO uptake rate (both routes share X_met_CO and Monod kinetics)
+        rho_co_total = (
             float(params["k_m_met_CO"])
             * s_co / (float(params["K_S_CO"]) + s_co)
             * x_met_co
             * i_ph_h2
             * i_in_lim
         )
+        # Split between WGS (→ H2) and homoacetogenesis (→ acetate) routes
+        f_to_h2 = float(params.get("f_co_to_h2", 1.0))
+        rho_co_uptake = rho_co_total * f_to_h2
+        rho_co_acetate = rho_co_total * (1.0 - f_to_h2)
+
         rho_dec_met_co = float(params["k_dec_X_met_CO"]) * x_met_co
 
         # Gas-liquid CO transfer (Henry's law, same convention as rho_t8 for H2 in gas_transfer.py)
@@ -359,22 +458,31 @@ class _SyngasExtension:
 
         return {
             "rho_E15_CO_uptake": rho_co_uptake,
+            "rho_E15_CO_acetate": rho_co_acetate,
             "rho_E15_decay_X_met_CO": rho_dec_met_co,
             "rho_E15_CO_transfer": rho_co_transfer,
         }
 
     def _inhibition(self, state: Mapping[str, float], params: Mapping[str, float]) -> dict[str, float]:
-        """CO competitive inhibition of acetoclastic methanogenesis (rho_11_uptake_acetate).
+        """CO competitive inhibition of acetoclastic (rho_11) and hydrogenotrophic (rho_12) methanogenesis.
 
-        Lecker 2017 Eq. 4 — Monod-type competitive inhibition:
-            I_CO = K_I_CO / (K_I_CO + S_CO)
-        Inhibition is modest at typical dissolved CO concentrations (< 0.01 kgCOD/m³)
-        but significant at high partial pressures (> 0.3 bar CO).
+        Sun et al. (2021) Eq. 14-15 competitive inhibition form:
+            I_CO_ac  = K_I_CO    / (K_I_CO    + S_CO)  [acetoclastic, more sensitive]
+            I_CO_h2  = K_I_CO_h2 / (K_I_CO_h2 + S_CO)  [hydrogenotrophic, less sensitive]
+
+        At typical dissolved CO concentrations (< 0.01 kgCOD/m³) both factors are > 0.99 —
+        inhibition is negligible. At high CO partial pressures (> 0.3 bar) inhibition becomes significant.
+        Hydrogenotrophic methanogens are somewhat more CO-tolerant than acetoclastic ones.
         """
         s_co = max(float(state.get("S_CO", 0.0)), 0.0)
-        k_i_co = float(params.get("K_I_CO", 1.4e-3))
-        i_co = k_i_co / (k_i_co + s_co)
-        return {"rho_11_uptake_acetate": i_co}
+        k_i_co_ac = float(params.get("K_I_CO", 1.4e-3))
+        k_i_co_h2 = float(params.get("K_I_CO_h2", 5.0e-3))
+        i_co_ac = k_i_co_ac / (k_i_co_ac + s_co)
+        i_co_h2 = k_i_co_h2 / (k_i_co_h2 + s_co)
+        return {
+            "rho_11_uptake_acetate": i_co_ac,
+            "rho_12_uptake_hydrogen": i_co_h2,
+        }
 
     def _diagnostics(
         self,

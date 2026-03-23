@@ -118,12 +118,18 @@ def _build_extension_state_overrides(active_extensions: list[str]) -> tuple[dict
     if "trace_elements" in active_extensions:
         s_ni = float(st.session_state.get("te_initial_s_ni", 2e-6))
         s_cob = float(st.session_state.get("te_initial_s_co", 5e-7))
+        s_fe2 = float(st.session_state.get("te_initial_s_fe2_te", 1e-5))
+        s_fe2_feed = float(st.session_state.get("te_param_s_fe2_feed", 1e-5))
         if s_ni > 0.0:
             initial["S_Ni"] = s_ni
             influent["S_Ni"] = s_ni
         if s_cob > 0.0:
             initial["S_Co"] = s_cob
             influent["S_Co"] = s_cob
+        if s_fe2 > 0.0:
+            initial["S_Fe2_te"] = s_fe2
+        if s_fe2_feed > 0.0:
+            influent["S_Fe2_te"] = s_fe2_feed
     return initial, influent
 
 
@@ -135,7 +141,17 @@ def _build_extension_parameter_overrides(active_extensions: list[str]) -> dict[s
     if "iron" in active_extensions:
         overrides["S_Fe3_feed"] = float(st.session_state.get("iron_param_s_fe3_feed", 0.001))
     if "trace_elements" in active_extensions:
-        overrides["S_Fe2_TE_feed"] = float(st.session_state.get("te_param_s_fe2_feed", 1e-5))
+        overrides["S_Fe2_te_feed"] = float(st.session_state.get("te_param_s_fe2_feed", 1e-5))
+        overrides["S_DOM_TE"] = float(st.session_state.get("te_param_s_dom", 0.0))
+        overrides["K_c_Ni"] = float(st.session_state.get("te_param_k_c_ni", 27.54))
+        overrides["K_c_Co"] = float(st.session_state.get("te_param_k_c_co", 23.99))
+    if "microalgae" in active_extensions:
+        overrides["f_wall_alg"] = float(st.session_state.get("alg_param_f_wall_alg", 0.7))
+        overrides["f_hyd_alg"] = float(st.session_state.get("alg_param_f_hyd_alg", 1.0))
+    if "syngas" in active_extensions:
+        overrides["K_I_CO"] = float(st.session_state.get("syngas_param_k_i_co", 1.4e-3))
+        overrides["K_I_CO_h2"] = float(st.session_state.get("syngas_param_k_i_co_h2", 5.0e-3))
+        overrides["f_co_to_h2"] = float(st.session_state.get("syngas_param_f_co_to_h2", 0.65))
     return overrides
 
 
@@ -215,13 +231,19 @@ session_defaults = {
     "iron_param_s_fe3_feed": 0.001,
     "alg_initial_x_alg": 0.5,
     "alg_influent_x_alg": 0.5,
+    "alg_param_f_wall_alg": 0.70,
+    "alg_param_f_hyd_alg": 1.0,
     "syngas_initial_x_met_co": 0.05,
     "syngas_initial_s_co": 0.01,
     "syngas_initial_s_gas_co": 0.5,
     "syngas_influent_s_co": 0.0,
     "te_initial_s_ni": 2e-6,
     "te_initial_s_co": 5e-7,
+    "te_initial_s_fe2_te": 1e-5,
     "te_param_s_fe2_feed": 1e-5,
+    "te_param_s_dom": 0.0,
+    "te_param_k_c_ni": 27.54,
+    "te_param_k_c_co": 23.99,
     "hydraulic_mode": "hrt",
     "flow_rate_active": 150.0,
 }
@@ -309,9 +331,9 @@ _EXTENSION_DESCRIPTIONS = {
     "multi_population": "E12 – Multi-população: acetoclásticos e hidrogenotróficos divididos em populações oligótrofa e copiótrofa",
     "phosphorus": "E7 – Fósforo: ciclo de P inorgânico, precipitação de estruvita (MAP) e calcita",
     "iron": "E8 – Ferro: redução de Fe(III), precipitação de FeS e vivianita (requer E4 + E7)",
-    "microalgae": "E20 – Microalgas: digestão de biomassa algal com recalcitrância de parede celular (Mairet 2011)",
-    "syngas": "E15 – Syngas: biometanação de CO via reação WGS enzimática e X_met_CO (Lecker 2017)",
-    "trace_elements": "E9 – Elementos-traço: Ni e Co como micronutrientes; limitação de metanogênese (Thanh 2016)",
+    "microalgae": "E20 – Microalgas: X_alg + hidrólise tipo Contois conforme Mairet et al. (2011)",
+    "syngas": "E15 – Syngas: CO→H₂ e CO→acetato com inibição de CO conforme Sun et al. (2021)",
+    "trace_elements": "E9 – Elementos-traço: Ni/Co/Fe com sulfetos, FeCO3 e limitação por metal livre",
     "pilot_tracer": "Traçador RTD: injeção de traçador inerte para caracterização de distribuição de tempo de residência",
 }
 
@@ -471,8 +493,9 @@ if backend_choice == "full":
     if "microalgae" in _active_extensions:
         with st.expander("Configuração da extensão Microalgas (E20)", expanded=True):
             st.caption(
-                "X_alg é a biomassa algal composta que desintegra com recalcitrância de parede celular. "
-                "Use f_wall_alg < 1 para espécies resistentes. Defaults: Chlorella vulgaris (Mairet 2011)."
+                "A E20 usa X_alg como biomassa composta de alimentação e modifica rho_2/rho_3/rho_4 "
+                "com o termo tipo Contois do artigo-base. k_hyd_ch/pr/li e K_S_ch/pr/li ficam nos defaults "
+                "de Mairet et al. (2011); f_hyd_alg agora é apenas um multiplicador adicional de calibração."
             )
             _alg_col1, _alg_col2 = st.columns(2)
             with _alg_col1:
@@ -483,7 +506,17 @@ if backend_choice == "full":
                     step=0.1,
                     format="%.3f",
                     key="alg_initial_x_alg",
-                    help="Concentração inicial de algas no digestor. Típico: 0.5–5 kgCOD/m³.",
+                    help="Concentração inicial de algas no digestor. Típico: 0.5-5 kgCOD/m³.",
+                )
+                st.number_input(
+                    "Fator de recalcitrância de parede f_wall_alg [-]",
+                    min_value=0.1,
+                    max_value=1.0,
+                    value=float(st.session_state.get("alg_param_f_wall_alg", 0.7)),
+                    step=0.05,
+                    format="%.2f",
+                    key="alg_param_f_wall_alg",
+                    help="Multiplica k_dis_alg. 0.7 = resistência moderada; 0.9+ = biomassa mais acessível ou pré-tratada.",
                 )
             with _alg_col2:
                 st.number_input(
@@ -493,13 +526,23 @@ if backend_choice == "full":
                     step=0.1,
                     format="%.3f",
                     key="alg_influent_x_alg",
-                    help="X_alg no afluente. Corresponde à carga de algas alimentada ao digestor.",
+                    help="X_alg no afluente. Corresponde à carga de microalgas alimentada ao digestor.",
+                )
+                st.number_input(
+                    "Multiplicador adicional f_hyd_alg [-]",
+                    min_value=0.1,
+                    max_value=2.0,
+                    value=float(st.session_state.get("alg_param_f_hyd_alg", 1.0)),
+                    step=0.05,
+                    format="%.2f",
+                    key="alg_param_f_hyd_alg",
+                    help="1.0 preserva exatamente a forma tipo Contois do paper-base; use apenas para recalibração local.",
                 )
 
     if "syngas" in _active_extensions:
         with st.expander("Configuração da extensão Syngas (E15)", expanded=True):
             st.caption(
-                "X_met_CO é a biomassa carboxidotrófica que converte CO em H₂ via WGS enzimática. "
+                "X_met_CO converte CO em H₂ (WGS) e/ou acetato (homoacetogênese) conforme f_co_to_h2. "
                 "S_CO é o CO dissolvido; S_gas_CO é o CO no headspace. "
                 "Sem inóculo X_met_CO, o CO não é consumido."
             )
@@ -522,6 +565,16 @@ if backend_choice == "full":
                     format="%.4f",
                     key="syngas_initial_s_co",
                     help="≈ 0.01 kgCOD/m³ ≈ 17 mg CO/L",
+                )
+                st.number_input(
+                    "Fração CO→H₂ f_co_to_h2 [-]",
+                    min_value=0.0,
+                    max_value=1.0,
+                    value=float(st.session_state.get("syngas_param_f_co_to_h2", 0.65)),
+                    step=0.05,
+                    format="%.2f",
+                    key="syngas_param_f_co_to_h2",
+                    help="Fração do CO consumido pela rota WGS (→ H₂). O complemento vai para homoacetogênese (→ acetato). 0.65 reproduz o regime pilot-scale dominante em H₂ do paper-base.",
                 )
             with _syn_col2:
                 st.number_input(
@@ -548,13 +601,13 @@ if backend_choice == "full":
         if _te_conflict:
             st.error(
                 "⚠️ **Elementos-traço (E9)** não pode ser combinado com **Ferro (E8)** nesta versão. "
-                "Remova uma das extensões antes de simular."
+                "Os dois módulos têm química própria de Fe e pools precipitados distintos."
             )
         with st.expander("Configuração da extensão Elementos-Traço (E9)", expanded=True):
             st.caption(
-                "Ni e Co são micronutrientes essenciais para metanogênese. "
-                "Abaixo de K_TE (~0.5 µmol/L Ni, ~0.1 µmol/L Co) os metanogênicos são inibidos. "
-                "S_Fe2_TE_feed é o Fe(II) fixo no afluente (parâmetro operacional)."
+                "Ni/Co usam limitação por metal livre e um proxy opcional de complexação orgânica (S_DOM_TE). "
+                "Fe(II) é dinâmico como S_Fe2_te, pode precipitar como FeS/FeCO3 e, quando E4 está ativo, "
+                "a estequiometria passa a consumir S_H2S explicitamente."
             )
             _te_col1, _te_col2 = st.columns(2)
             with _te_col1:
@@ -565,7 +618,7 @@ if backend_choice == "full":
                     step=1e-7,
                     format="%.2e",
                     key="te_initial_s_ni",
-                    help="Típico: 1–5 µmol/L = 1e-6 – 5e-6 kmolNi/m³. Abaixo de K_TE_Ni (5e-7) → inibição.",
+                    help="Faixa típica: 1e-6 a 5e-6 kmolNi/m³. A limitação usa a fração livre, não o total dissolvido.",
                 )
                 st.number_input(
                     "Co dissolvido inicial S_Co [kmolCo/m³]",
@@ -574,120 +627,156 @@ if backend_choice == "full":
                     step=1e-8,
                     format="%.2e",
                     key="te_initial_s_co",
-                    help="Típico: 0.1–2 µmol/L = 1e-7 – 2e-6 kmolCo/m³. Abaixo de K_TE_Co (1e-7) → inibição.",
+                    help="Faixa típica: 1e-7 a 2e-6 kmolCo/m³. A limitação usa a fração livre, não o total dissolvido.",
+                )
+                st.number_input(
+                    "Fe(II) inicial S_Fe2_te [kmolFe/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("te_initial_s_fe2_te", 1e-5)),
+                    step=1e-6,
+                    format="%.2e",
+                    key="te_initial_s_fe2_te",
+                    help="Estado dinâmico de Fe(II) da E9; alimenta limitação por Fe e precipitação FeS/FeCO3.",
                 )
             with _te_col2:
                 st.number_input(
-                    "Fe(II) afluente S_Fe2_TE_feed [kmolFe/m³]",
+                    "Fe(II) afluente S_Fe2_te_feed [kmolFe/m³]",
                     min_value=0.0,
                     value=float(st.session_state.get("te_param_s_fe2_feed", 1e-5)),
                     step=1e-6,
                     format="%.2e",
                     key="te_param_s_fe2_feed",
-                    help="Fe(II) como parâmetro fixo de limitação (não estado dinâmico). ≈ 1e-5 kmol/m³ ≈ 0.56 mg Fe/L.",
+                    help="Referência operacional do Fe(II) no afluente; o estado de entrada enviado ao solver usa este valor.",
+                )
+                st.number_input(
+                    "Ligantes orgânicos S_DOM_TE [kgCOD/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("te_param_s_dom", 0.0)),
+                    step=0.05,
+                    format="%.2f",
+                    key="te_param_s_dom",
+                    help="Proxy operacional para complexação de Ni/Co com DOM; 0.0 desativa o efeito.",
+                )
+                st.number_input(
+                    "Constante proxy K_c_Ni [m³/kgCOD]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("te_param_k_c_ni", 27.54)),
+                    step=0.1,
+                    format="%.2f",
+                    key="te_param_k_c_ni",
+                    help="Constante proxy ancorada em Maharaj et al. (2019), Table 1, usando Ni-acetato como ligante equivalente: alpha = 1 / (1 + K_c_Ni * S_DOM_TE).",
+                )
+                st.number_input(
+                    "Constante proxy K_c_Co [m³/kgCOD]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("te_param_k_c_co", 23.99)),
+                    step=0.1,
+                    format="%.2f",
+                    key="te_param_k_c_co",
+                    help="Constante proxy ancorada em Maharaj et al. (2019), Table 1, usando Co-acetato como ligante equivalente: alpha = 1 / (1 + K_c_Co * S_DOM_TE).",
                 )
 
-# ─── E14: ASM1 → ADM1 interface (optional, outside form) ─────────────────────
-with st.expander("🔄 Converter influente ASM1 → ADM1 (Interface E14 / BSM2)", expanded=False):
-    st.caption(
-        "Use se o afluente do digestor vem de um sistema de lodos ativados (ASM1). "
-        "Converte variáveis ASM1 para influente ADM1 seguindo a interface BSM2 (Nopens et al. 2009)."
-    )
-
-    _a1_col1, _a1_col2, _a1_col3, _a1_col4 = st.columns(4)
-    _a1_S_S = _a1_col1.number_input("S_S [gCOD/m³]", 0.0, 50000.0, 100.0, key="a1_S_S")
-    _a1_S_I = _a1_col2.number_input("S_I [gCOD/m³]", 0.0, 20000.0, 30.0, key="a1_S_I")
-    _a1_X_S = _a1_col3.number_input("X_S [gCOD/m³]", 0.0, 50000.0, 200.0, key="a1_X_S")
-    _a1_X_I = _a1_col4.number_input("X_I [gCOD/m³]", 0.0, 20000.0, 50.0, key="a1_X_I")
-
-    _a1_col5, _a1_col6, _a1_col7 = st.columns(3)
-    _a1_X_BH = _a1_col5.number_input("X_BH [gCOD/m³]", 0.0, 50000.0, 300.0, key="a1_X_BH")
-    _a1_X_BA = _a1_col6.number_input("X_BA [gCOD/m³]", 0.0, 10000.0, 40.0, key="a1_X_BA")
-    _a1_X_P = _a1_col7.number_input("X_P [gCOD/m³]", 0.0, 20000.0, 80.0, key="a1_X_P")
-
-    _a1_col8, _a1_col9, _a1_col10, _a1_col11, _a1_col12 = st.columns(5)
-    _a1_S_ND = _a1_col8.number_input("S_ND [gN/m³]", 0.0, 500.0, 2.0, key="a1_S_ND")
-    _a1_X_ND = _a1_col9.number_input("X_ND [gN/m³]", 0.0, 500.0, 4.0, key="a1_X_ND")
-    _a1_S_NH = _a1_col10.number_input("S_NH [gN/m³]", 0.0, 1000.0, 20.0, key="a1_S_NH")
-    _a1_S_NO = _a1_col11.number_input("S_NO [gN/m³]", 0.0, 500.0, 5.0, key="a1_S_NO")
-    _a1_S_ALK = _a1_col12.number_input("S_ALK [molHCO₃⁻/m³]", 0.0, 100.0, 4.0, key="a1_S_ALK")
-
-    _a1_preset = st.selectbox(
-        "Preset de frações BSM2",
-        options=["BSM2 (lodo misto municipal)", "Lodo primário", "Lodo secundário aeróbio"],
-        key="a1_fractions_preset",
-    )
-
-    if st.button("▶ Calcular influente ADM1", key="a1_calculate"):
-        from simulator.full_model.asm_adm1_interface import (
-            ASM1State,
-            asm1_to_adm1_influent,
-            verify_asm1_adm1_balance,
-        )
-        from simulator.full_model.mappings.asm1_fractions import (
-            bsm2_fractions,
-            primary_sludge_fractions,
-            secondary_sludge_fractions,
+    # ─── E14: ASM1 → ADM1 interface (optional, outside form) ─────────────────────
+    with st.expander("🔄 Converter influente ASM1 → ADM1 (Interface E14 / BSM2)", expanded=False):
+        st.caption(
+            "Use se o afluente do digestor vem de um sistema de lodos ativados (ASM1). "
+            "Converte variáveis ASM1 para influente ADM1 seguindo a interface BSM2 (Nopens et al. 2009)."
         )
 
-        _preset_map = {
-            "BSM2 (lodo misto municipal)": bsm2_fractions(),
-            "Lodo primário": primary_sludge_fractions(),
-            "Lodo secundário aeróbio": secondary_sludge_fractions(),
-        }
-        _fracs = _preset_map[_a1_preset]
+        _a1_col1, _a1_col2, _a1_col3, _a1_col4 = st.columns(4)
+        _a1_S_S = _a1_col1.number_input("S_S [gCOD/m³]", 0.0, 50000.0, 100.0, key="a1_S_S")
+        _a1_S_I = _a1_col2.number_input("S_I [gCOD/m³]", 0.0, 20000.0, 30.0, key="a1_S_I")
+        _a1_X_S = _a1_col3.number_input("X_S [gCOD/m³]", 0.0, 50000.0, 200.0, key="a1_X_S")
+        _a1_X_I = _a1_col4.number_input("X_I [gCOD/m³]", 0.0, 20000.0, 50.0, key="a1_X_I")
 
-        _asm1 = ASM1State(
-            S_S=_a1_S_S, S_I=_a1_S_I, X_S=_a1_X_S, X_I=_a1_X_I,
-            X_BH=_a1_X_BH, X_BA=_a1_X_BA, X_P=_a1_X_P,
-            S_ND=_a1_S_ND, X_ND=_a1_X_ND, S_NH=_a1_S_NH,
-            S_NO=_a1_S_NO, S_ALK=_a1_S_ALK,
+        _a1_col5, _a1_col6, _a1_col7 = st.columns(3)
+        _a1_X_BH = _a1_col5.number_input("X_BH [gCOD/m³]", 0.0, 50000.0, 300.0, key="a1_X_BH")
+        _a1_X_BA = _a1_col6.number_input("X_BA [gCOD/m³]", 0.0, 10000.0, 40.0, key="a1_X_BA")
+        _a1_X_P = _a1_col7.number_input("X_P [gCOD/m³]", 0.0, 20000.0, 80.0, key="a1_X_P")
+
+        _a1_col8, _a1_col9, _a1_col10, _a1_col11, _a1_col12 = st.columns(5)
+        _a1_S_ND = _a1_col8.number_input("S_ND [gN/m³]", 0.0, 500.0, 2.0, key="a1_S_ND")
+        _a1_X_ND = _a1_col9.number_input("X_ND [gN/m³]", 0.0, 500.0, 4.0, key="a1_X_ND")
+        _a1_S_NH = _a1_col10.number_input("S_NH [gN/m³]", 0.0, 1000.0, 20.0, key="a1_S_NH")
+        _a1_S_NO = _a1_col11.number_input("S_NO [gN/m³]", 0.0, 500.0, 5.0, key="a1_S_NO")
+        _a1_S_ALK = _a1_col12.number_input("S_ALK [molHCO₃⁻/m³]", 0.0, 100.0, 4.0, key="a1_S_ALK")
+
+        _a1_preset = st.selectbox(
+            "Preset de frações BSM2",
+            options=["BSM2 (lodo misto municipal)", "Lodo primário", "Lodo secundário aeróbio"],
+            key="a1_fractions_preset",
         )
-        _influent = asm1_to_adm1_influent(_asm1, _fracs)
-        _balance = verify_asm1_adm1_balance(_asm1, _influent)
 
-        st.session_state["asm1_adm1_influent"] = _influent
-        st.session_state["asm1_adm1_balance"] = _balance
-
-        _result_rows = [
-            {"Estado ADM1": k, "Valor": f"{v:.6f}", "Unidade": "kgCOD/m³" if k.startswith(("S_su", "S_aa", "S_I", "X_")) else "kmol/m³"}
-            for k, v in _influent.items()
-        ]
-        st.dataframe(_result_rows, use_container_width=True)
-
-        _bc1, _bc2 = st.columns(2)
-        _bc1.metric("Erro balanço COD", f"{_balance['cod_error_pct']:.3f}%")
-        _bc2.metric("Erro balanço N", f"{_balance['n_error_pct']:.1f}%")
-
-        if _balance["cod_error_pct"] > 1.0:
-            st.warning("Erro de COD > 1% — verificar se as frações somam 1.0")
-
-    if "asm1_adm1_influent" in st.session_state:
-        if st.button("✅ Usar como influente desta simulação", key="a1_use_influent"):
-            _inf = st.session_state["asm1_adm1_influent"]
-            _pcod = (
-                _inf.get("X_ch", 0.0) + _inf.get("X_pr", 0.0) + _inf.get("X_li", 0.0)
-                + _inf.get("X_xc", 0.0) + _inf.get("X_I", 0.0)
+        if st.button("▶ Calcular influente ADM1", key="a1_calculate"):
+            from simulator.full_model.asm_adm1_interface import (
+                ASM1State,
+                asm1_to_adm1_influent,
+                verify_asm1_adm1_balance,
             )
-            _scod = _inf.get("S_su", 0.0) + _inf.get("S_aa", 0.0) + _inf.get("S_I", 0.0)
-            # S_IN kmolN/m³ → kgN/m³ (×14)
-            _sin_kgN = _inf.get("S_IN", 0.0) * 14.0
-            # S_IC kmolC/m³ ≈ alkalinity kmol/m³ eq.
-            _alk = max(_inf.get("S_IC", 0.1), 0.1)
+            from simulator.full_model.mappings.asm1_fractions import (
+                bsm2_fractions,
+                primary_sludge_fractions,
+                secondary_sludge_fractions,
+            )
 
-            st.session_state["manual_feed_name"] = "Influente ASM1→ADM1 (E14)"
-            st.session_state["manual_particulate_cod"] = float(_pcod)
-            st.session_state["manual_soluble_cod"] = float(_scod)
-            st.session_state["manual_acetate"] = 0.0
-            st.session_state["manual_propionate"] = 0.0
-            st.session_state["manual_hydrogen"] = 0.0
-            st.session_state["manual_inorganic_nitrogen"] = float(_sin_kgN)
-            st.session_state["manual_alkalinity"] = float(_alk)
-            st.session_state["manual_feed_ph"] = 7.0
-            st.session_state["sim_substrate_mode"] = "manual"
-            st.session_state["sim_skip_base_reset"] = True
-            st.success("Influente ADM1 aplicado. Modo trocado para 'Manual temporário'.")
-            st.rerun()
+            _preset_map = {
+                "BSM2 (lodo misto municipal)": bsm2_fractions(),
+                "Lodo primário": primary_sludge_fractions(),
+                "Lodo secundário aeróbio": secondary_sludge_fractions(),
+            }
+            _fracs = _preset_map[_a1_preset]
+
+            _asm1 = ASM1State(
+                S_S=_a1_S_S, S_I=_a1_S_I, X_S=_a1_X_S, X_I=_a1_X_I,
+                X_BH=_a1_X_BH, X_BA=_a1_X_BA, X_P=_a1_X_P,
+                S_ND=_a1_S_ND, X_ND=_a1_X_ND, S_NH=_a1_S_NH,
+                S_NO=_a1_S_NO, S_ALK=_a1_S_ALK,
+            )
+            _influent = asm1_to_adm1_influent(_asm1, _fracs)
+            _balance = verify_asm1_adm1_balance(_asm1, _influent)
+
+            st.session_state["asm1_adm1_influent"] = _influent
+            st.session_state["asm1_adm1_balance"] = _balance
+
+            _result_rows = [
+                {"Estado ADM1": k, "Valor": f"{v:.6f}", "Unidade": "kgCOD/m³" if k.startswith(("S_su", "S_aa", "S_I", "X_")) else "kmol/m³"}
+                for k, v in _influent.items()
+            ]
+            st.dataframe(_result_rows, use_container_width=True)
+
+            _bc1, _bc2 = st.columns(2)
+            _bc1.metric("Erro balanço COD", f"{_balance['cod_error_pct']:.3f}%")
+            _bc2.metric("Erro balanço N", f"{_balance['n_error_pct']:.1f}%")
+
+            if _balance["cod_error_pct"] > 1.0:
+                st.warning("Erro de COD > 1% — verificar se as frações somam 1.0")
+
+        if "asm1_adm1_influent" in st.session_state:
+            if st.button("✅ Usar como influente desta simulação", key="a1_use_influent"):
+                _inf = st.session_state["asm1_adm1_influent"]
+                _pcod = (
+                    _inf.get("X_ch", 0.0) + _inf.get("X_pr", 0.0) + _inf.get("X_li", 0.0)
+                    + _inf.get("X_xc", 0.0) + _inf.get("X_I", 0.0)
+                )
+                _scod = _inf.get("S_su", 0.0) + _inf.get("S_aa", 0.0) + _inf.get("S_I", 0.0)
+                # S_IN kmolN/m³ → kgN/m³ (×14)
+                _sin_kgN = _inf.get("S_IN", 0.0) * 14.0
+                # S_IC kmolC/m³ ≈ alkalinity kmol/m³ eq.
+                _alk = max(_inf.get("S_IC", 0.1), 0.1)
+
+                st.session_state["manual_feed_name"] = "Influente ASM1→ADM1 (E14)"
+                st.session_state["manual_particulate_cod"] = float(_pcod)
+                st.session_state["manual_soluble_cod"] = float(_scod)
+                st.session_state["manual_acetate"] = 0.0
+                st.session_state["manual_propionate"] = 0.0
+                st.session_state["manual_hydrogen"] = 0.0
+                st.session_state["manual_inorganic_nitrogen"] = float(_sin_kgN)
+                st.session_state["manual_alkalinity"] = float(_alk)
+                st.session_state["manual_feed_ph"] = 7.0
+                st.session_state["sim_substrate_mode"] = "manual"
+                st.session_state["sim_skip_base_reset"] = True
+                st.success("Influente ADM1 aplicado. Modo trocado para 'Manual temporário'.")
+                st.rerun()
 
 
 # ─── Substrate selection ──────────────────────────────────────────────────────
@@ -1586,6 +1675,45 @@ if result is not None:
             "pilot_tracer": [
                 ("pilot_tracer_inventory", "Inventário do traçador [kgCOD/m³]"),
                 ("pilot_tracer_fraction_remaining", "Fração remanescente [-]"),
+            ],
+            "microalgae": [
+                ("X_alg", "Biomassa algal X_alg [kgCOD/m³]"),
+                ("X_alg_conversion", "Conversão de X_alg [-]"),
+                ("k_dis_alg_effective", "Taxa de desintegração efetiva k_dis_alg_eff [d⁻¹]"),
+                ("hydrolysis_modifier_ch", "Modificador Contois carboidratos [-]"),
+                ("hydrolysis_modifier_pr", "Modificador Contois proteínas [-]"),
+                ("hydrolysis_modifier_li", "Modificador Contois lipídios [-]"),
+                ("S_IN", "N inorgânico S_IN [kmolN/m³]"),
+            ],
+            "syngas": [
+                ("S_CO", "CO dissolvido S_CO [kgCOD/m³]"),
+                ("S_gas_CO", "CO no biogás S_gas_CO [kgCOD/m³]"),
+                ("X_met_CO", "Biomassa carbóxidotrófica X_met_CO [kgCOD/m³]"),
+                ("p_gas_CO_bar", "Pressão parcial CO [bar]"),
+                ("CO_conversion", "Conversão de CO [-]"),
+                ("p_gas_CH4_bar", "Pressão parcial CH4 [bar]"),
+            ],
+            "trace_elements": [
+                ("S_Ni", "Ni dissolvido total S_Ni [kmolNi/m³]"),
+                ("S_Ni_free", "Ni livre [kmolNi/m³]"),
+                ("S_Co", "Co dissolvido total S_Co [kmolCo/m³]"),
+                ("S_Co_free", "Co livre [kmolCo/m³]"),
+                ("S_Fe2_te", "Fe(II) dissolvido S_Fe2_te [kmolFe/m³]"),
+                ("X_NiS", "NiS precipitado X_NiS [kmolNi/m³]"),
+                ("X_CoS", "CoS precipitado X_CoS [kmolCo/m³]"),
+                ("X_FeS_te", "FeS precipitado X_FeS_te [kmolFe/m³]"),
+                ("X_FeCO3", "FeCO3 precipitado X_FeCO3 [kmolFe/m³]"),
+                ("Ni_complexation_fraction", "Fração complexada de Ni [-]"),
+                ("Co_complexation_fraction", "Fração complexada de Co [-]"),
+                ("Ni_bioavailability", "Bioavailability de Ni [-]"),
+                ("Co_bioavailability", "Bioavailability de Co [-]"),
+                ("Fe_bioavailability", "Bioavailability de Fe [-]"),
+                ("TE_limitation_X_ac", "Limitação TE em X_ac [-]"),
+                ("TE_limitation_X_h2", "Limitação TE em X_h2 [-]"),
+                ("IP_NiS", "Índice de saturação NiS [-]"),
+                ("IP_CoS", "Índice de saturação CoS [-]"),
+                ("IP_FeS", "Índice de saturação FeS [-]"),
+                ("IP_FeCO3", "Índice de saturação FeCO3 [-]"),
             ],
         }
 

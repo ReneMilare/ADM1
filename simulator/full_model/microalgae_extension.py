@@ -1,57 +1,27 @@
-"""E20 — Digestão Anaeróbia de Microalgas (Microalgae Extension).
+"""E20 - Digestão anaeróbia de microalgas (Mairet et al. 2011).
 
-Represents the anaerobic digestion of microalgae in the ADM1 framework by
-introducing a dedicated algal particulate composite (X_alg) that disintegrates
-with a reduced rate due to cell-wall recalcitrance. Products follow algae-
-specific fractionation, which typically has higher protein content (and therefore
-more nitrogen release) than municipal sludge.
+Implements a dedicated algal particulate composite ``X_alg`` and couples it to the
+ADM1 hydrolysis steps using the Contois-type hydrolysis formulation reported by
+Mairet et al. (2011). The paper does not introduce new hydrolytic populations;
+instead, the existing ADM1 hydrolysers (X_su, X_aa, X_fa) modulate hydrolysis of
+carbohydrates, proteins and lipids through biomass-to-substrate ratios.
 
-Design approach (Mairet et al. 2011, Batstone 2002):
-  - X_alg is a new composite particulate analogous to X_xc but specific to
-    microalgal biomass. It disintegrates first-order in X_alg.
-  - The recalcitrance factor f_wall_alg (0–1) multiplies k_dis_alg to represent
-    cell-wall resistance.  f_wall_alg = 1.0 means no recalcitrance (same as X_xc).
-    f_wall_alg < 1 means partial resistance. Typical range: 0.4–0.9 depending on
-    species and pre-treatment.
-  - Products enter existing ADM1 pools (X_ch, X_pr, X_li, X_I, S_I) and are
-    then hydrolysed/consumed by the core model processes without modification.
-  - Nitrogen balance: S_IN released = i_N_alg − f_pr_alg × i_N_aa
-    (net N in algae minus N tied up in protein fraction; remainder from
-    carbohydrate/lipid/inert fractions is assumed negligible).
-  - Carbon balance (S_IC) is tracked via the net C imbalance in disintegration.
+This extension keeps the practical ``X_alg`` feed state introduced in the project
+and maps its disintegration products to the standard ADM1 particulate pools. Once
+those pools are formed, the core hydrolysis processes ``rho_2``/``rho_3``/``rho_4``
+are modified with Contois multipliers:
 
-States:
-    X_alg (kgCOD/m³): algal composite particulate organic matter fed to the digester.
+    rho_2 = k_hyd_ch * X_ch * X_su / (K_S_ch_alg * X_su + X_ch)
+    rho_3 = k_hyd_pr * X_pr * X_aa / (K_S_pr_alg * X_aa + X_pr)
+    rho_4 = k_hyd_li * X_li * X_fa / (K_S_li_alg * X_fa + X_li)
 
-Processes:
-    rho_E20_dis_alg: first-order disintegration of X_alg into X_ch, X_pr, X_li, X_I, S_I.
-
-Fractionation (all dimensionless, kgCOD/kgCOD):
-    f_ch_alg   protein/carbohydrate fraction → X_ch
-    f_pr_alg   protein fraction → X_pr
-    f_li_alg   lipid fraction → X_li
-    f_xI_alg   insoluble inert fraction (cell wall, biogenic) → X_I
-    f_sI_alg   soluble inert fraction → S_I
-    Sum = 1 (enforced via validate_hook).
-
-Typical species values (Mairet et al. 2011 Table 1):
-    Chlorella vulgaris:  f_pr ≈ 0.50, f_ch ≈ 0.21, f_li ≈ 0.20, f_xI ≈ 0.07, f_sI ≈ 0.02
-    Scenedesmus obliquus: f_pr ≈ 0.42, f_ch ≈ 0.30, f_li ≈ 0.18, f_xI ≈ 0.08, f_sI ≈ 0.02
-    Spirulina (Arthrospira): f_pr ≈ 0.65, f_ch ≈ 0.17, f_li ≈ 0.07, f_xI ≈ 0.09, f_sI ≈ 0.02
-
-Domain warning:
-    Default parameters are calibrated for common freshwater microalgae
-    (Chlorella / Scenedesmus) at mesophilic conditions. Marine or extremophile
-    strains may differ significantly. Recalibrate k_dis_alg and fractionation
-    when changing species or pre-treatment strategy.
+The base ADM1 rates already include ``k_hyd_* * X_*``. Therefore the extension
+provides multiplicative factors equal to the biomass ratio term above.
 
 Reference:
-    Mairet F, Bernard O, Ras M, Lardon L, Steyer JP (2011). "Modeling anaerobic
-    digestion of microalgae using ADM1." Bioresour Technol 102(13):6823–6829.
-    doi:10.1016/j.biortech.2011.04.027
-
-    Batstone DJ et al. (2002). "The IWA Anaerobic Digestion Model No 1 (ADM1)."
-    Water Sci Technol 45(10):65–73.
+    Mairet F, Bernard O, Ras M, Lardon L, Steyer JP (2011).
+    Modeling anaerobic digestion of microalgae using ADM1.
+    Bioresource Technology 102(13):6823-6829. doi:10.1016/j.biortech.2011.04.015
 """
 from __future__ import annotations
 
@@ -65,23 +35,23 @@ from simulator.full_model.extensions import FullModelExtensionContribution
 from simulator.full_model.units import DAY_INV, DIMENSIONLESS, KG_COD_M3
 
 _SRC = (
-    "Mairet F et al. (2011) Bioresour Technol 102:6823–6829 doi:10.1016/j.biortech.2011.04.027; "
-    "Batstone DJ et al. (2002) Water Sci Technol 45(10):65–73"
+    "Mairet et al. (2011) Bioresour Technol 102:6823-6829 doi:10.1016/j.biortech.2011.04.015; "
+    "Batstone et al. (2002) Water Sci Technol 45(10):65-73"
 )
 
 
 class _MicroalgaeExtension:
     name = "microalgae"
     description = (
-        "E20: digestão de microalgas — desintegração de X_alg com recalcitrância de parede celular, "
-        "fracionamento de alta proteína e liberação de N inorgânico (Mairet et al. 2011)."
+        "E20: digestão de microalgas com X_alg, frações algais específicas e hidrólise "
+        "tipo Contois em X_ch/X_pr/X_li conforme Mairet et al. (2011)."
     )
 
     def contribute(self) -> FullModelExtensionContribution:
         states = (
             StateDefinition(
                 name="X_alg",
-                description="Biomassa algal composta (kgCOD/m³) — substrato particulado específico para microalgas.",
+                description="Biomassa algal composta (kgCOD/m3).",
                 unit=KG_COD_M3,
                 phase="solid",
                 domain="composite",
@@ -90,9 +60,8 @@ class _MicroalgaeExtension:
                 elemental_proxy="C_xc",
                 source=_SRC,
                 notes=(
-                    "Analogous to X_xc but with algae-specific disintegration kinetics and fractionation. "
-                    "Disintegrates at rate k_dis_alg × f_wall_alg (effective). Products go to X_ch, X_pr, "
-                    "X_li, X_I, S_I — handled by existing ADM1 hydrolysis processes."
+                    "Estado de alimentação/estoque para biomassa algal. Disintegra em X_ch, X_pr, X_li, "
+                    "X_I e S_I. Após a desintegração, a hidrólise segue o formalismo tipo Contois do artigo-base."
                 ),
             ),
         )
@@ -102,16 +71,22 @@ class _MicroalgaeExtension:
                 name="rho_E20_dis_alg",
                 vendor_symbol="Rho_E20_1",
                 family="biochemical",
-                description=(
-                    "Desintegração de microalgas: X_alg → X_ch + X_pr + X_li + X_I + S_I + S_IN + S_IC. "
-                    "Taxa reduzida pela recalcitrância da parede celular (f_wall_alg)."
-                ),
+                description="Desintegração de X_alg para os pools particulados do ADM1.",
                 rate_expression="computed_by_extension",
                 affected_states=("X_alg", "X_ch", "X_pr", "X_li", "X_I", "S_I", "S_IN", "S_IC"),
-                parameters=("k_dis_alg", "f_wall_alg", "f_ch_alg", "f_pr_alg", "f_li_alg", "f_xI_alg", "f_sI_alg", "i_N_alg"),
+                parameters=(
+                    "k_dis_alg",
+                    "f_wall_alg",
+                    "f_ch_alg",
+                    "f_pr_alg",
+                    "f_li_alg",
+                    "f_xI_alg",
+                    "f_sI_alg",
+                    "i_N_alg",
+                ),
                 inhibitions=(),
                 source=_SRC,
-                notes="Rate = k_dis_alg × f_wall_alg × X_alg. f_wall_alg < 1 for recalcitrant cell walls.",
+                notes="Taxa = k_dis_alg * f_wall_alg * X_alg.",
             ),
         )
 
@@ -122,28 +97,19 @@ class _MicroalgaeExtension:
                 unit=DAY_INV,
                 group="biochemical",
                 classification="calibrated",
-                description="Taxa de desintegração de X_alg sem recalcitrância (d⁻¹).",
+                description="Taxa de desintegração de X_alg antes da recalcitrância de parede.",
                 source=_SRC,
-                notes=(
-                    "Mairet et al. 2011 reports k_dis values in the range 0.1–0.5 d⁻¹ depending on species "
-                    "and pre-treatment. Default 0.25 d⁻¹ corresponds to untreated Chlorella at 35°C. "
-                    "Thermal/enzymatic pre-treatment can increase effective rate 2–5×."
-                ),
+                notes="Parâmetro operacional do estado composto X_alg usado pelo projeto.",
             ),
             ParameterDefinition(
                 name="f_wall_alg",
-                value=0.7,
+                value=0.70,
                 unit=DIMENSIONLESS,
                 group="biochemical",
                 classification="calibrated",
-                description="Fator de recalcitrância da parede celular (0–1). Multiplica k_dis_alg.",
+                description="Fator de recalcitrância da parede celular aplicado a k_dis_alg.",
                 source=_SRC,
-                notes=(
-                    "f_wall_alg = 1.0 → no recalcitrance (fully accessible). "
-                    "f_wall_alg ≈ 0.4–0.7 for untreated Chlorella/Scenedesmus with cellulose walls. "
-                    "f_wall_alg ≈ 0.8–0.95 after thermal pre-treatment (>70°C). "
-                    "Spirulina (no cellulose wall) ≈ 0.85. Range: [0.1, 1.0]."
-                ),
+                notes="1.0 = totalmente acessível; valores menores representam biomassa mais resistente.",
             ),
             ParameterDefinition(
                 name="f_ch_alg",
@@ -151,9 +117,9 @@ class _MicroalgaeExtension:
                 unit=DIMENSIONLESS,
                 group="stoichiometric",
                 classification="calibrated",
-                description="Fração de carboidratos em X_alg (kgCOD/kgCOD) → X_ch.",
+                description="Fração de carboidratos em X_alg que alimenta X_ch.",
                 source=_SRC,
-                notes="Mairet 2011 Table 1: Chlorella ≈ 0.21. Typical range 0.15–0.35.",
+                notes="Valor padrão de Chlorella vulgaris em Mairet et al. (2011).",
             ),
             ParameterDefinition(
                 name="f_pr_alg",
@@ -161,12 +127,9 @@ class _MicroalgaeExtension:
                 unit=DIMENSIONLESS,
                 group="stoichiometric",
                 classification="calibrated",
-                description="Fração proteica em X_alg (kgCOD/kgCOD) → X_pr.",
+                description="Fração proteica em X_alg que alimenta X_pr.",
                 source=_SRC,
-                notes=(
-                    "Mairet 2011 Table 1: Chlorella ≈ 0.50. Spirulina ≈ 0.65. Range 0.35–0.65. "
-                    "Higher protein → more S_IN released per kgCOD substrate."
-                ),
+                notes="Valor padrão de Chlorella vulgaris em Mairet et al. (2011).",
             ),
             ParameterDefinition(
                 name="f_li_alg",
@@ -174,9 +137,8 @@ class _MicroalgaeExtension:
                 unit=DIMENSIONLESS,
                 group="stoichiometric",
                 classification="calibrated",
-                description="Fração lipídica em X_alg (kgCOD/kgCOD) → X_li.",
+                description="Fração lipídica em X_alg que alimenta X_li.",
                 source=_SRC,
-                notes="Mairet 2011: Chlorella ≈ 0.20. Range 0.05–0.40 depending on growth conditions.",
             ),
             ParameterDefinition(
                 name="f_xI_alg",
@@ -184,9 +146,8 @@ class _MicroalgaeExtension:
                 unit=DIMENSIONLESS,
                 group="stoichiometric",
                 classification="calibrated",
-                description="Fração inerte insolúvel em X_alg (kgCOD/kgCOD) → X_I (parede celular biogênica).",
+                description="Fração inerte insolúvel em X_alg que alimenta X_I.",
                 source=_SRC,
-                notes="Mairet 2011: Chlorella ≈ 0.07. Includes cell wall residues and biogenic inerts.",
             ),
             ParameterDefinition(
                 name="f_sI_alg",
@@ -194,12 +155,8 @@ class _MicroalgaeExtension:
                 unit=DIMENSIONLESS,
                 group="stoichiometric",
                 classification="calibrated",
-                description="Fração inerte solúvel em X_alg (kgCOD/kgCOD) → S_I.",
+                description="Fração inerte solúvel em X_alg que alimenta S_I.",
                 source=_SRC,
-                notes=(
-                    "Mairet 2011: Chlorella ≈ 0.02. Small but non-zero. "
-                    "Sum check: f_ch + f_pr + f_li + f_xI + f_sI must equal 1.0 (±1e-3)."
-                ),
             ),
             ParameterDefinition(
                 name="i_N_alg",
@@ -207,30 +164,82 @@ class _MicroalgaeExtension:
                 unit="kgN/kgCOD",
                 group="stoichiometric",
                 classification="calibrated",
-                description="Conteúdo de N em X_alg (kgN/kgCOD).",
+                description="Conteúdo de nitrogênio da biomassa algal composta.",
                 source=_SRC,
-                notes=(
-                    "Mairet 2011: i_N_alg ≈ 0.055–0.065 kgN/kgCOD for high-protein microalgae. "
-                    "ADM1 default i_N_xc = 0.00268 kgN/kgCOD (municipal sludge). "
-                    "Microalgae have ~20× higher N content, leading to significant S_IN release."
-                ),
+                notes="Microalgas possuem teor proteico e nitrogênio muito maior que o resíduo municipal padrão do ADM1.",
+            ),
+            ParameterDefinition(
+                name="k_hyd_ch",
+                value=3.18,
+                unit=DAY_INV,
+                group="biochemical",
+                classification="calibrated",
+                description="Constante de hidrólise de carboidratos na formulação de Mairet et al. (2011).",
+                source=_SRC,
+                notes="Sobrescreve o valor ADM1 default quando E20 está ativo.",
+            ),
+            ParameterDefinition(
+                name="k_hyd_pr",
+                value=1.04,
+                unit=DAY_INV,
+                group="biochemical",
+                classification="calibrated",
+                description="Constante de hidrólise de proteínas na formulação de Mairet et al. (2011).",
+                source=_SRC,
+                notes="Sobrescreve o valor ADM1 default quando E20 está ativo.",
+            ),
+            ParameterDefinition(
+                name="k_hyd_li",
+                value=3.07,
+                unit=DAY_INV,
+                group="biochemical",
+                classification="calibrated",
+                description="Constante de hidrólise de lipídios na formulação de Mairet et al. (2011).",
+                source=_SRC,
+                notes="Sobrescreve o valor ADM1 default quando E20 está ativo.",
+            ),
+            ParameterDefinition(
+                name="K_S_ch_alg",
+                value=0.50,
+                unit=KG_COD_M3,
+                group="biochemical",
+                classification="calibrated",
+                description="Parâmetro de Contois para hidrólise de carboidratos de microalgas.",
+                source=_SRC,
+                notes="Tabela 4 de Mairet et al. (2011).",
+            ),
+            ParameterDefinition(
+                name="K_S_pr_alg",
+                value=0.26,
+                unit=KG_COD_M3,
+                group="biochemical",
+                classification="calibrated",
+                description="Parâmetro de Contois para hidrólise de proteínas de microalgas.",
+                source=_SRC,
+                notes="Tabela 4 de Mairet et al. (2011).",
+            ),
+            ParameterDefinition(
+                name="K_S_li_alg",
+                value=0.49,
+                unit=KG_COD_M3,
+                group="biochemical",
+                classification="calibrated",
+                description="Parâmetro de Contois para hidrólise de lipídios de microalgas.",
+                source=_SRC,
+                notes="Tabela 4 de Mairet et al. (2011).",
+            ),
+            ParameterDefinition(
+                name="f_hyd_alg",
+                value=1.0,
+                unit=DIMENSIONLESS,
+                group="biochemical",
+                classification="provisional",
+                description="Multiplicador opcional de calibração sobre o termo de Contois das hidrólises algais.",
+                source=_SRC,
+                notes="Mantido apenas como ajuste operacional; 1.0 preserva a forma literária do modelo.",
             ),
         )
 
-        # Stoichiometry notes:
-        #   rho_E20_dis_alg: X_alg (1 kgCOD) → products
-        #     X_ch: + f_ch_alg kgCOD
-        #     X_pr: + f_pr_alg kgCOD
-        #     X_li: + f_li_alg kgCOD
-        #     X_I:  + f_xI_alg kgCOD
-        #     S_I:  + f_sI_alg kgCOD
-        #     S_IN: net N balance. N in X_alg = i_N_alg.
-        #           N in X_pr = f_pr_alg × i_N_aa (i_N_aa = 0.007 kgN/kgCOD, ADM1 default)
-        #           N in X_I = f_xI_alg × N_I (N_I = 0.002 kgN/kgCOD, ADM1 default)
-        #           N in S_I = f_sI_alg × N_I
-        #           S_IN released = i_N_alg - f_pr_alg × N_aa - f_xI_alg × N_I - f_sI_alg × N_I
-        #     S_IC: carbon balance — computed in rate_function (parameter-dependent)
-        #   The stoichiometry here uses symbolic parameter names resolved at runtime.
         biochemical_stoichiometry_rows = {
             "rho_E20_dis_alg": {
                 "X_alg": "-1",
@@ -239,10 +248,7 @@ class _MicroalgaeExtension:
                 "X_li": "f_li_alg",
                 "X_I": "f_xI_alg",
                 "S_I": "f_sI_alg",
-                # S_IN: N released = N in algae - N in protein products - N in inert products
                 "S_IN": "i_N_alg - f_pr_alg * N_aa - (f_xI_alg + f_sI_alg) * N_I",
-                # S_IC: C balance (C in X_alg - C going to products via known fractions)
-                # Using algal C content analogous to C_xc, and product C content from standard ADM1
                 "S_IC": "-(C_xc - f_ch_alg * C_ch - f_pr_alg * C_pr - f_li_alg * C_li - (f_xI_alg + f_sI_alg) * C_xI)",
             },
         }
@@ -255,15 +261,36 @@ class _MicroalgaeExtension:
             rate_function=self._rates,
             diagnostics_hook=self._diagnostics,
             validate_hook=self._validate,
+            base_rate_modifier_hook=self._base_rate_modifier,
         )
 
     def _rates(self, state: Mapping[str, float], params: Mapping[str, float]) -> dict[str, float]:
         x_alg = max(float(state.get("X_alg", 0.0)), 0.0)
-        k_dis = float(params["k_dis_alg"])
-        f_wall = float(params["f_wall_alg"])
-        # Effective disintegration rate with cell-wall recalcitrance factor
-        rho_dis_alg = k_dis * f_wall * x_alg
+        rho_dis_alg = float(params["k_dis_alg"]) * float(params["f_wall_alg"]) * x_alg
         return {"rho_E20_dis_alg": rho_dis_alg}
+
+    @staticmethod
+    def _contois_factor(x_substrate: float, x_biomass: float, k_s: float, extra_factor: float) -> float:
+        if x_biomass <= 0.0:
+            return 0.0
+        denominator = k_s * x_biomass + x_substrate
+        if denominator <= 0.0:
+            return 0.0
+        return max(extra_factor, 0.0) * x_biomass / denominator
+
+    def _base_rate_modifier(self, state: Mapping[str, float], params: Mapping[str, float]) -> dict[str, float]:
+        x_ch = max(float(state.get("X_ch", 0.0)), 0.0)
+        x_pr = max(float(state.get("X_pr", 0.0)), 0.0)
+        x_li = max(float(state.get("X_li", 0.0)), 0.0)
+        x_su = max(float(state.get("X_su", 0.0)), 0.0)
+        x_aa = max(float(state.get("X_aa", 0.0)), 0.0)
+        x_fa = max(float(state.get("X_fa", 0.0)), 0.0)
+        f_hyd = float(params.get("f_hyd_alg", 1.0))
+        return {
+            "rho_2_hydrolysis_carbohydrates": self._contois_factor(x_ch, x_su, float(params["K_S_ch_alg"]), f_hyd),
+            "rho_3_hydrolysis_proteins": self._contois_factor(x_pr, x_aa, float(params["K_S_pr_alg"]), f_hyd),
+            "rho_4_hydrolysis_lipids": self._contois_factor(x_li, x_fa, float(params["K_S_li_alg"]), f_hyd),
+        }
 
     def _diagnostics(
         self,
@@ -272,36 +299,50 @@ class _MicroalgaeExtension:
         params: Mapping[str, float],
     ) -> dict[str, list[float]]:
         x_alg = np.clip(matrix[:, assembly.full_state_index["X_alg"]], 0.0, None)
+        x_ch = np.clip(matrix[:, assembly.full_state_index["X_ch"]], 0.0, None)
         x_pr = np.clip(matrix[:, assembly.full_state_index["X_pr"]], 0.0, None)
+        x_li = np.clip(matrix[:, assembly.full_state_index["X_li"]], 0.0, None)
+        x_su = np.clip(matrix[:, assembly.full_state_index["X_su"]], 0.0, None)
+        x_aa = np.clip(matrix[:, assembly.full_state_index["X_aa"]], 0.0, None)
+        x_fa = np.clip(matrix[:, assembly.full_state_index["X_fa"]], 0.0, None)
         s_in = np.clip(matrix[:, assembly.full_state_index["S_IN"]], 0.0, None)
 
-        # Effective hydrolysis indicator: fraction of X_alg degraded over simulation
         x_alg_0 = x_alg[0] if x_alg[0] > 1e-12 else 1.0
         alg_conversion = np.clip(1.0 - x_alg / x_alg_0, 0.0, 1.0)
-
-        # Effective disintegration rate at each timestep
         k_eff = float(params["k_dis_alg"]) * float(params["f_wall_alg"])
         k_eff_series = np.full(len(x_alg), k_eff)
+        f_hyd = float(params.get("f_hyd_alg", 1.0))
+
+        mod_ch = np.array(
+            [self._contois_factor(float(xs), float(xb), float(params["K_S_ch_alg"]), f_hyd) for xs, xb in zip(x_ch, x_su)],
+            dtype=float,
+        )
+        mod_pr = np.array(
+            [self._contois_factor(float(xs), float(xb), float(params["K_S_pr_alg"]), f_hyd) for xs, xb in zip(x_pr, x_aa)],
+            dtype=float,
+        )
+        mod_li = np.array(
+            [self._contois_factor(float(xs), float(xb), float(params["K_S_li_alg"]), f_hyd) for xs, xb in zip(x_li, x_fa)],
+            dtype=float,
+        )
 
         return {
             "X_alg": x_alg.astype(float).tolist(),
             "X_alg_conversion": alg_conversion.astype(float).tolist(),
             "k_dis_alg_effective": k_eff_series.astype(float).tolist(),
-            "X_pr_from_algae_proxy": x_pr.astype(float).tolist(),
+            "hydrolysis_modifier_ch": mod_ch.tolist(),
+            "hydrolysis_modifier_pr": mod_pr.tolist(),
+            "hydrolysis_modifier_li": mod_li.tolist(),
             "S_IN": s_in.astype(float).tolist(),
         }
 
     def _validate(self, assembly: FullModelAssembly) -> None:
-        """Check that algal fractions sum to 1.0 ± 1e-3."""
         defaults = {p.name: p.value for p in assembly.parameter_catalog}
-        f_sum = sum(
-            defaults.get(k, 0.0)
-            for k in ("f_ch_alg", "f_pr_alg", "f_li_alg", "f_xI_alg", "f_sI_alg")
-        )
+        f_sum = sum(defaults.get(name, 0.0) for name in ("f_ch_alg", "f_pr_alg", "f_li_alg", "f_xI_alg", "f_sI_alg"))
         if abs(f_sum - 1.0) > 1e-3:
             raise ValueError(
-                f"E20 (microalgae): frações algais somam {f_sum:.4f} ≠ 1.0. "
-                "Verifique f_ch_alg + f_pr_alg + f_li_alg + f_xI_alg + f_sI_alg = 1."
+                f"E20 (microalgae): frações algais somam {f_sum:.4f} != 1.0. "
+                "Verifique f_ch_alg + f_pr_alg + f_li_alg + f_xI_alg + f_sI_alg."
             )
 
 
