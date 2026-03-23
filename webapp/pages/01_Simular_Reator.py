@@ -269,6 +269,7 @@ _EXTENSION_DESCRIPTIONS = {
     "multi_population": "E12 – Multi-população: acetoclásticos e hidrogenotróficos divididos em populações oligótrofa e copiótrofa",
     "phosphorus": "E7 – Fósforo: ciclo de P inorgânico, precipitação de estruvita (MAP) e calcita",
     "iron": "E8 – Ferro: redução de Fe(III), precipitação de FeS e vivianita (requer E4 + E7)",
+    "pilot_tracer": "Traçador RTD: injeção de traçador inerte para caracterização de distribuição de tempo de residência",
 }
 
 _active_extensions: list[str] = []
@@ -278,9 +279,10 @@ if backend_choice == "full":
     except Exception:
         _available_ext = list(_EXTENSION_DESCRIPTIONS)
     _ext_labels = {k: _EXTENSION_DESCRIPTIONS.get(k, k) for k in _available_ext}
+    _sorted_ext_keys = sorted(_ext_labels, key=lambda k: _ext_labels[k].split("–")[-1].strip().lower())
     _active_extensions = st.multiselect(
         "Extensões do modelo full ADM1",
-        options=list(_ext_labels),
+        options=_sorted_ext_keys,
         format_func=lambda v: _ext_labels.get(v, v),
         default=st.session_state.get("sim_full_extensions", []),
         key="sim_full_extensions",
@@ -422,6 +424,108 @@ if backend_choice == "full":
             "oligótrofa (baixo K_S) e copiótrofa (alto k_m). Os parâmetros cinéticos padrão "
             "seguem Ramirez et al. (2009)."
         )
+
+# ─── E14: ASM1 → ADM1 interface (optional, outside form) ─────────────────────
+with st.expander("🔄 Converter influente ASM1 → ADM1 (Interface E14 / BSM2)", expanded=False):
+    st.caption(
+        "Use se o afluente do digestor vem de um sistema de lodos ativados (ASM1). "
+        "Converte variáveis ASM1 para influente ADM1 seguindo a interface BSM2 (Nopens et al. 2009)."
+    )
+
+    _a1_col1, _a1_col2, _a1_col3, _a1_col4 = st.columns(4)
+    _a1_S_S = _a1_col1.number_input("S_S [gCOD/m³]", 0.0, 50000.0, 100.0, key="a1_S_S")
+    _a1_S_I = _a1_col2.number_input("S_I [gCOD/m³]", 0.0, 20000.0, 30.0, key="a1_S_I")
+    _a1_X_S = _a1_col3.number_input("X_S [gCOD/m³]", 0.0, 50000.0, 200.0, key="a1_X_S")
+    _a1_X_I = _a1_col4.number_input("X_I [gCOD/m³]", 0.0, 20000.0, 50.0, key="a1_X_I")
+
+    _a1_col5, _a1_col6, _a1_col7 = st.columns(3)
+    _a1_X_BH = _a1_col5.number_input("X_BH [gCOD/m³]", 0.0, 50000.0, 300.0, key="a1_X_BH")
+    _a1_X_BA = _a1_col6.number_input("X_BA [gCOD/m³]", 0.0, 10000.0, 40.0, key="a1_X_BA")
+    _a1_X_P = _a1_col7.number_input("X_P [gCOD/m³]", 0.0, 20000.0, 80.0, key="a1_X_P")
+
+    _a1_col8, _a1_col9, _a1_col10, _a1_col11, _a1_col12 = st.columns(5)
+    _a1_S_ND = _a1_col8.number_input("S_ND [gN/m³]", 0.0, 500.0, 2.0, key="a1_S_ND")
+    _a1_X_ND = _a1_col9.number_input("X_ND [gN/m³]", 0.0, 500.0, 4.0, key="a1_X_ND")
+    _a1_S_NH = _a1_col10.number_input("S_NH [gN/m³]", 0.0, 1000.0, 20.0, key="a1_S_NH")
+    _a1_S_NO = _a1_col11.number_input("S_NO [gN/m³]", 0.0, 500.0, 5.0, key="a1_S_NO")
+    _a1_S_ALK = _a1_col12.number_input("S_ALK [molHCO₃⁻/m³]", 0.0, 100.0, 4.0, key="a1_S_ALK")
+
+    _a1_preset = st.selectbox(
+        "Preset de frações BSM2",
+        options=["BSM2 (lodo misto municipal)", "Lodo primário", "Lodo secundário aeróbio"],
+        key="a1_fractions_preset",
+    )
+
+    if st.button("▶ Calcular influente ADM1", key="a1_calculate"):
+        from simulator.full_model.asm_adm1_interface import (
+            ASM1State,
+            asm1_to_adm1_influent,
+            verify_asm1_adm1_balance,
+        )
+        from simulator.full_model.mappings.asm1_fractions import (
+            bsm2_fractions,
+            primary_sludge_fractions,
+            secondary_sludge_fractions,
+        )
+
+        _preset_map = {
+            "BSM2 (lodo misto municipal)": bsm2_fractions(),
+            "Lodo primário": primary_sludge_fractions(),
+            "Lodo secundário aeróbio": secondary_sludge_fractions(),
+        }
+        _fracs = _preset_map[_a1_preset]
+
+        _asm1 = ASM1State(
+            S_S=_a1_S_S, S_I=_a1_S_I, X_S=_a1_X_S, X_I=_a1_X_I,
+            X_BH=_a1_X_BH, X_BA=_a1_X_BA, X_P=_a1_X_P,
+            S_ND=_a1_S_ND, X_ND=_a1_X_ND, S_NH=_a1_S_NH,
+            S_NO=_a1_S_NO, S_ALK=_a1_S_ALK,
+        )
+        _influent = asm1_to_adm1_influent(_asm1, _fracs)
+        _balance = verify_asm1_adm1_balance(_asm1, _influent)
+
+        st.session_state["asm1_adm1_influent"] = _influent
+        st.session_state["asm1_adm1_balance"] = _balance
+
+        _result_rows = [
+            {"Estado ADM1": k, "Valor": f"{v:.6f}", "Unidade": "kgCOD/m³" if k.startswith(("S_su", "S_aa", "S_I", "X_")) else "kmol/m³"}
+            for k, v in _influent.items()
+        ]
+        st.dataframe(_result_rows, use_container_width=True)
+
+        _bc1, _bc2 = st.columns(2)
+        _bc1.metric("Erro balanço COD", f"{_balance['cod_error_pct']:.3f}%")
+        _bc2.metric("Erro balanço N", f"{_balance['n_error_pct']:.1f}%")
+
+        if _balance["cod_error_pct"] > 1.0:
+            st.warning("Erro de COD > 1% — verificar se as frações somam 1.0")
+
+    if "asm1_adm1_influent" in st.session_state:
+        if st.button("✅ Usar como influente desta simulação", key="a1_use_influent"):
+            _inf = st.session_state["asm1_adm1_influent"]
+            _pcod = (
+                _inf.get("X_ch", 0.0) + _inf.get("X_pr", 0.0) + _inf.get("X_li", 0.0)
+                + _inf.get("X_xc", 0.0) + _inf.get("X_I", 0.0)
+            )
+            _scod = _inf.get("S_su", 0.0) + _inf.get("S_aa", 0.0) + _inf.get("S_I", 0.0)
+            # S_IN kmolN/m³ → kgN/m³ (×14)
+            _sin_kgN = _inf.get("S_IN", 0.0) * 14.0
+            # S_IC kmolC/m³ ≈ alkalinity kmol/m³ eq.
+            _alk = max(_inf.get("S_IC", 0.1), 0.1)
+
+            st.session_state["manual_feed_name"] = "Influente ASM1→ADM1 (E14)"
+            st.session_state["manual_particulate_cod"] = float(_pcod)
+            st.session_state["manual_soluble_cod"] = float(_scod)
+            st.session_state["manual_acetate"] = 0.0
+            st.session_state["manual_propionate"] = 0.0
+            st.session_state["manual_hydrogen"] = 0.0
+            st.session_state["manual_inorganic_nitrogen"] = float(_sin_kgN)
+            st.session_state["manual_alkalinity"] = float(_alk)
+            st.session_state["manual_feed_ph"] = 7.0
+            st.session_state["sim_substrate_mode"] = "manual"
+            st.session_state["sim_skip_base_reset"] = True
+            st.success("Influente ADM1 aplicado. Modo trocado para 'Manual temporário'.")
+            st.rerun()
 
 
 # ─── Substrate selection ──────────────────────────────────────────────────────
@@ -1293,6 +1397,34 @@ if result is not None:
                 ("S_phen", "Fenólicos S_phen [kgCOD/m³]"),
                 ("X_phen", "Biomassa fenólicos X_phen [kgCOD/m³]"),
             ],
+            "phosphorus": [
+                ("S_IP", "Fósforo inorgânico S_IP [kmolP/m³]"),
+                ("X_MAP", "Estruvita precipitada X_MAP [kmolP/m³]"),
+                ("X_CaCO3", "Calcita precipitada X_CaCO3 [kmolC/m³]"),
+                ("IP_MAP", "Índice de saturação estruvita IP_MAP [-]"),
+                ("IP_CaCO3", "Índice de saturação calcita IP_CaCO3 [-]"),
+            ],
+            "iron": [
+                ("S_Fe2", "Ferro(II) dissolvido S_Fe2 [kmolFe/m³]"),
+                ("X_FeS", "FeS precipitado X_FeS [kmolFe/m³]"),
+                ("X_VIV", "Vivianita precipitada X_VIV [kmolFe/m³]"),
+                ("IP_FeS", "Índice de saturação FeS IP_FeS [-]"),
+                ("IP_VIV", "Índice de saturação vivianita IP_VIV [-]"),
+            ],
+            "multi_population": [
+                ("total_X_ac", "Biomassa acetoclástica total [kgCOD/m³]"),
+                ("total_X_h2", "Biomassa hidrogenotrófica total [kgCOD/m³]"),
+                ("fraction_oligotrophic_ac", "Fração oligótrofa ac [-]"),
+                ("fraction_oligotrophic_h2", "Fração oligótrofa h2 [-]"),
+                ("X_ac_1", "X_ac_1 oligótrofa [kgCOD/m³]"),
+                ("X_ac_2", "X_ac_2 copiótrofa [kgCOD/m³]"),
+                ("X_h2_1", "X_h2_1 oligótrofa [kgCOD/m³]"),
+                ("X_h2_2", "X_h2_2 copiótrofa [kgCOD/m³]"),
+            ],
+            "pilot_tracer": [
+                ("pilot_tracer_inventory", "Inventário do traçador [kgCOD/m³]"),
+                ("pilot_tracer_fraction_remaining", "Fração remanescente [-]"),
+            ],
         }
 
         import plotly.graph_objects as go
@@ -1338,6 +1470,54 @@ if result is not None:
                 st.warning(
                     "A extensão SRB foi ativada, mas sulfato e biomassa SRB ficaram zerados nesta corrida. "
                     "Revise os campos de sulfato afluente e biomassa inicial da SRB."
+                )
+
+        # Phosphorus (E7) KPI metrics
+        if "phosphorus" in _ext_requested:
+            _sip = result.series.get("S_IP")
+            _xmap = result.series.get("X_MAP")
+            _ip_map = result.series.get("IP_MAP")
+            if _sip or _xmap:
+                p_cols = st.columns(2)
+                if _sip:
+                    _sip_mgP = _sip[-1] * 30_970.0  # kmolP/m³ → mgP/L
+                    p_cols[0].metric("P efluente (S_IP)", f"{_sip_mgP:.1f} mgP/L")
+                if _xmap:
+                    _xmap_mgP = _xmap[-1] * 30_970.0
+                    p_cols[1].metric("P recuperado como estruvita (X_MAP)", f"{_xmap_mgP:.1f} mgP/L")
+            if _ip_map and max(_ip_map) < 1.0:
+                st.warning(
+                    "Estruvita não precipitou (IP_MAP < 1.0 durante toda a simulação). "
+                    "Verifique S_Mg ou S_IP — podem estar baixos."
+                )
+
+        # Iron (E8) KPI metrics
+        if "iron" in _ext_requested:
+            _sfe2 = result.series.get("S_Fe2")
+            _ip_fes = result.series.get("IP_FeS")
+            if _sfe2:
+                fe_cols = st.columns(2)
+                _sfe2_mgFe = _sfe2[-1] * 55_845.0  # kmolFe/m³ → mgFe/L
+                fe_cols[0].metric("Fe(II) efluente (S_Fe2)", f"{_sfe2_mgFe:.1f} mgFe/L")
+            if _ip_fes and max(_ip_fes) < 1.0:
+                st.warning(
+                    "FeS não precipitou (IP_FeS < 1.0). "
+                    "Verifique S_H2S (E4) e S_Fe3_feed."
+                )
+
+        # Multi-population (E12) KPI metrics
+        if "multi_population" in _ext_requested:
+            _frac_ac = result.series.get("fraction_oligotrophic_ac")
+            _frac_h2 = result.series.get("fraction_oligotrophic_h2")
+            if _frac_ac or _frac_h2:
+                mp_cols = st.columns(2)
+                if _frac_ac:
+                    mp_cols[0].metric("Fração oligótrofa ac (steady-state)", f"{_frac_ac[-1]:.3f}")
+                if _frac_h2:
+                    mp_cols[1].metric("Fração oligótrofa h2 (steady-state)", f"{_frac_h2[-1]:.3f}")
+                st.caption(
+                    "Valor alto → condições favoráveis a oligótrofos "
+                    "(baixo substrato, HRT longo)."
                 )
 
 
