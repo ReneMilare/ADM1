@@ -33,6 +33,7 @@ def test_full_assembly_without_extensions_matches_base_catalog() -> None:
     assert set(list_registered_extensions()) == {
         "pilot_tracer", "lactate", "ethanol", "phenolics", "lcfa_adsorption", "srb",
         "multi_population", "phosphorus", "iron",
+        "microalgae", "syngas", "trace_elements",
     }
 
 

@@ -57,6 +57,19 @@ class FullCSTRRhs:
             -(evaluation.gas_transfer.q_gas / self.params["V_gas"]) * dynamic_values["S_gas_co2"]
             + evaluation.gas_transfer.rho_t10 * self.params["V_liq"] / self.params["V_gas"]
         )
+        # Extension gas states: apply venting and stoichiometric (bio_dynamic) contributions.
+        # bio_dynamic[idx] carries the liquid-to-gas transfer term from the extension
+        # stoichiometry (coefficient V_liq/V_gas already embedded). The venting term
+        # -(q_gas/V_gas)*S_gas removes gas swept out with outflow.
+        _CORE_GAS_STATES = frozenset(("S_gas_h2", "S_gas_ch4", "S_gas_co2"))
+        for _ext_gas_name in self.assembly.dynamic_gas_state_names:
+            if _ext_gas_name in _CORE_GAS_STATES:
+                continue
+            _idx = self.assembly.dynamic_state_index[_ext_gas_name]
+            derivatives[_idx] = (
+                bio_dynamic[_idx]
+                - (evaluation.gas_transfer.q_gas / self.params["V_gas"]) * dynamic_values[_ext_gas_name]
+            )
         return derivatives
 
     def evaluate(self, *, dynamic_values: Mapping[str, float], use_cache: bool) -> FullStateEvaluation:

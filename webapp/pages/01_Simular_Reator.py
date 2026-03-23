@@ -95,6 +95,35 @@ def _build_extension_state_overrides(active_extensions: list[str]) -> tuple[dict
         s_fe2 = float(st.session_state.get("iron_initial_s_fe2", 0.0005))
         if s_fe2 > 0.0:
             initial["S_Fe2"] = s_fe2
+    if "microalgae" in active_extensions:
+        x_alg = float(st.session_state.get("alg_initial_x_alg", 0.5))
+        if x_alg > 0.0:
+            initial["X_alg"] = x_alg
+        x_alg_in = float(st.session_state.get("alg_influent_x_alg", 0.5))
+        if x_alg_in > 0.0:
+            influent["X_alg"] = x_alg_in
+    if "syngas" in active_extensions:
+        x_met_co = float(st.session_state.get("syngas_initial_x_met_co", 0.05))
+        s_co = float(st.session_state.get("syngas_initial_s_co", 0.01))
+        s_gas_co = float(st.session_state.get("syngas_initial_s_gas_co", 0.5))
+        if x_met_co > 0.0:
+            initial["X_met_CO"] = x_met_co
+        if s_co > 0.0:
+            initial["S_CO"] = s_co
+        if s_gas_co > 0.0:
+            initial["S_gas_CO"] = s_gas_co
+        s_co_in = float(st.session_state.get("syngas_influent_s_co", 0.0))
+        if s_co_in > 0.0:
+            influent["S_CO"] = s_co_in
+    if "trace_elements" in active_extensions:
+        s_ni = float(st.session_state.get("te_initial_s_ni", 2e-6))
+        s_cob = float(st.session_state.get("te_initial_s_co", 5e-7))
+        if s_ni > 0.0:
+            initial["S_Ni"] = s_ni
+            influent["S_Ni"] = s_ni
+        if s_cob > 0.0:
+            initial["S_Co"] = s_cob
+            influent["S_Co"] = s_cob
     return initial, influent
 
 
@@ -105,6 +134,8 @@ def _build_extension_parameter_overrides(active_extensions: list[str]) -> dict[s
         overrides["S_Ca"] = float(st.session_state.get("phos_param_s_ca", 0.005))
     if "iron" in active_extensions:
         overrides["S_Fe3_feed"] = float(st.session_state.get("iron_param_s_fe3_feed", 0.001))
+    if "trace_elements" in active_extensions:
+        overrides["S_Fe2_TE_feed"] = float(st.session_state.get("te_param_s_fe2_feed", 1e-5))
     return overrides
 
 
@@ -182,6 +213,15 @@ session_defaults = {
     "phos_param_s_ca": 0.005,
     "iron_initial_s_fe2": 0.0005,
     "iron_param_s_fe3_feed": 0.001,
+    "alg_initial_x_alg": 0.5,
+    "alg_influent_x_alg": 0.5,
+    "syngas_initial_x_met_co": 0.05,
+    "syngas_initial_s_co": 0.01,
+    "syngas_initial_s_gas_co": 0.5,
+    "syngas_influent_s_co": 0.0,
+    "te_initial_s_ni": 2e-6,
+    "te_initial_s_co": 5e-7,
+    "te_param_s_fe2_feed": 1e-5,
     "hydraulic_mode": "hrt",
     "flow_rate_active": 150.0,
 }
@@ -269,6 +309,9 @@ _EXTENSION_DESCRIPTIONS = {
     "multi_population": "E12 – Multi-população: acetoclásticos e hidrogenotróficos divididos em populações oligótrofa e copiótrofa",
     "phosphorus": "E7 – Fósforo: ciclo de P inorgânico, precipitação de estruvita (MAP) e calcita",
     "iron": "E8 – Ferro: redução de Fe(III), precipitação de FeS e vivianita (requer E4 + E7)",
+    "microalgae": "E20 – Microalgas: digestão de biomassa algal com recalcitrância de parede celular (Mairet 2011)",
+    "syngas": "E15 – Syngas: biometanação de CO via reação WGS enzimática e X_met_CO (Lecker 2017)",
+    "trace_elements": "E9 – Elementos-traço: Ni e Co como micronutrientes; limitação de metanogênese (Thanh 2016)",
     "pilot_tracer": "Traçador RTD: injeção de traçador inerte para caracterização de distribuição de tempo de residência",
 }
 
@@ -424,6 +467,125 @@ if backend_choice == "full":
             "oligótrofa (baixo K_S) e copiótrofa (alto k_m). Os parâmetros cinéticos padrão "
             "seguem Ramirez et al. (2009)."
         )
+
+    if "microalgae" in _active_extensions:
+        with st.expander("Configuração da extensão Microalgas (E20)", expanded=True):
+            st.caption(
+                "X_alg é a biomassa algal composta que desintegra com recalcitrância de parede celular. "
+                "Use f_wall_alg < 1 para espécies resistentes. Defaults: Chlorella vulgaris (Mairet 2011)."
+            )
+            _alg_col1, _alg_col2 = st.columns(2)
+            with _alg_col1:
+                st.number_input(
+                    "Biomassa algal inicial X_alg [kgCOD/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("alg_initial_x_alg", 0.5)),
+                    step=0.1,
+                    format="%.3f",
+                    key="alg_initial_x_alg",
+                    help="Concentração inicial de algas no digestor. Típico: 0.5–5 kgCOD/m³.",
+                )
+            with _alg_col2:
+                st.number_input(
+                    "Biomassa algal afluente X_alg [kgCOD/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("alg_influent_x_alg", 0.5)),
+                    step=0.1,
+                    format="%.3f",
+                    key="alg_influent_x_alg",
+                    help="X_alg no afluente. Corresponde à carga de algas alimentada ao digestor.",
+                )
+
+    if "syngas" in _active_extensions:
+        with st.expander("Configuração da extensão Syngas (E15)", expanded=True):
+            st.caption(
+                "X_met_CO é a biomassa carboxidotrófica que converte CO em H₂ via WGS enzimática. "
+                "S_CO é o CO dissolvido; S_gas_CO é o CO no headspace. "
+                "Sem inóculo X_met_CO, o CO não é consumido."
+            )
+            _syn_col1, _syn_col2 = st.columns(2)
+            with _syn_col1:
+                st.number_input(
+                    "Inóculo X_met_CO inicial [kgCOD/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("syngas_initial_x_met_co", 0.05)),
+                    step=0.01,
+                    format="%.4f",
+                    key="syngas_initial_x_met_co",
+                    help="Biomassa carboxidotrófica inicial. Mín. recomendado: 0.05 kgCOD/m³.",
+                )
+                st.number_input(
+                    "CO dissolvido inicial S_CO [kgCOD/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("syngas_initial_s_co", 0.01)),
+                    step=0.001,
+                    format="%.4f",
+                    key="syngas_initial_s_co",
+                    help="≈ 0.01 kgCOD/m³ ≈ 17 mg CO/L",
+                )
+            with _syn_col2:
+                st.number_input(
+                    "CO no headspace S_gas_CO [kgCOD/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("syngas_initial_s_gas_co", 0.5)),
+                    step=0.05,
+                    format="%.3f",
+                    key="syngas_initial_s_gas_co",
+                    help="Concentração inicial de CO na fase gasosa. Típico biogás de syngas: 0.5–2 kgCOD/m³.",
+                )
+                st.number_input(
+                    "CO afluente S_CO [kgCOD/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("syngas_influent_s_co", 0.0)),
+                    step=0.001,
+                    format="%.4f",
+                    key="syngas_influent_s_co",
+                    help="CO dissolvido no afluente líquido (ex: pré-saturação). Deixe 0 para alimentação só via gás.",
+                )
+
+    if "trace_elements" in _active_extensions:
+        _te_conflict = "iron" in _active_extensions
+        if _te_conflict:
+            st.error(
+                "⚠️ **Elementos-traço (E9)** não pode ser combinado com **Ferro (E8)** nesta versão. "
+                "Remova uma das extensões antes de simular."
+            )
+        with st.expander("Configuração da extensão Elementos-Traço (E9)", expanded=True):
+            st.caption(
+                "Ni e Co são micronutrientes essenciais para metanogênese. "
+                "Abaixo de K_TE (~0.5 µmol/L Ni, ~0.1 µmol/L Co) os metanogênicos são inibidos. "
+                "S_Fe2_TE_feed é o Fe(II) fixo no afluente (parâmetro operacional)."
+            )
+            _te_col1, _te_col2 = st.columns(2)
+            with _te_col1:
+                st.number_input(
+                    "Ni dissolvido inicial S_Ni [kmolNi/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("te_initial_s_ni", 2e-6)),
+                    step=1e-7,
+                    format="%.2e",
+                    key="te_initial_s_ni",
+                    help="Típico: 1–5 µmol/L = 1e-6 – 5e-6 kmolNi/m³. Abaixo de K_TE_Ni (5e-7) → inibição.",
+                )
+                st.number_input(
+                    "Co dissolvido inicial S_Co [kmolCo/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("te_initial_s_co", 5e-7)),
+                    step=1e-8,
+                    format="%.2e",
+                    key="te_initial_s_co",
+                    help="Típico: 0.1–2 µmol/L = 1e-7 – 2e-6 kmolCo/m³. Abaixo de K_TE_Co (1e-7) → inibição.",
+                )
+            with _te_col2:
+                st.number_input(
+                    "Fe(II) afluente S_Fe2_TE_feed [kmolFe/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("te_param_s_fe2_feed", 1e-5)),
+                    step=1e-6,
+                    format="%.2e",
+                    key="te_param_s_fe2_feed",
+                    help="Fe(II) como parâmetro fixo de limitação (não estado dinâmico). ≈ 1e-5 kmol/m³ ≈ 0.56 mg Fe/L.",
+                )
 
 # ─── E14: ASM1 → ADM1 interface (optional, outside form) ─────────────────────
 with st.expander("🔄 Converter influente ASM1 → ADM1 (Interface E14 / BSM2)", expanded=False):
