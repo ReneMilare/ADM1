@@ -87,7 +87,25 @@ def _build_extension_state_overrides(active_extensions: list[str]) -> tuple[dict
         }
         initial.update({name: value for name, value in initial_pairs.items() if abs(value) > 0.0})
         influent.update({name: value for name, value in influent_pairs.items() if abs(value) > 0.0})
+    if "phosphorus" in active_extensions:
+        s_ip = float(st.session_state.get("phos_initial_s_ip", 0.003))
+        if s_ip > 0.0:
+            initial["S_IP"] = s_ip
+    if "iron" in active_extensions:
+        s_fe2 = float(st.session_state.get("iron_initial_s_fe2", 0.0005))
+        if s_fe2 > 0.0:
+            initial["S_Fe2"] = s_fe2
     return initial, influent
+
+
+def _build_extension_parameter_overrides(active_extensions: list[str]) -> dict[str, float]:
+    overrides: dict[str, float] = {}
+    if "phosphorus" in active_extensions:
+        overrides["S_Mg"] = float(st.session_state.get("phos_param_s_mg", 0.004))
+        overrides["S_Ca"] = float(st.session_state.get("phos_param_s_ca", 0.005))
+    if "iron" in active_extensions:
+        overrides["S_Fe3_feed"] = float(st.session_state.get("iron_param_s_fe3_feed", 0.001))
+    return overrides
 
 
 configure_page("Simular Reator")
@@ -159,6 +177,11 @@ session_defaults = {
     "srb_initial_srb_h2": 0.05,
     "srb_initial_srb_pro": 0.05,
     "srb_initial_srb_bu": 0.05,
+    "phos_initial_s_ip": 0.003,
+    "phos_param_s_mg": 0.004,
+    "phos_param_s_ca": 0.005,
+    "iron_initial_s_fe2": 0.0005,
+    "iron_param_s_fe3_feed": 0.001,
     "hydraulic_mode": "hrt",
     "flow_rate_active": 150.0,
 }
@@ -243,6 +266,9 @@ _EXTENSION_DESCRIPTIONS = {
     "phenolics": "E11 – Fenólicos: degradação de compostos fenólicos (ex: resíduos oleosos)",
     "lcfa_adsorption": "E5 – Adsorção de LCFA: cinética de adsorção de ácidos graxos de cadeia longa",
     "srb": "E4 – SRB: redução de sulfato (competição com metanogênese)",
+    "multi_population": "E12 – Multi-população: acetoclásticos e hidrogenotróficos divididos em populações oligótrofa e copiótrofa",
+    "phosphorus": "E7 – Fósforo: ciclo de P inorgânico, precipitação de estruvita (MAP) e calcita",
+    "iron": "E8 – Ferro: redução de Fe(III), precipitação de FeS e vivianita (requer E4 + E7)",
 }
 
 _active_extensions: list[str] = []
@@ -317,6 +343,85 @@ if backend_choice == "full":
                     format="%.4f",
                     key="srb_initial_srb_bu",
                 )
+
+    if "phosphorus" in _active_extensions:
+        with st.expander("Configuração da extensão Fósforo (E7)", expanded=True):
+            st.caption(
+                "S_Mg e S_Ca são concentrações operacionais fixas (parâmetros de entrada). "
+                "S_IP é o fósforo inorgânico inicial no reator."
+            )
+            _phos_col1, _phos_col2 = st.columns(2)
+            with _phos_col1:
+                st.number_input(
+                    "Mg²⁺ operacional S_Mg [kmol/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("phos_param_s_mg", 0.004)),
+                    step=0.001,
+                    format="%.4f",
+                    key="phos_param_s_mg",
+                    help="≈ 0.004 kmol/m³ ≈ 97 mg Mg/L, típico de digestor municipal",
+                )
+                st.number_input(
+                    "Ca²⁺ operacional S_Ca [kmol/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("phos_param_s_ca", 0.005)),
+                    step=0.001,
+                    format="%.4f",
+                    key="phos_param_s_ca",
+                    help="≈ 0.005 kmol/m³ ≈ 200 mg Ca/L",
+                )
+            with _phos_col2:
+                st.number_input(
+                    "Fósforo inorgânico inicial S_IP [kmol/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("phos_initial_s_ip", 0.003)),
+                    step=0.001,
+                    format="%.4f",
+                    key="phos_initial_s_ip",
+                    help="≈ 0.003 kmol/m³ ≈ 93 mg P/L, faixa típica de digestor",
+                )
+
+    if "iron" in _active_extensions:
+        _iron_missing = [e for e in ("srb", "phosphorus") if e not in _active_extensions]
+        if _iron_missing:
+            st.error(
+                f"⚠️ A extensão **Ferro (E8)** requer também: **{', '.join(_iron_missing)}**. "
+                "Adicione as extensões faltantes ou a simulação falhará."
+            )
+        with st.expander("Configuração da extensão Ferro (E8)", expanded=True):
+            st.caption(
+                "S_Fe3_feed é a concentração de Fe(III) no afluente (dose típica de coagulante). "
+                "S_Fe2 é o Fe(II) dissolvido inicial no reator."
+            )
+            _iron_col1, _iron_col2 = st.columns(2)
+            with _iron_col1:
+                st.number_input(
+                    "Fe(III) afluente S_Fe3_feed [kmol/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("iron_param_s_fe3_feed", 0.001)),
+                    step=0.0001,
+                    format="%.4f",
+                    key="iron_param_s_fe3_feed",
+                    help="≈ 0.001 kmol/m³ ≈ 56 mg Fe/L",
+                )
+            with _iron_col2:
+                st.number_input(
+                    "Fe(II) dissolvido inicial S_Fe2 [kmol/m³]",
+                    min_value=0.0,
+                    value=float(st.session_state.get("iron_initial_s_fe2", 0.0005)),
+                    step=0.0001,
+                    format="%.4f",
+                    key="iron_initial_s_fe2",
+                    help="≈ 0.0005 kmol/m³ ≈ 28 mg Fe/L",
+                )
+
+    if "multi_population" in _active_extensions:
+        st.info(
+            "**E12 – Multi-população**: nenhuma configuração extra necessária. "
+            "Os acetoclásticos e hidrogenotróficos são divididos automaticamente em populações "
+            "oligótrofa (baixo K_S) e copiótrofa (alto k_m). Os parâmetros cinéticos padrão "
+            "seguem Ramirez et al. (2009)."
+        )
 
 
 # ─── Substrate selection ──────────────────────────────────────────────────────
@@ -806,6 +911,7 @@ _feed_nitrogen = float(base_feed.inorganic_nitrogen) if substrate_mode_label != 
 
 ammonia_inhibition_mode = str(st.session_state.get("ammonia_inhibition_mode", "simple"))
 _full_initial_state_overrides, _full_influent_state_overrides = _build_extension_state_overrides(_active_extensions)
+_full_extension_parameter_overrides = _build_extension_parameter_overrides(_active_extensions)
 
 validation = validate_simulation_inputs(
     reactor_type=reactor_type,
@@ -940,6 +1046,7 @@ if submitted:
                 full_extensions=_active_extensions if _active_extensions else None,
                 full_initial_state_overrides=_full_initial_state_overrides,
                 full_influent_state_overrides=_full_influent_state_overrides,
+                full_extension_parameter_overrides=_full_extension_parameter_overrides if _full_extension_parameter_overrides else None,
                 custom_substrate_values=custom_substrate_values_active,
                 hydraulic_mode=hydraulic_mode,
             )

@@ -180,6 +180,7 @@ def build_simulation_config(
     full_extensions: list[str] | None = None,
     full_initial_state_overrides: dict[str, float] | None = None,
     full_influent_state_overrides: dict[str, float] | None = None,
+    full_extension_parameter_overrides: dict[str, float] | None = None,
 ) -> SimulationConfig:
     base = make_default_simulation_config()
     return base.model_copy(
@@ -192,6 +193,7 @@ def build_simulation_config(
             "full_extensions": list(full_extensions or []),
             "full_initial_state_overrides": dict(full_initial_state_overrides or {}),
             "full_influent_state_overrides": dict(full_influent_state_overrides or {}),
+            "full_extension_parameter_overrides": dict(full_extension_parameter_overrides or {}),
         }
     )
 
@@ -473,6 +475,7 @@ def run_simulation(
     full_extensions: list[str] | None = None,
     full_initial_state_overrides: dict[str, float] | None = None,
     full_influent_state_overrides: dict[str, float] | None = None,
+    full_extension_parameter_overrides: dict[str, float] | None = None,
     custom_substrate_values: dict[str, float | str] | None = None,
     hydraulic_mode: str = "hrt",
 ) -> SimulationResult:
@@ -507,6 +510,7 @@ def run_simulation(
         full_extensions=full_extensions,
         full_initial_state_overrides=full_initial_state_overrides,
         full_influent_state_overrides=full_influent_state_overrides,
+        full_extension_parameter_overrides=full_extension_parameter_overrides,
     )
     reactor_config = _build_reactor_config(reactor_type, variant_config)
     kinetics = KineticParameters(ammonia_inhibition_mode=ammonia_inhibition_mode)  # type: ignore[arg-type]
