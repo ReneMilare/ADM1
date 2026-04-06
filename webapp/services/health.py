@@ -37,7 +37,7 @@ def collect_health_snapshot() -> dict[str, Any]:
         "python_version": sys.version.split()[0],
         "platform": platform.platform(),
         "project_root": str(paths.root),
-        "backend_policy": "pyadm1 default with explicit reduced fallback for uasb and plug_flow.",
+        "backend_policy": "full default with explicit reduced fallback for uasb and plug_flow.",
         "dependencies": dependencies,
         "services": services,
         "rag_runtime": rag_runtime,

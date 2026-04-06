@@ -96,7 +96,7 @@ with st.form("preferences_form"):
         default_backend = st.selectbox(
             "Backend padrao da UI",
             options=list(backend_options),
-            index=list(backend_options).index(str(preferences.get("default_backend", "pyadm1"))),
+            index=list(backend_options).index(str(preferences.get("default_backend", "full"))),
             format_func=lambda value: backend_options[value],
         )
         ammonia_mode_options = {"simple": "Simples (sem FAN)", "fan": "Inibicao por amonia livre (FAN)"}

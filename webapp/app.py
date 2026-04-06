@@ -26,6 +26,7 @@ from webapp.services.preferences_service import (
     list_recent_simulations,
     list_simulation_presets,
 )
+from webapp.services.scenario_service import list_recent_artifacts
 from webapp.state.session_state import ensure_session_state
 from webapp.utils.page_config import configure_page, render_page_header
 
@@ -114,6 +115,24 @@ with activity_col2:
             render_frame(recent_queries)
     else:
         st.caption("As consultas tecnicas recentes e favoritas aparecerao aqui depois do uso da tela `Consulta Tecnica`.")
+
+st.subheader("Cenários recentes")
+recent_artifacts = list_recent_artifacts(limit=5)
+if recent_artifacts:
+    render_frame(recent_artifacts)
+    if len(recent_artifacts) >= 2:
+        _id_a = recent_artifacts[0]["simulation_id"]
+        _id_b = recent_artifacts[1]["simulation_id"]
+        st.caption(f"Dois mais recentes: `{_id_a}` e `{_id_b}`")
+        if hasattr(st, "page_link"):
+            try:
+                st.page_link("pages/02_Comparar_Cenarios.py", label="Comparar os 2 mais recentes →")
+            except Exception:
+                st.markdown("Acesse **Comparar Cenarios** para comparar os cenários acima.")
+        else:
+            st.markdown("Acesse **Comparar Cenarios** para comparar os cenários acima.")
+else:
+    st.caption("Os cenários persistidos mais recentes aparecerão aqui após a primeira simulação com persistência habilitada.")
 
 st.subheader("Presets do usuario")
 if saved_presets:

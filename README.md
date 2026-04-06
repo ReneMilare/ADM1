@@ -13,7 +13,7 @@ Base local para estudo, busca semantica e simulacao ADM1 voltada ao design de re
 
 - `rag/`: extracao, indexacao, busca hibrida e MCP de documentos
 - `simulator/`: motor numerico, modelos de reator, benchmark de backends, validacao Fase 3, pipeline de design, persistencia e MCP de simulacao
-- `vaultObsidian/`: mapa conceitual, notas tecnicas e plano do projeto
+- `vaultObsidianAMD1/`: mapa conceitual, notas tecnicas e plano do projeto
 - `webapp/`: interface web local em `Streamlit`
 
 ## Como usar

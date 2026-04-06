@@ -21,7 +21,7 @@ WHITESPACE_RE = re.compile(r"\s+")
 DEFAULT_WORKBENCH_STATE = {
     "preferences": {
         "default_reactor": "cstr",
-        "default_backend": "pyadm1",
+        "default_backend": "full",
         "default_top_k": 5,
         "persist_scenarios_by_default": True,
         "show_home_onboarding": True,
@@ -159,6 +159,11 @@ def list_simulation_presets() -> list[dict[str, Any]]:
 def save_simulation_preset(name: str, payload: dict[str, Any]) -> list[dict[str, Any]]:
     cleaned_name = _sanitize_preset_name(name)
 
+    # Garante schema_version nos payloads novos
+    if "schema_version" not in payload:
+        payload = dict(payload)
+        payload["schema_version"] = "1"
+
     state = load_workbench_state()
     presets = [item for item in state["simulation_presets"] if str(item.get("name", "")).casefold() != cleaned_name.casefold()]
     presets.append(
@@ -178,6 +183,31 @@ def save_simulation_preset(name: str, payload: dict[str, Any]) -> list[dict[str,
     state["simulation_presets"] = sorted(presets, key=lambda item: str(item.get("updated_at") or ""), reverse=True)
     _write_state(state)
     return list_simulation_presets()
+
+
+def migrate_preset_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Migra um payload de preset antigo para o formato atual (schema_version: "1").
+
+    Payloads antigos não têm schema_version. Esta função é idempotente:
+    payloads já migrados são retornados sem alteração.
+    """
+    if payload.get("schema_version") == "1":
+        return payload
+
+    migrated = dict(payload)
+    migrated["schema_version"] = "1"
+
+    # Payloads antigos armazenam apenas extensões SRB em full_extension_state_inputs.
+    # Garante que os campos novos existam com dicts vazios para não quebrar leitores.
+    migrated.setdefault("full_extension_influent_inputs", {})
+    migrated.setdefault("full_extension_param_inputs", {})
+    migrated.setdefault("sim_full_extensions", [])
+
+    # Campo backend_choice pode estar ausente em payloads muito antigos
+    if "backend_choice" not in migrated and "backend" in migrated:
+        migrated["backend_choice"] = migrated["backend"]
+
+    return migrated
 
 
 def delete_simulation_preset(name: str) -> list[dict[str, Any]]:

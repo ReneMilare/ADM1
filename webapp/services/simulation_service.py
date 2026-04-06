@@ -20,6 +20,7 @@ from simulator.core.models import (
     TwoPhaseConfig,
 )
 from simulator.service import ADM1SimulationService
+from webapp.state.backend_resolver import resolve_backend as _resolve_backend
 from webapp.utils.presets import get_codigestion_blend, get_manual_defaults, get_preset_bundle
 
 REACTOR_OPTIONS = {
@@ -53,22 +54,10 @@ def get_backend_options() -> dict[str, str]:
 def resolve_requested_backend(reactor_type: str, backend: str) -> tuple[str, str | None]:
     """Resolve o backend efetivo dado o tipo de reator e o backend solicitado.
 
-    O backend `full` suporta todos os tipos de reator (CSTR, UASB, Plug-flow,
-    Two-phase, TPAD, Batch). O `pyadm1` suporta apenas CSTR.
-    O `auto` usa `pyadm1` para CSTR e `reduced` para outros tipos.
+    Delega para webapp.state.backend_resolver.resolve_backend.
+    Assinatura pública mantida para compatibilidade com a página existente.
     """
-    if backend == "pyadm1" and reactor_type != "cstr":
-        return "reduced", "PyADM1 suporta apenas CSTR neste projeto. A execucao caira para o backend `reduced`."
-    if backend == "full":
-        return "full", f"Backend `full` selecionado para {reactor_type}. Suporta todos os tipos de reator com ADM1 nativo."
-    if backend == "auto" and reactor_type != "cstr":
-        return "reduced", "No modo `auto`, reatores nao CSTR continuam no backend `reduced`. Use `full` para ADM1 completo."
-    if backend == "auto":
-        return (
-            "pyadm1",
-            "No modo `auto`, CSTR continua em `pyadm1` por conservadorismo. Use `full` explicitamente quando quiser rodar o backend nativo.",
-        )
-    return backend, None
+    return _resolve_backend(reactor_type, backend)
 
 
 
@@ -329,7 +318,7 @@ def build_user_simulation_preset_payload(session_values: Mapping[str, Any]) -> d
         "substrate_mode": str(session_values.get("sim_substrate_mode", "preset")),
         "preset_id": session_values.get("sim_preset_id"),
         "custom_substrate_name": session_values.get("sim_custom_substrate_name"),
-        "backend_choice": str(session_values.get("sim_backend_choice", "pyadm1")),
+        "backend_choice": str(session_values.get("sim_backend_choice", "full")),
         "ammonia_inhibition_mode": str(session_values.get("ammonia_inhibition_mode", "simple")),
         "codigestion_preset": session_values.get("codigestion_preset"),
         "variant_config": session_values.get("variant_config"),
@@ -368,7 +357,7 @@ def apply_user_simulation_preset(session_state: Any, payload: Mapping[str, Any])
     session_state["sim_substrate_mode"] = str(payload.get("substrate_mode", "preset"))
     session_state["sim_preset_id"] = payload.get("preset_id")
     session_state["sim_custom_substrate_name"] = payload.get("custom_substrate_name", None)
-    session_state["sim_backend_choice"] = str(payload.get("backend_choice", "pyadm1"))
+    session_state["sim_backend_choice"] = str(payload.get("backend_choice", "full"))
     # New extension fields — backward compatible: default to safe values if absent
     session_state["ammonia_inhibition_mode"] = str(payload.get("ammonia_inhibition_mode", "simple"))
     session_state["codigestion_preset"] = payload.get("codigestion_preset", None)

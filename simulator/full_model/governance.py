@@ -9,8 +9,19 @@ from simulator.full_model.process_catalog import FULL_PROCESS_CATALOG
 from simulator.full_model.state_catalog import FULL_STATE_CATALOG
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-VAULT_FULL_MODEL_ROOT = REPO_ROOT / "vaultObsidian" / "plans" / "fullModel"
-PROJECT_GOVERNANCE_ROOT = REPO_ROOT / "vaultObsidian" / "Projeto" / "FullModel" / "reviews"
+
+
+def _resolve_vault_root() -> Path:
+    for vault_name in ("vaultObsidianAMD1", "vaultObsidian"):
+        candidate = REPO_ROOT / vault_name
+        if candidate.exists():
+            return candidate
+    return REPO_ROOT / "vaultObsidianAMD1"
+
+
+VAULT_ROOT = _resolve_vault_root()
+VAULT_FULL_MODEL_ROOT = VAULT_ROOT / "plans" / "fullModel"
+PROJECT_GOVERNANCE_ROOT = VAULT_ROOT / "Projeto" / "FullModel" / "reviews"
 
 STATE_CODE_PATH = REPO_ROOT / "simulator" / "full_model" / "state_catalog.py"
 PROCESS_CODE_PATH = REPO_ROOT / "simulator" / "full_model" / "process_catalog.py"

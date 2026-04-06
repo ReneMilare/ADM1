@@ -10,7 +10,12 @@ from typing import Any
 from simulator.core.models import CoDigestionBlend, FeedDefinition, OperatingConditions, SimulationConfig, SubstrateFraction
 from simulator.service import ADM1SimulationService
 
-DEFAULT_NOTE_ROOT = Path(__file__).resolve().parent.parent / "vaultObsidian" / "Projeto"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+VAULT_ROOT = next(
+    (candidate for candidate in (PROJECT_ROOT / "vaultObsidianAMD1", PROJECT_ROOT / "vaultObsidian") if candidate.exists()),
+    PROJECT_ROOT / "vaultObsidianAMD1",
+)
+DEFAULT_NOTE_ROOT = VAULT_ROOT / "Projeto"
 
 SUBSTRATE_PRESETS: dict[str, dict[str, Any]] = {
     "lodo_de_esgoto": {

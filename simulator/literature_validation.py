@@ -22,7 +22,11 @@ from simulator.service import ADM1SimulationService
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT_ROOT = Path(__file__).resolve().parent / "literature_validation_runs"
-DEFAULT_VAULT_NOTE_ROOT = PROJECT_ROOT / "vaultObsidian" / "Projeto"
+VAULT_ROOT = next(
+    (candidate for candidate in (PROJECT_ROOT / "vaultObsidianAMD1", PROJECT_ROOT / "vaultObsidian") if candidate.exists()),
+    PROJECT_ROOT / "vaultObsidianAMD1",
+)
+DEFAULT_VAULT_NOTE_ROOT = VAULT_ROOT / "Projeto"
 DEFAULT_VAULT_NOTE_NAME = "Validação contra Literatura BSM2.md"
 PYADM1_REL_TOL_PCT = 0.2
 PYADM1_ABS_TOL = 1e-5

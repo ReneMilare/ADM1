@@ -165,7 +165,8 @@ def _bundle_from_latest(latest: dict[str, Any] | None, *, markdown_name: str) ->
 
 
 def _find_literature_vault_note(report: dict[str, Any]) -> str | None:
-    project_note = PROJECT_ROOT / "vaultObsidian" / "Projeto" / "Validação contra Literatura BSM2.md"
-    if project_note.exists():
-        return str(project_note)
+    for vault_name in ("vaultObsidianAMD1", "vaultObsidian"):
+        project_note = PROJECT_ROOT / vault_name / "Projeto" / "Validação contra Literatura BSM2.md"
+        if project_note.exists():
+            return str(project_note)
     return None

@@ -110,7 +110,7 @@ with form_col:
         with right:
             duration_days = st.number_input("Duracao do estudo [dias]", min_value=5.0, value=45.0, step=1.0)
             evaluation_points = st.number_input("Pontos de avaliacao", min_value=31, max_value=401, value=181, step=10)
-            persist_note = st.checkbox("Salvar nota do estudo em vaultObsidian/Projeto", value=False)
+            persist_note = st.checkbox("Salvar nota do estudo no vault/Projeto", value=False)
             note_title = st.text_input("Titulo da nota", value="") if persist_note else ""
         submitted = st.form_submit_button("Rodar design assistido")
 
