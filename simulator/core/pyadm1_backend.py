@@ -390,6 +390,11 @@ def _build_influent_frame(
         },
         groups=FEED_GROUPS,
     )
+    _apply_explicit_sic(
+        row,
+        template_row=template_row,
+        sic_kmol_m3=feed.sic_kmol_m3,
+    )
     row["Q"] = float(feed.flow_rate_m3_day or (operating_conditions.volume_m3 / operating_conditions.hrt_days))
     row["T (C)"] = float(operating_conditions.temperature_c)
     row["S_H_ion"] = 10 ** (-feed.ph)
@@ -433,6 +438,11 @@ def _build_initial_frame(*, initial_state: InitialState, feed: FeedDefinition) -
         },
         groups=INITIAL_GROUPS,
     )
+    _apply_explicit_sic(
+        row,
+        template_row=template_row,
+        sic_kmol_m3=initial_state.sic_kmol_m3,
+    )
     row["S_H_ion"] = 10 ** (-feed.ph)
     row["S_nh4_ion"] = max(row["S_IN"] - row["S_nh3"], 1e-9)
     row["S_co2"] = max(row["S_IC"] - row["S_hco3_ion"], 1e-9)
@@ -461,6 +471,26 @@ def _scaled_row(
         for column in columns:
             row[column] = target_value * (weights.get(column, 0.0) / weight_total)
     return row
+
+
+def _apply_explicit_sic(
+    row: dict[str, float],
+    *,
+    template_row: dict[str, Any],
+    sic_kmol_m3: float | None,
+) -> None:
+    if sic_kmol_m3 is None:
+        return
+    target_sic = float(sic_kmol_m3)
+    template_sic = float(template_row.get("S_IC", 0.0) or 0.0)
+    row["S_IC"] = target_sic
+    if template_sic > 0.0:
+        scale = target_sic / template_sic
+        row["S_hco3_ion"] = max(float(template_row.get("S_hco3_ion", 0.0) or 0.0) * scale, 0.0)
+        row["S_co2"] = max(float(template_row.get("S_co2", 0.0) or 0.0) * scale, 0.0)
+    else:
+        row["S_hco3_ion"] = 0.0
+        row["S_co2"] = 0.0
 
 
 def _patched_pyadm1_source(

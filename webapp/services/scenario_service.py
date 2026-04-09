@@ -17,12 +17,12 @@ SERIES_OPTIONS = {
     "methane_m3_day": {
         "label": "Metano",
         "title": "Producao de metano",
-        "y_axis_title": "m3/d",
+        "y_axis_title": "Nm3/d",
     },
     "biogas_m3_day": {
         "label": "Biogas",
         "title": "Producao de biogas",
-        "y_axis_title": "m3/d",
+        "y_axis_title": "Nm3/d",
     },
     "ph": {
         "label": "pH",
@@ -55,6 +55,16 @@ def load_saved_results(*, store: ScenarioStore | None = None, limit: int | None 
     if limit is not None:
         results = results[:limit]
     return results, errors
+
+
+def _feed_sic_kmol_m3(feed: Any) -> float | None:
+    raw = getattr(feed, "sic_kmol_m3", None)
+    if raw in (None, ""):
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def substrate_label(result: SimulationResult) -> str:
@@ -313,13 +323,13 @@ def build_scenario_artifact(
         result = scenario_store.load(simulation_id)
     except Exception:
         return None
-
     preset_id = str(result.metadata.get("substrate_preset", "") or "").strip() or None
     substrate_mode = str(result.metadata.get("substrate_mode", "") or "")
     if not substrate_mode:
         substrate_mode = "preset" if preset_id else "manual"
 
     feed = result.feed
+    feed_sic_kmol_m3 = _feed_sic_kmol_m3(feed)
     feed_params: dict[str, float] = {
         "particulate_cod": feed.particulate_cod,
         "soluble_cod": feed.soluble_cod,
@@ -328,6 +338,7 @@ def build_scenario_artifact(
         "hydrogen": feed.hydrogen,
         "inorganic_nitrogen": feed.inorganic_nitrogen,
         "alkalinity": feed.alkalinity,
+        "sic_kmol_m3": float(feed_sic_kmol_m3 or 0.0),
         "ph": feed.ph,
     }
 
@@ -383,7 +394,7 @@ def compute_scenario_diff(
     # Feed inputs diff
     feed_fields = (
         "particulate_cod", "soluble_cod", "acetate", "propionate",
-        "hydrogen", "inorganic_nitrogen", "alkalinity", "ph", "flow_rate_m3_day",
+        "hydrogen", "inorganic_nitrogen", "alkalinity", "sic_kmol_m3", "ph", "flow_rate_m3_day",
     )
     inputs_diff: dict[str, dict] = {}
     for field_name in feed_fields:

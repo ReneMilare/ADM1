@@ -104,6 +104,7 @@ def build_feed_and_operating(
                 "hydrogen": float(values.get("hydrogen", feed.hydrogen)),
                 "inorganic_nitrogen": float(values.get("inorganic_nitrogen", feed.inorganic_nitrogen)),
                 "alkalinity": float(values.get("alkalinity", feed.alkalinity)),
+                "sic_kmol_m3": _optional_positive_float(values.get("sic_kmol_m3", feed.sic_kmol_m3)),
                 "ph": float(values.get("ph", feed.ph)),
             }
         )
@@ -121,6 +122,7 @@ def build_feed_and_operating(
                 "hydrogen": float(manual_feed_values.get("hydrogen", feed.hydrogen)),
                 "inorganic_nitrogen": float(manual_feed_values.get("inorganic_nitrogen", feed.inorganic_nitrogen)),
                 "alkalinity": float(manual_feed_values.get("alkalinity", feed.alkalinity)),
+                "sic_kmol_m3": _optional_positive_float(manual_feed_values.get("sic_kmol_m3", feed.sic_kmol_m3)),
                 "ph": float(manual_feed_values.get("ph", feed.ph)),
             }
         )
@@ -155,6 +157,34 @@ def _operating_from_preset(preset_id: str | None) -> tuple[OperatingConditions, 
             pass
     from simulator.core.defaults import make_default_operating_conditions
     return make_default_operating_conditions(), None
+
+
+def _optional_positive_float(value: Any) -> float | None:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    return numeric if numeric > 0.0 else None
+
+
+def _coerce_result_payload(result: Any) -> SimulationResult:
+    if isinstance(result, SimulationResult):
+        return result
+    if isinstance(result, dict):
+        return SimulationResult.model_validate(result)
+    if hasattr(result, "model_dump"):
+        return SimulationResult.model_validate(result.model_dump())
+    return result
+
+
+def _feed_sic_kmol_m3(feed: Any) -> float | None:
+    raw = getattr(feed, "sic_kmol_m3", None)
+    if raw in (None, ""):
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 
@@ -263,6 +293,7 @@ def validate_simulation_inputs(
         acetate = float(manual_feed_values.get("acetate", 0.0) or 0.0)
         propionate = float(manual_feed_values.get("propionate", 0.0) or 0.0)
         alkalinity = float(manual_feed_values.get("alkalinity", 0.0) or 0.0)
+        sic_kmol_m3 = float(manual_feed_values.get("sic_kmol_m3", 0.0) or 0.0)
         influent_ph = float(manual_feed_values.get("ph", 0.0) or 0.0)
         inorganic_nitrogen = float(manual_feed_values.get("inorganic_nitrogen", 0.0) or 0.0)
 
@@ -271,7 +302,9 @@ def validate_simulation_inputs(
         if influent_ph < 6.0 or influent_ph > 8.2:
             warnings.append("O pH de alimentacao esta fora da faixa usual. Revise a interpretacao de estabilidade e VFA para este caso.")
         if alkalinity < 1.0:
-            warnings.append("Alcalinidade de entrada baixa pode comprometer a capacidade tampao do caso simulado.")
+            warnings.append("Proxy de alcalinidade baixo pode comprometer a interpretacao do backend reduced ou de casos que ainda dependam da escala legada.")
+        if 0.0 < sic_kmol_m3 < 0.01:
+            warnings.append("S_IC real de entrada muito baixo pode indicar baixa capacidade tampao no ADM1 full / PyADM1.")
         if inorganic_nitrogen > 4.0:
             warnings.append("Nitrogenio inorganico alto pode aproximar o caso de regimes com sensibilidade a amonia.")
         feed_nitrogen = max(feed_nitrogen, inorganic_nitrogen)
@@ -346,6 +379,7 @@ def build_user_simulation_preset_payload(session_values: Mapping[str, Any]) -> d
             "hydrogen": float(session_values.get("manual_hydrogen", 0.0)),
             "inorganic_nitrogen": float(session_values.get("manual_inorganic_nitrogen", 0.0)),
             "alkalinity": float(session_values.get("manual_alkalinity", 0.0)),
+            "sic_kmol_m3": float(session_values.get("manual_sic_kmol_m3", 0.0)),
             "ph": float(session_values.get("manual_feed_ph", 7.0)),
         },
     }
@@ -389,6 +423,7 @@ def apply_user_simulation_preset(session_state: Any, payload: Mapping[str, Any])
         "manual_hydrogen": 0.001,
         "manual_inorganic_nitrogen": 1.0,
         "manual_alkalinity": 4.0,
+        "manual_sic_kmol_m3": 0.0,
         "manual_feed_ph": 7.0,
     }.items():
         session_state[key] = manual_feed_values.get(key.removeprefix("manual_"), manual_feed_values.get(key, fallback))
@@ -594,10 +629,11 @@ def backend_comparison_frame(report: Mapping[str, Any]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 def simulation_summary_rows(result: SimulationResult) -> list[dict[str, Any]]:
+    result = _coerce_result_payload(result)
     metadata = result.metadata
     rows = [
-        {"metric": "Metano final", "value": f"{result.summary.methane_final_m3_day:.3f} m3/d"},
-        {"metric": "Biogas final", "value": f"{result.summary.biogas_final_m3_day:.3f} m3/d"},
+        {"metric": "Metano final", "value": f"{result.summary.methane_final_m3_day:.3f} Nm3/d"},
+        {"metric": "Biogas final", "value": f"{result.summary.biogas_final_m3_day:.3f} Nm3/d"},
         {"metric": "Fracao CH4 final", "value": f"{result.summary.ch4_fraction_final:.3f}"},
         {"metric": "pH final", "value": f"{result.summary.ph_final:.3f}"},
         {"metric": "VFA final", "value": f"{result.summary.vfa_final:.3f}"},
@@ -630,6 +666,11 @@ def simulation_summary_rows(result: SimulationResult) -> list[dict[str, Any]]:
 
 
 def simulation_input_rows(result: SimulationResult) -> list[dict[str, Any]]:
+    result = _coerce_result_payload(result)
+    feed_sic_kmol_m3 = _feed_sic_kmol_m3(result.feed)
+    two_phase_cfg = getattr(result.reactor, "two_phase", None)
+    tpad_cfg = getattr(result.reactor, "tpad", None)
+    batch_cfg = getattr(result.reactor, "batch", None)
     rows = [
         {"group": "Reator", "parameter": "Tipo", "value": result.reactor.reactor_type},
         {"group": "Operacao", "parameter": "Volume", "value": f"{result.operating_conditions.volume_m3:.2f} m3"},
@@ -642,20 +683,22 @@ def simulation_input_rows(result: SimulationResult) -> list[dict[str, Any]]:
         {"group": "Feed", "parameter": "Soluble COD", "value": f"{result.feed.soluble_cod:.3f} kgCOD/m3"},
         {"group": "Feed", "parameter": "Acetate", "value": f"{result.feed.acetate:.3f} kgCOD/m3"},
         {"group": "Feed", "parameter": "Propionate", "value": f"{result.feed.propionate:.3f} kgCOD/m3"},
+        {"group": "Feed", "parameter": "Alkalinity proxy", "value": f"{result.feed.alkalinity:.3f} escala legada"},
+        {"group": "Feed", "parameter": "S_IC real", "value": f"{feed_sic_kmol_m3:.4f} kmol/m3" if feed_sic_kmol_m3 is not None else "derivado do proxy"},
         {"group": "Feed", "parameter": "Influent pH", "value": f"{result.feed.ph:.2f}"},
     ]
     # Extensions group
     inh_mode = result.parameters.ammonia_inhibition_mode if result.parameters else result.metadata.get("ammonia_inhibition_mode", "simple")
     rows.append({"group": "Extensões", "parameter": "Modo inibição NH₃", "value": str(inh_mode)})
-    if result.reactor.two_phase is not None:
-        cfg = result.reactor.two_phase
+    if two_phase_cfg is not None:
+        cfg = two_phase_cfg
         rows.extend([
             {"group": "Extensões", "parameter": "Fração vol. fase 1 (= HRT)", "value": f"{cfg.phase1_volume_fraction:.2f}"},
             {"group": "Extensões", "parameter": "pH setpoint fase 1 (reduzido)", "value": f"{cfg.phase1_ph_setpoint:.1f}"},
             {"group": "Extensões", "parameter": "pH setpoint fase 2 (reduzido)", "value": f"{cfg.phase2_ph_setpoint:.1f}"},
         ])
-    if result.reactor.tpad is not None:
-        cfg = result.reactor.tpad
+    if tpad_cfg is not None:
+        cfg = tpad_cfg
         rows.extend([
             {"group": "Extensões", "parameter": "Temp. termofílica [C]", "value": f"{cfg.thermo_temperature_c:.1f}"},
             {"group": "Extensões", "parameter": "HRT termofílico [d]", "value": f"{cfg.thermo_hrt_days:.1f}"},
@@ -663,12 +706,13 @@ def simulation_input_rows(result: SimulationResult) -> list[dict[str, Any]]:
             {"group": "Extensões", "parameter": "HRT mesofílico [d]", "value": f"{cfg.meso_hrt_days:.1f}"},
             {"group": "Extensões", "parameter": "Fração vol. termofílica (derivado)", "value": f"{cfg.thermo_volume_fraction:.2f}"},
         ])
-    if result.reactor.batch is not None:
-        rows.append({"group": "Extensões", "parameter": "Fração inóculo", "value": f"{result.reactor.batch.inoculum_fraction:.2f}"})
+    if batch_cfg is not None:
+        rows.append({"group": "Extensões", "parameter": "Fração inóculo", "value": f"{batch_cfg.inoculum_fraction:.2f}"})
     blend_name = result.metadata.get("blend_name")
     if blend_name:
         rows.append({"group": "Extensões", "parameter": "Blend (co-digestão)", "value": str(blend_name)})
-    if str(result.metadata.get("backend_used", result.simulation.backend)) == "full":
+    backend_used = str(result.metadata.get("backend_used", getattr(result.simulation, "backend", "")))
+    if backend_used == "full":
         rows.extend(
             [
                 {"group": "Backend full", "parameter": "Runtime", "value": str(result.metadata.get("full_model_runtime", "native"))},
@@ -683,6 +727,7 @@ def simulation_input_rows(result: SimulationResult) -> list[dict[str, Any]]:
 
 
 def result_series_frame(result: SimulationResult) -> pd.DataFrame:
+    result = _coerce_result_payload(result)
     frame = pd.DataFrame({"time_days": result.time_days})
     for key, values in result.series.items():
         frame[key] = values
@@ -691,6 +736,7 @@ def result_series_frame(result: SimulationResult) -> pd.DataFrame:
 
 
 def summary_json_bytes(result: SimulationResult) -> bytes:
+    result = _coerce_result_payload(result)
     payload = {
         "simulation_id": result.simulation_id,
         "created_at": result.created_at,

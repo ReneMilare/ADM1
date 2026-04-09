@@ -59,6 +59,7 @@ _FEED_PARAM_DEFAULTS: dict[str, float] = {
     "hydrogen": 0.001,
     "inorganic_nitrogen": 1.0,
     "alkalinity": 4.0,
+    "sic_kmol_m3": 0.0,
     "ph": 7.0,
 }
 
@@ -184,6 +185,7 @@ def draft_to_session_state(draft: SimulationDraft) -> dict[str, Any]:
         "manual_hydrogen": fp.get("hydrogen", _FEED_PARAM_DEFAULTS["hydrogen"]),
         "manual_inorganic_nitrogen": fp.get("inorganic_nitrogen", _FEED_PARAM_DEFAULTS["inorganic_nitrogen"]),
         "manual_alkalinity": fp.get("alkalinity", _FEED_PARAM_DEFAULTS["alkalinity"]),
+        "manual_sic_kmol_m3": fp.get("sic_kmol_m3", _FEED_PARAM_DEFAULTS["sic_kmol_m3"]),
         "manual_feed_ph": fp.get("ph", _FEED_PARAM_DEFAULTS["ph"]),
         # Extensão: estado inicial
         **{key: es.get(key, default) for key, default in _EXT_STATE_DEFAULTS.items()},

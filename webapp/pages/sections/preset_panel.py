@@ -108,6 +108,7 @@ def _render_custom_substrates() -> None:
                     "COD_part": f"{item.get('particulate_cod', 0):.2f}",
                     "COD_sol": f"{item.get('soluble_cod', 0):.2f}",
                     "pH": f"{item.get('ph', 0):.2f}",
+                    "S_IC": f"{float(item.get('sic_kmol_m3', 0.0) or 0.0):.4f}" if item.get("sic_kmol_m3") not in (None, "", 0, 0.0) else "auto",
                     "atualizado": item.get("updated_at", ""),
                 }
                 for item in _saved_custom_list
@@ -158,7 +159,10 @@ def _render_custom_substrates() -> None:
                 "Inorganic nitrogen [kgN/m³]", min_value=0.0, value=1.0, step=0.05, key="new_cs_nin"
             )
             _new_cs_alk = st.number_input(
-                "Alkalinity [kmol/m³ eq.]", min_value=0.01, value=4.0, step=0.1, key="new_cs_alk"
+                "Alkalinity proxy [escala legada]", min_value=0.01, value=4.0, step=0.1, key="new_cs_alk"
+            )
+            _new_cs_sic = st.number_input(
+                "S_IC real [kmol/m³] (0 = derivar do proxy)", min_value=0.0, value=0.0, step=0.005, format="%.4f", key="new_cs_sic"
             )
             _new_cs_ph = st.number_input(
                 "pH", min_value=5.0, max_value=8.5, value=7.0, step=0.05, key="new_cs_ph"
@@ -179,6 +183,7 @@ def _render_custom_substrates() -> None:
                             "hydrogen": _new_cs_h2,
                             "inorganic_nitrogen": _new_cs_nin,
                             "alkalinity": _new_cs_alk,
+                            "sic_kmol_m3": _new_cs_sic,
                             "ph": _new_cs_ph,
                         },
                     )
