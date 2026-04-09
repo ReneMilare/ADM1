@@ -43,6 +43,13 @@ def ensure_session_state() -> None:
         "evaluation_points": 181,
         "solver_choice": "BDF",
         "persist_case": True,
+        # ── Plano 03: conversor de composição ─────────────────────────────────
+        "conv_composition_input": None,
+        "conv_composition_result": None,
+        "conv_full_influent_state_overrides": None,
+        "conv_conversion_assumptions": [],
+        "conv_conversion_warnings": [],
+        "conv_conversion_applied_to_manual": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:

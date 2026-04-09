@@ -138,6 +138,12 @@ def session_state_to_draft(state: dict[str, Any]) -> SimulationDraft:
         ammonia_inhibition_mode=str(state.get("ammonia_inhibition_mode", "simple")),
         variant_config=state.get("variant_config"),
         codigestion_fractions=codigestion_fractions,
+        composition_input=state.get("conv_composition_input"),
+        composition_result=state.get("conv_composition_result"),
+        full_influent_state_overrides=state.get("conv_full_influent_state_overrides"),
+        conversion_assumptions=list(state.get("conv_conversion_assumptions") or []),
+        conversion_warnings=list(state.get("conv_conversion_warnings") or []),
+        conversion_applied_to_manual=bool(state.get("conv_conversion_applied_to_manual", False)),
         origin="manual",
     )
 
@@ -201,7 +207,29 @@ def draft_to_session_state(draft: SimulationDraft) -> dict[str, Any]:
             state["codig_custom_substrates"] = list(draft.codigestion_fractions.keys())
             for sub_id, frac in draft.codigestion_fractions.items():
                 state[f"codig_frac_{sub_id}"] = frac
+    # Bloco do conversor de composição
+    state["conv_composition_input"] = draft.composition_input
+    state["conv_composition_result"] = draft.composition_result
+    state["conv_full_influent_state_overrides"] = draft.full_influent_state_overrides
+    state["conv_conversion_assumptions"] = list(draft.conversion_assumptions)
+    state["conv_conversion_warnings"] = list(draft.conversion_warnings)
+    state["conv_conversion_applied_to_manual"] = draft.conversion_applied_to_manual
     return state
+
+
+# ─── helpers internos ────────────────────────────────────────────────────────
+
+def _composition_converter_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Extrai o bloco do conversor de composição de um payload de preset."""
+    conv = payload.get("composition_converter") or {}
+    return {
+        "composition_input": conv.get("composition_input"),
+        "composition_result": conv.get("composition_result"),
+        "full_influent_state_overrides": conv.get("full_influent_state_overrides"),
+        "conversion_assumptions": list(conv.get("conversion_assumptions") or []),
+        "conversion_warnings": list(conv.get("conversion_warnings") or []),
+        "conversion_applied_to_manual": bool(conv.get("conversion_applied_to_manual", False)),
+    }
 
 
 # ─── preset_payload → SimulationDraft ────────────────────────────────────────
@@ -266,6 +294,7 @@ def preset_payload_to_draft(payload: dict[str, Any]) -> SimulationDraft:
         ammonia_inhibition_mode=str(payload.get("ammonia_inhibition_mode", "simple")),
         variant_config=payload.get("variant_config"),
         origin="preset_user",
+        **_composition_converter_from_payload(payload),
     )
 
 
@@ -316,5 +345,13 @@ def draft_to_preset_payload(draft: SimulationDraft) -> dict[str, Any]:
         "full_extension_influent_inputs": {key: ei.get(key, default) for key, default in _EXT_INFLUENT_DEFAULTS.items()},
         "full_extension_param_inputs": {key: ep.get(key, default) for key, default in _EXT_PARAM_DEFAULTS.items()},
         "sim_full_extensions": list(draft.extensions),
+        "composition_converter": {
+            "composition_input": draft.composition_input,
+            "composition_result": draft.composition_result,
+            "full_influent_state_overrides": draft.full_influent_state_overrides,
+            "conversion_assumptions": list(draft.conversion_assumptions),
+            "conversion_warnings": list(draft.conversion_warnings),
+            "conversion_applied_to_manual": draft.conversion_applied_to_manual,
+        },
         "schema_version": "1",
     }

@@ -327,6 +327,9 @@ def render_substrate_config() -> None:
     if ui_mode == "especialista" or "asm1_adm1_influent" in st.session_state:
         _render_asm1_interface()
 
+    # ── Composition → ADM1 converter ────────────────────────────────────────────
+    _render_composition_converter()
+
 
 def _render_asm1_interface() -> None:
     """Renderiza o painel de conversão ASM1→ADM1 (Interface E14/BSM2)."""
@@ -427,3 +430,183 @@ def _render_asm1_interface() -> None:
                 st.session_state["sim_skip_base_reset"] = True
                 st.success("Influente ADM1 aplicado. Modo trocado para 'Manual temporário'.")
                 st.rerun()
+
+
+def _render_composition_converter() -> None:
+    """Renderiza o painel de conversão de composição bioquímica → ADM1."""
+    with st.expander("🧪 Converter composição do cliente → ADM1", expanded=False):
+        st.caption(
+            "Informe a composição em **base úmida** (% do peso fresco). "
+            "Outros carboidratos são calculados automaticamente."
+        )
+
+        # Row 1: name + dry matter + organic matter
+        col1, col2, col3 = st.columns(3)
+        sample_name = col1.text_input("Nome da amostra", value="Amostra", key="conv_sample_name")
+        dry_matter = col2.number_input("Matéria seca (%BU)", 0.1, 100.0, 10.0, step=0.1, key="conv_dry_matter_pct")
+        organic_matter = col3.number_input("Matéria orgânica (%BU)", 0.0, 100.0, 7.0, step=0.1, key="conv_organic_matter_pct")
+
+        # Row 2: protein + lipids + cellulose + lignin
+        col4, col5, col6, col7 = st.columns(4)
+        protein = col4.number_input("Proteína (%BU)", 0.0, 100.0, 1.0, step=0.1, key="conv_protein_pct")
+        lipids = col5.number_input("Lipídeos (%BU)", 0.0, 100.0, 1.0, step=0.1, key="conv_lipids_pct")
+        cellulose = col6.number_input("Celulose (%BU)", 0.0, 100.0, 2.0, step=0.1, key="conv_cellulose_pct")
+        lignin = col7.number_input("Lignina (%BU)", 0.0, 100.0, 0.5, step=0.1, key="conv_lignin_pct")
+
+        # Show calculated "outros carboidratos" (read-only)
+        other_carb = organic_matter - protein - lipids - cellulose - lignin
+        if other_carb < 0:
+            st.warning(f"⚠️ Outros carboidratos negativos ({other_carb:.2f}%). Revise a composição.")
+        else:
+            st.caption(f"📊 Outros carboidratos (calculado): **{other_carb:.2f}** %BU")
+
+        # Row 3: optional fields
+        st.markdown("**Parâmetros opcionais** (quando disponíveis)")
+        col8, col9, col10 = st.columns(3)
+        ph_input = col8.number_input(
+            "pH", 0.0, 14.0, 0.0, step=0.1, key="conv_ph_input",
+            help="Deixe 0 para usar default (7.0 assumido)",
+        )
+        alk_input = col9.number_input(
+            "Alcalinidade (mEq/L)", 0.0, 2000.0, 0.0, step=1.0, key="conv_alk_meq_l",
+            help="Deixe 0 para usar default",
+        )
+        tan_input = col10.number_input(
+            "TAN/NH₄⁺ (mg N/L)", 0.0, 5000.0, 0.0, step=1.0, key="conv_tan_mg_l",
+            help="Deixe 0 quando não medido",
+        )
+
+        # Convert to None when 0 (0 means "not provided")
+        ph_val = ph_input if ph_input > 0.0 else None
+        alk_val = alk_input if alk_input > 0.0 else None
+        tan_val = tan_input if tan_input > 0.0 else None
+
+        # Calculate button
+        if st.button("▶ Converter composição", key="conv_calculate"):
+            import dataclasses
+
+            from simulator.substrate_conversion.contracts import CompositionInput
+            from simulator.substrate_conversion.service import convert_composition_to_adm1
+
+            inp = CompositionInput(
+                sample_name=sample_name,
+                dry_matter_pct=dry_matter,
+                organic_matter_pct=organic_matter,
+                protein_pct=protein,
+                lipids_pct=lipids,
+                cellulose_pct=cellulose,
+                lignin_pct=lignin,
+                ph=ph_val,
+                alkalinity_meq_l=alk_val,
+                tan_mg_l=tan_val,
+            )
+            try:
+                result = convert_composition_to_adm1(inp)
+                st.session_state["conv_composition_input"] = dataclasses.asdict(inp)
+                st.session_state["conv_composition_result"] = dataclasses.asdict(result)
+                st.session_state["conv_full_influent_state_overrides"] = dataclasses.asdict(
+                    result.full_influent_state_overrides
+                )
+                st.session_state["conv_conversion_assumptions"] = [
+                    dataclasses.asdict(a) for a in result.assumptions_used
+                ]
+                st.session_state["conv_conversion_warnings"] = list(result.warnings)
+                st.session_state["conv_conversion_applied_to_manual"] = False
+                st.rerun()
+            except ValueError as e:
+                st.error(f"Erro na conversão: {e}")
+
+        # Show results if available
+        if st.session_state.get("conv_composition_result"):
+            result_dict = st.session_state["conv_composition_result"]
+            rf = result_dict.get("reduced_feed_values", {})
+            fi = result_dict.get("full_influent_state_overrides", {})
+
+            st.markdown("**Resultado da conversão**")
+
+            # Summary metrics (units in label to avoid misuse of delta parameter)
+            mc1, mc2, mc3, mc4 = st.columns(4)
+            mc1.metric("COD particulado (kgCOD/m³)", f"{rf.get('particulate_cod', 0):.2f}")
+            mc2.metric("COD solúvel (kgCOD/m³)", f"{rf.get('soluble_cod', 0):.2f}")
+            mc3.metric("N inorgânico (kgN/m³)", f"{rf.get('inorganic_nitrogen', 0):.3f}")
+            mc4.metric("pH efetivo", f"{rf.get('ph', 7.0):.1f}")
+
+            # Full influent state table (filter out None and zero values)
+            state_rows = []
+            for k, v in fi.items():
+                if v is None or v == 0.0:
+                    continue
+                if k in ("S_IN",):
+                    unit = "kgN/m³"
+                elif k in ("S_IC",):
+                    unit = "kmol/m³"
+                elif k == "ph":
+                    unit = "—"
+                else:
+                    unit = "kgCOD/m³"
+                state_rows.append({"Estado ADM1": k, "Valor": f"{v:.4f}", "Unidade": unit})
+            if state_rows:
+                st.dataframe(state_rows, use_container_width=True)
+
+            # Warnings
+            for w in st.session_state.get("conv_conversion_warnings", []):
+                st.warning(w)
+
+            # Assumptions
+            assumptions_list = st.session_state.get("conv_conversion_assumptions", [])
+            if assumptions_list:
+                with st.expander("📋 Hipóteses adotadas", expanded=False):
+                    for a in assumptions_list:
+                        st.caption(
+                            f"**{a.get('field', '')}** = {a.get('assumed_value', '')} "
+                            f"— {a.get('reason', '')}"
+                        )
+
+            # Action buttons
+            ba1, ba2 = st.columns(2)
+
+            if ba1.button("✅ Aplicar ao modo manual", key="conv_apply_manual"):
+                st.session_state["manual_feed_name"] = (
+                    st.session_state.get("conv_sample_name", "Amostra") + " (conversor composição)"
+                )
+                st.session_state["manual_particulate_cod"] = float(rf.get("particulate_cod", 8.0))
+                st.session_state["manual_soluble_cod"] = float(rf.get("soluble_cod", 4.0))
+                st.session_state["manual_acetate"] = float(rf.get("acetate", 0.0))
+                st.session_state["manual_propionate"] = float(rf.get("propionate", 0.0))
+                st.session_state["manual_hydrogen"] = float(rf.get("hydrogen", 0.0))
+                st.session_state["manual_inorganic_nitrogen"] = float(rf.get("inorganic_nitrogen", 1.0))
+                st.session_state["manual_alkalinity"] = float(rf.get("alkalinity", 4.0))
+                st.session_state["manual_sic_kmol_m3"] = float(rf.get("sic_kmol_m3") or 0.0)
+                st.session_state["manual_feed_ph"] = float(rf.get("ph", 7.0))
+                st.session_state["sim_substrate_mode"] = "manual"
+                st.session_state["sim_skip_base_reset"] = True
+                st.session_state["conv_conversion_applied_to_manual"] = True
+                st.success("Composição convertida aplicada ao modo manual.")
+                st.rerun()
+
+            if ba2.button("💾 Salvar como substrato personalizado", key="conv_save_custom"):
+                from webapp.services.preferences_service import save_custom_substrate_with_provenance
+
+                save_name = st.session_state.get("conv_sample_name", "Amostra")
+                values = {
+                    "particulate_cod": float(rf.get("particulate_cod", 0.0)),
+                    "soluble_cod": float(rf.get("soluble_cod", 0.0)),
+                    "acetate": float(rf.get("acetate", 0.0)),
+                    "propionate": float(rf.get("propionate", 0.0)),
+                    "hydrogen": float(rf.get("hydrogen", 0.0)),
+                    "inorganic_nitrogen": float(rf.get("inorganic_nitrogen", 0.0)),
+                    "alkalinity": float(rf.get("alkalinity", 4.0)),
+                    "sic_kmol_m3": float(rf.get("sic_kmol_m3") or 0.0),
+                    "ph": float(rf.get("ph", 7.0)),
+                }
+                try:
+                    save_custom_substrate_with_provenance(
+                        save_name,
+                        values,
+                        composition_input=st.session_state.get("conv_composition_input"),
+                        assumptions=st.session_state.get("conv_conversion_assumptions"),
+                        warnings=st.session_state.get("conv_conversion_warnings"),
+                    )
+                    st.success(f"Substrato '{save_name}' salvo com proveniência.")
+                except Exception as e:
+                    st.error(f"Erro ao salvar: {e}")

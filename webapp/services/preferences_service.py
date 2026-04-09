@@ -396,6 +396,48 @@ def save_custom_substrate(name: str, values: dict[str, float]) -> list[dict[str,
     return list_custom_substrates()
 
 
+def save_custom_substrate_with_provenance(
+    name: str,
+    values: dict[str, float],
+    *,
+    composition_input: dict[str, Any] | None = None,
+    assumptions: list[dict[str, Any]] | None = None,
+    warnings: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Salva um substrato personalizado criado pelo conversor de composição, com proveniência.
+
+    Delega a save_custom_substrate para validação e armazenamento base, depois
+    anexa metadados de proveniência (origin, composition_input, assumptions,
+    warnings, timestamp) ao registro salvo sem quebrar leitores existentes.
+
+    Args:
+        name: Nome único do substrato (será sanitizado).
+        values: Dicionário com os campos numéricos do substrato.
+        composition_input: Dados de composição brutos fornecidos pelo usuário.
+        assumptions: Lista de premissas usadas na conversão.
+        warnings: Lista de avisos emitidos durante a conversão.
+
+    Returns:
+        Lista atualizada de substratos personalizados.
+    """
+    save_custom_substrate(name, values)
+
+    cleaned_name = _sanitize_preset_name(name)
+    state = load_workbench_state()
+    for item in state.get("custom_substrates", []):
+        if str(item.get("name", "")).casefold() == cleaned_name.casefold():
+            item["origin"] = "composition_converter"
+            if composition_input is not None:
+                item["composition_input"] = composition_input
+            if assumptions is not None:
+                item["conversion_assumptions"] = assumptions
+            if warnings is not None:
+                item["conversion_warnings"] = warnings
+            break
+    _write_state(state)
+    return list_custom_substrates()
+
+
 def delete_custom_substrate(name: str) -> list[dict[str, Any]]:
     """Remove um substrato personalizado pelo nome."""
     state = load_workbench_state()

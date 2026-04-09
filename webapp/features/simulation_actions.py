@@ -247,6 +247,13 @@ def execute_simulation(
     )
     full_extension_parameter_overrides = _build_extension_params(draft)
 
+    # Merge composition converter influent overrides when converter was applied
+    if draft.full_influent_state_overrides:
+        conv_overrides = dict(draft.full_influent_state_overrides)
+        # Extensions win on overlap (they are more specific); converter fills base composition
+        conv_overrides.update(full_influent_state_overrides)
+        full_influent_state_overrides = conv_overrides
+
     # Nitrogênio do feed para validação
     if substrate_mode == "manual":
         _feed_nitrogen = float(manual_feed_values.get("inorganic_nitrogen", 0.0) or 0.0)

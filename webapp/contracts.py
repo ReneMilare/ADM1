@@ -80,6 +80,14 @@ class SimulationDraft:
     # Co-digestão personalizada (substrate_mode == "codigestion" + preset_id == "__custom__")
     codigestion_fractions: dict[str, float] | None = None  # {substrate_id: fraction}
 
+    # Bloco do conversor de composição
+    composition_input: dict[str, Any] | None = None          # CompositionInput serializado
+    composition_result: dict[str, Any] | None = None         # ConversionResult (parte reduced) serializado
+    full_influent_state_overrides: dict[str, float] | None = None  # overrides de estado ADM1 completo
+    conversion_assumptions: list[dict[str, Any]] = field(default_factory=list)  # dicts ConversionAssumption
+    conversion_warnings: list[str] = field(default_factory=list)
+    conversion_applied_to_manual: bool = False               # se o resultado foi aplicado ao modo manual
+
     # Metadados
     origin: str = "manual"  # "manual" | "preset_user" | "preset_system"
     schema_version: str = "1"
