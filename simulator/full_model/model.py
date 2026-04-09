@@ -61,8 +61,12 @@ def build_full_inputs(
     influent_values = {name: float(influent_frame.iloc[0][name]) for name in influent_frame.columns if name != "time"}
     initial_values = {name: float(initial_frame.iloc[0][name]) for name in initial_frame.columns}
     for name, value in (influent_state_overrides or {}).items():
+        if value in (None, ""):
+            continue
         influent_values[name] = float(value)
     for name, value in (initial_state_overrides or {}).items():
+        if value in (None, ""):
+            continue
         initial_values[name] = float(value)
     return build_full_inputs_from_state_maps(
         operating_conditions=operating_conditions,

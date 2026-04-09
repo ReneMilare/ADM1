@@ -13,10 +13,11 @@ from webapp.services.preferences_service import (
     save_simulation_preset,
 )
 from webapp.services.simulation_service import (
-    apply_user_simulation_preset,
     build_user_simulation_preset_payload,
     format_simulation_error,
 )
+
+_PENDING_PRESET_KEY = "sim_pending_preset_payload"
 
 
 def render_preset_panel() -> None:
@@ -63,9 +64,9 @@ def _render_user_presets() -> None:
                     for item in saved_presets
                     if str(item.get("name")) == selected_user_preset
                 )
-                apply_user_simulation_preset(st.session_state, preset_payload)
-                st.session_state["sim_skip_base_reset"] = True
-                st.toast(f"Preset `{selected_user_preset}` aplicado.")
+                queued_payload = dict(preset_payload)
+                queued_payload["__pending_preset_name"] = selected_user_preset
+                st.session_state[_PENDING_PRESET_KEY] = queued_payload
                 st.rerun()
         with preset_col2:
             if st.button("Excluir preset salvo", use_container_width=True):

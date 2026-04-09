@@ -27,6 +27,7 @@ def _base_state(**overrides) -> dict:
     base = {
         "sim_reactor_type": "cstr",
         "sim_substrate_mode": "preset",
+        "sim_manual_input_mode": "manual",
         "sim_preset_id": "swine_slurry",
         "hydraulic_mode": "hrt",
         "volume_active": 3000.0,
@@ -153,6 +154,43 @@ def test_extension_state_defaults_round_trip():
     assert draft.extension_param_overrides == draft2.extension_param_overrides
 
 
+def test_manual_input_mode_round_trip():
+    """O subtipo do modo manual sobrevive ao round-trip de adapters."""
+    state = _base_state(
+        sim_substrate_mode="manual",
+        sim_manual_input_mode="composition_converter",
+    )
+    draft = session_state_to_draft(state)
+    restored = draft_to_session_state(draft)
+
+    assert draft.manual_input_mode == "composition_converter"
+    assert restored["sim_manual_input_mode"] == "composition_converter"
+
+
+def test_session_state_to_draft_uses_defaults_for_none_numeric_values():
+    """Campos numéricos explícitos como None não devem quebrar o adapter."""
+    state = _base_state(
+        sim_substrate_mode="manual",
+        manual_particulate_cod=None,
+        manual_soluble_cod=None,
+        manual_alkalinity=None,
+        manual_feed_ph=None,
+        volume_active=None,
+        duration_days=None,
+        evaluation_points=None,
+    )
+
+    draft = session_state_to_draft(state)
+
+    assert draft.feed_params["particulate_cod"] == 8.0
+    assert draft.feed_params["soluble_cod"] == 4.0
+    assert draft.feed_params["alkalinity"] == 4.0
+    assert draft.feed_params["ph"] == 7.0
+    assert draft.volume_m3 == 3000.0
+    assert draft.duration_days == 45.0
+    assert draft.evaluation_points == 181
+
+
 # ─── runner standalone ────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -163,6 +201,8 @@ if __name__ == "__main__":
         test_ammonia_inhibition_mode_default,
         test_variant_config_none_default,
         test_extension_state_defaults_round_trip,
+        test_manual_input_mode_round_trip,
+        test_session_state_to_draft_uses_defaults_for_none_numeric_values,
     ]
     passed = 0
     for t in tests:

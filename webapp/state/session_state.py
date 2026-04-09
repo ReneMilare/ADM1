@@ -28,6 +28,7 @@ def ensure_session_state() -> None:
         # defaults de segurança para acesso cross-página.
         "sim_reactor_type": "cstr",
         "sim_substrate_mode": "preset",
+        "sim_manual_input_mode": "manual",
         # sim_preset_id é inicializado pela página 01_Simular_Reator.py com o
         # primeiro preset disponível — não definir aqui para não bloquear esse default.
         "sim_custom_substrate_name": None,

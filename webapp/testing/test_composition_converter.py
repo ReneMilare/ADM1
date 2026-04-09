@@ -19,6 +19,7 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from webapp.contracts import SimulationDraft
+from webapp.features.simulation_actions import execute_simulation
 from webapp.state.adapters import (
     draft_to_preset_payload,
     draft_to_session_state,
@@ -61,6 +62,7 @@ def _base_state(**overrides) -> dict:
     base = {
         "sim_reactor_type": "cstr",
         "sim_substrate_mode": "manual",
+        "sim_manual_input_mode": "manual",
         "sim_preset_id": None,
         "hydraulic_mode": "hrt",
         "volume_active": 3000.0,
@@ -85,6 +87,7 @@ def _base_state(**overrides) -> dict:
 def _draft_with_converter(**overrides) -> SimulationDraft:
     """SimulationDraft with a fully populated converter block."""
     kwargs = dict(
+        manual_input_mode="composition_converter",
         composition_input=dict(_SAMPLE_COMPOSITION_INPUT),
         composition_result=dict(_SAMPLE_COMPOSITION_RESULT),
         full_influent_state_overrides=dict(_SAMPLE_OVERRIDES),
@@ -103,6 +106,7 @@ def _draft_with_converter(**overrides) -> SimulationDraft:
 def test_draft_round_trip_preserves_composition_input():
     """session_state → draft → session_state preserves composition_input."""
     state = _base_state(
+        sim_manual_input_mode="composition_converter",
         conv_composition_input=dict(_SAMPLE_COMPOSITION_INPUT),
         conv_full_influent_state_overrides=dict(_SAMPLE_OVERRIDES),
         conv_conversion_assumptions=list(_SAMPLE_ASSUMPTIONS),
@@ -115,11 +119,13 @@ def test_draft_round_trip_preserves_composition_input():
     assert draft.conversion_assumptions == _SAMPLE_ASSUMPTIONS
     assert draft.conversion_warnings == _SAMPLE_WARNINGS
     assert draft.conversion_applied_to_manual is True
+    assert draft.manual_input_mode == "composition_converter"
 
     restored = draft_to_session_state(draft)
     assert restored["conv_composition_input"] == _SAMPLE_COMPOSITION_INPUT
     assert restored["conv_full_influent_state_overrides"] == _SAMPLE_OVERRIDES
     assert restored["conv_conversion_applied_to_manual"] is True
+    assert restored["sim_manual_input_mode"] == "composition_converter"
 
 
 def test_draft_round_trip_via_draft_objects():
@@ -133,6 +139,7 @@ def test_draft_round_trip_via_draft_objects():
     assert draft2.conversion_assumptions == draft.conversion_assumptions
     assert draft2.conversion_warnings == draft.conversion_warnings
     assert draft2.conversion_applied_to_manual is True
+    assert draft2.manual_input_mode == "composition_converter"
 
 
 # ---------------------------------------------------------------------------
@@ -179,12 +186,14 @@ def test_preset_payload_round_trip_preserves_converter_block():
     assert conv["composition_input"] == _SAMPLE_COMPOSITION_INPUT
     assert conv["full_influent_state_overrides"] == _SAMPLE_OVERRIDES
     assert conv["conversion_applied_to_manual"] is True
+    assert payload["manual_input_mode"] == "composition_converter"
 
     draft2 = preset_payload_to_draft(payload)
     assert draft2.composition_input == _SAMPLE_COMPOSITION_INPUT
     assert draft2.full_influent_state_overrides == _SAMPLE_OVERRIDES
     assert draft2.conversion_applied_to_manual is True
     assert draft2.conversion_warnings == _SAMPLE_WARNINGS
+    assert draft2.manual_input_mode == "composition_converter"
 
 
 def test_preset_payload_converter_block_contains_all_fields():
@@ -230,6 +239,7 @@ def test_old_preset_payload_without_converter_block():
     assert draft.conversion_applied_to_manual is False
     assert draft.conversion_assumptions == []
     assert draft.conversion_warnings == []
+    assert draft.manual_input_mode == "manual"
 
 
 def test_very_old_preset_payload_without_schema_version():
@@ -244,8 +254,117 @@ def test_very_old_preset_payload_without_schema_version():
     assert draft.conversion_applied_to_manual is False
 
 
+def test_preset_payload_to_draft_uses_defaults_for_none_numeric_values():
+    """Payloads com None explícito em campos numéricos não devem quebrar o adapter."""
+    payload = {
+        "reactor_type": "cstr",
+        "substrate_mode": "manual",
+        "manual_input_mode": "manual",
+        "operating": {
+            "volume_m3": None,
+            "temperature_c": None,
+        },
+        "simulation": {
+            "duration_days": None,
+            "evaluation_points": None,
+        },
+        "manual_feed_values": {
+            "name": None,
+            "particulate_cod": None,
+            "alkalinity": None,
+            "ph": None,
+        },
+        "full_extension_state_inputs": {"srb_initial_so4": None},
+        "full_extension_influent_inputs": {"srb_influent_so4": None},
+        "full_extension_param_inputs": {"phos_param_s_mg": None},
+        "sim_full_extensions": [],
+        "schema_version": "1",
+    }
+
+    draft = preset_payload_to_draft(payload)
+
+    assert draft.feed_name == "Manual feed"
+    assert draft.feed_params["particulate_cod"] == 8.0
+    assert draft.feed_params["alkalinity"] == 4.0
+    assert draft.feed_params["ph"] == 7.0
+    assert draft.volume_m3 == 3000.0
+    assert draft.temperature_c == 35.0
+    assert draft.duration_days == 45.0
+    assert draft.evaluation_points == 181
+    assert draft.extension_state_overrides["srb_initial_so4"] == 0.01
+    assert draft.extension_influent_overrides["srb_influent_so4"] == 0.01
+    assert draft.extension_param_overrides["phos_param_s_mg"] == 0.004
+
+
 # ---------------------------------------------------------------------------
-# 5. Merge logic: converter overrides + extension overrides coexist
+# 5. Execution path: converter feed and overrides are sanitized
+# ---------------------------------------------------------------------------
+
+def test_execute_simulation_uses_converter_feed_and_skips_none_overrides():
+    """Converter mode should execute from reduced converter feed and drop None overrides."""
+    draft = _draft_with_converter(
+        substrate_mode="manual",
+        feed_name="Legacy manual feed",
+        feed_params={
+            "particulate_cod": 999.0,
+            "soluble_cod": 888.0,
+            "acetate": 7.0,
+            "propionate": 6.0,
+            "hydrogen": 5.0,
+            "inorganic_nitrogen": 4.0,
+            "alkalinity": 3.0,
+            "sic_kmol_m3": 2.0,
+            "ph": 6.2,
+        },
+        composition_result={
+            "reduced_feed_values": {
+                "name": "Amostra convertida",
+                "particulate_cod": 169.7,
+                "soluble_cod": 21.4,
+                "acetate": 0.0,
+                "propionate": 0.0,
+                "hydrogen": 0.0,
+                "inorganic_nitrogen": 1.0,
+                "alkalinity": 4.0,
+                "sic_kmol_m3": None,
+                "ph": 7.0,
+            }
+        },
+        full_influent_state_overrides={
+            "X_ch": 35.7,
+            "X_pr": 56.8,
+            "S_IN": None,
+            "S_IC": None,
+            "ph": None,
+        },
+    )
+
+    with patch("webapp.services.simulation_service.validate_simulation_inputs", return_value={"errors": [], "warnings": []}) as validate_mock, \
+         patch("webapp.services.simulation_service.run_simulation", return_value={"simulation_id": "test"}) as run_mock:
+        result, error = execute_simulation(draft)
+
+    assert error is None
+    assert result == {"simulation_id": "test"}
+
+    validate_kwargs = validate_mock.call_args.kwargs
+    assert validate_kwargs["manual_feed_values"]["name"] == "Amostra convertida"
+    assert validate_kwargs["manual_feed_values"]["particulate_cod"] == 169.7
+    assert validate_kwargs["manual_feed_values"]["soluble_cod"] == 21.4
+    assert validate_kwargs["manual_feed_values"]["sic_kmol_m3"] == 2.0
+    assert validate_kwargs["manual_feed_values"]["ph"] == 7.0
+
+    run_kwargs = run_mock.call_args.kwargs
+    assert run_kwargs["manual_feed_values"]["name"] == "Amostra convertida"
+    assert run_kwargs["manual_feed_values"]["particulate_cod"] == 169.7
+    assert run_kwargs["manual_feed_values"]["soluble_cod"] == 21.4
+    assert run_kwargs["full_influent_state_overrides"] == {
+        "X_ch": 35.7,
+        "X_pr": 56.8,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 6. Merge logic: converter overrides + extension overrides coexist
 # ---------------------------------------------------------------------------
 
 def test_converter_overrides_and_extension_overrides_coexist():
@@ -282,7 +401,7 @@ def test_extension_overrides_win_on_key_conflict():
 
 
 # ---------------------------------------------------------------------------
-# 6. save_custom_substrate_with_provenance stores provenance
+# 7. save_custom_substrate_with_provenance stores provenance
 # ---------------------------------------------------------------------------
 
 def _make_empty_workbench_state():
@@ -391,7 +510,7 @@ def test_save_custom_substrate_with_provenance_no_optional_provenance():
 
 
 # ---------------------------------------------------------------------------
-# 7. Schema_version "1" present in preset payload
+# 8. Schema_version "1" present in preset payload
 # ---------------------------------------------------------------------------
 
 def test_preset_payload_has_schema_version():
@@ -415,6 +534,8 @@ if __name__ == "__main__":
         test_preset_payload_converter_block_contains_all_fields,
         test_old_preset_payload_without_converter_block,
         test_very_old_preset_payload_without_schema_version,
+        test_preset_payload_to_draft_uses_defaults_for_none_numeric_values,
+        test_execute_simulation_uses_converter_feed_and_skips_none_overrides,
         test_converter_overrides_and_extension_overrides_coexist,
         test_extension_overrides_win_on_key_conflict,
         test_save_custom_substrate_with_provenance_stores_origin,

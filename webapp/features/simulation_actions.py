@@ -19,6 +19,83 @@ if TYPE_CHECKING:
 
 # ─── Helpers de extensão ──────────────────────────────────────────────────────
 
+def _coerce_float(value: Any, default: float) -> float:
+    """Converte valor numérico tolerando None e string vazia."""
+    if value in (None, ""):
+        return float(default)
+    return float(value)
+
+
+def _manual_feed_values_from_draft(draft: SimulationDraft) -> dict[str, Any]:
+    """Resolve o feed manual efetivo a partir do draft.
+
+    Quando o conversor de composição está ativo, a simulação deve usar os valores
+    reduzidos produzidos pelo conversor, mesmo antes de o usuário aplicar esses
+    valores ao formulário manual legado.
+    """
+    fp = draft.feed_params
+    manual_feed_values: dict[str, Any] = {
+        "name": draft.feed_name or "Manual feed",
+        "particulate_cod": fp.get("particulate_cod", 8.0),
+        "soluble_cod": fp.get("soluble_cod", 4.0),
+        "acetate": fp.get("acetate", 0.5),
+        "propionate": fp.get("propionate", 0.2),
+        "hydrogen": fp.get("hydrogen", 0.001),
+        "inorganic_nitrogen": fp.get("inorganic_nitrogen", 1.0),
+        "alkalinity": fp.get("alkalinity", 4.0),
+        "sic_kmol_m3": fp.get("sic_kmol_m3", 0.0),
+        "ph": fp.get("ph", 7.0),
+    }
+
+    if draft.manual_input_mode != "composition_converter":
+        return manual_feed_values
+
+    composition_result = draft.composition_result or {}
+    reduced_feed_values = composition_result.get("reduced_feed_values")
+    if not isinstance(reduced_feed_values, dict):
+        return manual_feed_values
+
+    return {
+        "name": str(reduced_feed_values.get("name") or manual_feed_values["name"]),
+        "particulate_cod": _coerce_float(reduced_feed_values.get("particulate_cod"), float(manual_feed_values["particulate_cod"])),
+        "soluble_cod": _coerce_float(reduced_feed_values.get("soluble_cod"), float(manual_feed_values["soluble_cod"])),
+        "acetate": _coerce_float(reduced_feed_values.get("acetate"), float(manual_feed_values["acetate"])),
+        "propionate": _coerce_float(reduced_feed_values.get("propionate"), float(manual_feed_values["propionate"])),
+        "hydrogen": _coerce_float(reduced_feed_values.get("hydrogen"), float(manual_feed_values["hydrogen"])),
+        "inorganic_nitrogen": _coerce_float(
+            reduced_feed_values.get("inorganic_nitrogen"),
+            float(manual_feed_values["inorganic_nitrogen"]),
+        ),
+        "alkalinity": _coerce_float(reduced_feed_values.get("alkalinity"), float(manual_feed_values["alkalinity"])),
+        "sic_kmol_m3": _coerce_float(reduced_feed_values.get("sic_kmol_m3"), float(manual_feed_values["sic_kmol_m3"])),
+        "ph": _coerce_float(reduced_feed_values.get("ph"), float(manual_feed_values["ph"])),
+    }
+
+
+def _sanitize_numeric_overrides(overrides: dict[str, Any] | None) -> dict[str, float]:
+    """Remove overrides vazios e converte o restante para float."""
+    if not isinstance(overrides, dict):
+        return {}
+    sanitized: dict[str, float] = {}
+    for name, value in overrides.items():
+        if value in (None, ""):
+            continue
+        sanitized[name] = float(value)
+    return sanitized
+
+
+def _merge_converter_influent_overrides(
+    draft: SimulationDraft,
+    extension_influent_overrides: dict[str, float],
+) -> dict[str, float]:
+    """Combina overrides do conversor com overrides de extensão.
+
+    Valores None do conversor são descartados. Overrides de extensão prevalecem.
+    """
+    merged = _sanitize_numeric_overrides(draft.full_influent_state_overrides)
+    merged.update(extension_influent_overrides)
+    return merged
+
 def _build_extension_state_and_influent(
     draft: SimulationDraft,
 ) -> tuple[dict[str, float], dict[str, float]]:
@@ -209,19 +286,7 @@ def execute_simulation(
     # Feed manual
     manual_feed_values: dict[str, Any] = {}
     if substrate_mode == "manual":
-        fp = draft.feed_params
-        manual_feed_values = {
-            "name":                draft.feed_name or "Manual feed",
-            "particulate_cod":     fp.get("particulate_cod",     8.0),
-            "soluble_cod":         fp.get("soluble_cod",         4.0),
-            "acetate":             fp.get("acetate",             0.5),
-            "propionate":          fp.get("propionate",          0.2),
-            "hydrogen":            fp.get("hydrogen",            0.001),
-            "inorganic_nitrogen":  fp.get("inorganic_nitrogen",  1.0),
-            "alkalinity":          fp.get("alkalinity",          4.0),
-            "sic_kmol_m3":         fp.get("sic_kmol_m3",         0.0),
-            "ph":                  fp.get("ph",                  7.0),
-        }
+        manual_feed_values = _manual_feed_values_from_draft(draft)
 
     # Substrato personalizado salvo
     custom_substrate_values: dict[str, Any] | None = None
@@ -247,12 +312,10 @@ def execute_simulation(
     )
     full_extension_parameter_overrides = _build_extension_params(draft)
 
-    # Merge composition converter influent overrides when converter was applied
-    if draft.full_influent_state_overrides:
-        conv_overrides = dict(draft.full_influent_state_overrides)
-        # Extensions win on overlap (they are more specific); converter fills base composition
-        conv_overrides.update(full_influent_state_overrides)
-        full_influent_state_overrides = conv_overrides
+    full_influent_state_overrides = _merge_converter_influent_overrides(
+        draft,
+        full_influent_state_overrides,
+    )
 
     # Nitrogênio do feed para validação
     if substrate_mode == "manual":

@@ -12,47 +12,75 @@ def render_case_definition() -> None:
     """Renderiza seletores de tipo de reator, modo de alimentação, backend e modo de UI."""
     reactor_options = get_reactor_options()
     backend_options = get_backend_options()
+    substrate_mode_options = ["preset", "codigestion", "custom", "manual"]
+    ui_mode_options = ["operador", "especialista"]
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.selectbox(
+        current_reactor = str(st.session_state.get("sim_reactor_type", "cstr"))
+        reactor_values = list(reactor_options)
+        reactor_index = reactor_values.index(current_reactor) if current_reactor in reactor_values else 0
+        selected_reactor = st.selectbox(
             "Tipo de reator",
-            options=list(reactor_options),
+            options=reactor_values,
+            index=reactor_index,
             format_func=lambda v: reactor_options[v],
-            key="sim_reactor_type",
         )
+        if selected_reactor != current_reactor:
+            st.session_state["sim_reactor_type"] = selected_reactor
     with col2:
-        st.radio(
+        current_substrate_mode = str(st.session_state.get("sim_substrate_mode", "preset"))
+        selector_key = "sim_substrate_mode_selector"
+        if st.session_state.get(selector_key) not in substrate_mode_options:
+            st.session_state[selector_key] = current_substrate_mode
+        substrate_mode_index = (
+            substrate_mode_options.index(current_substrate_mode)
+            if current_substrate_mode in substrate_mode_options
+            else 0
+        )
+        selected_substrate_mode = st.radio(
             "Modo de alimentação",
-            options=["preset", "codigestion", "custom", "manual"],
+            options=substrate_mode_options,
+            index=substrate_mode_index,
             horizontal=True,
+            key=selector_key,
             format_func=lambda v: {
                 "preset": "Preset nativo",
                 "codigestion": "Co-digestão",
                 "custom": "Personalizado",
                 "manual": "Manual",
             }[v],
-            key="sim_substrate_mode",
         )
+        if selected_substrate_mode != current_substrate_mode:
+            st.session_state["sim_substrate_mode"] = selected_substrate_mode
     with col3:
-        st.selectbox(
+        current_backend = str(st.session_state.get("sim_backend_choice", "full"))
+        backend_values = list(backend_options)
+        backend_index = backend_values.index(current_backend) if current_backend in backend_values else 0
+        selected_backend = st.selectbox(
             "Backend",
-            options=list(backend_options),
+            options=backend_values,
+            index=backend_index,
             format_func=lambda v: backend_options[v],
-            key="sim_backend_choice",
         )
+        if selected_backend != current_backend:
+            st.session_state["sim_backend_choice"] = selected_backend
 
-    st.radio(
+    current_ui_mode = str(st.session_state.get("sim_ui_mode", "operador"))
+    ui_mode_index = ui_mode_options.index(current_ui_mode) if current_ui_mode in ui_mode_options else 0
+    selected_ui_mode = st.radio(
         "Modo de operação",
-        options=["operador", "especialista"],
+        options=ui_mode_options,
+        index=ui_mode_index,
         horizontal=True,
         format_func=lambda v: {
             "operador": "🔧 Operador (campos essenciais)",
             "especialista": "🔬 Especialista (todos os campos)",
         }[v],
-        key="sim_ui_mode",
         help="Operador: campos essenciais. Especialista: parâmetros avançados visíveis.",
     )
+    if selected_ui_mode != current_ui_mode:
+        st.session_state["sim_ui_mode"] = selected_ui_mode
 
     reactor_type = st.session_state.get("sim_reactor_type", "cstr")
     backend_choice = st.session_state.get("sim_backend_choice", "pyadm1")

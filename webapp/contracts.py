@@ -44,6 +44,7 @@ class SimulationDraft:
     preset_id: str | None = None
     custom_substrate_name: str | None = None
     feed_name: str | None = None       # nome do substrato manual/custom
+    manual_input_mode: str = "manual"  # "manual" | "composition_converter"
 
     # Feed manual (quando substrate_mode in {"manual", "custom"})
     # chaves: particulate_cod, soluble_cod, acetate, propionate, hydrogen,

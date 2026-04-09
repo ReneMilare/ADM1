@@ -30,7 +30,7 @@ from webapp.services.preferences_service import (
     record_recent_simulation,
 )
 from webapp.features.simulation_actions import execute_simulation
-from webapp.services.simulation_service import get_backend_options
+from webapp.services.simulation_service import apply_user_simulation_preset, get_backend_options
 from webapp.state.adapters import session_state_to_draft
 from webapp.state.review import build_review_snapshot
 from webapp.state.session_state import ensure_session_state
@@ -41,6 +41,8 @@ from webapp.utils.presets import (
 )
 
 FLASH_KEY = "simular_reator_flash"
+PENDING_MANUAL_FEED_KEY = "sim_pending_manual_feed_application"
+PENDING_PRESET_KEY = "sim_pending_preset_payload"
 
 
 def _queue_flash(message: str) -> None:
@@ -51,6 +53,62 @@ def _render_flash() -> None:
     message = st.session_state.pop(FLASH_KEY, None)
     if message:
         st.toast(message)
+
+
+def _apply_pending_manual_feed_update() -> None:
+    payload = st.session_state.pop(PENDING_MANUAL_FEED_KEY, None)
+    if not isinstance(payload, dict):
+        return
+
+    manual_feed_values = payload.get("manual_feed_values")
+    if isinstance(manual_feed_values, dict):
+        if "name" in manual_feed_values:
+            st.session_state["manual_feed_name"] = str(manual_feed_values["name"])
+        for key in (
+            "particulate_cod",
+            "soluble_cod",
+            "acetate",
+            "propionate",
+            "hydrogen",
+            "inorganic_nitrogen",
+            "alkalinity",
+            "sic_kmol_m3",
+        ):
+            if key in manual_feed_values:
+                st.session_state[f"manual_{key}"] = float(manual_feed_values[key])
+        if "ph" in manual_feed_values:
+            st.session_state["manual_feed_ph"] = float(manual_feed_values["ph"])
+
+    target_substrate_mode = payload.get("substrate_mode")
+    if target_substrate_mode is not None and str(st.session_state.get("sim_substrate_mode")) != str(target_substrate_mode):
+        st.session_state["sim_substrate_mode"] = str(target_substrate_mode)
+    if target_substrate_mode is not None:
+        st.session_state["sim_substrate_mode_selector"] = str(target_substrate_mode)
+    target_manual_input_mode = payload.get("manual_input_mode")
+    if (
+        target_manual_input_mode is not None
+        and str(st.session_state.get("sim_manual_input_mode")) != str(target_manual_input_mode)
+    ):
+        st.session_state["sim_manual_input_mode"] = str(target_manual_input_mode)
+    if target_manual_input_mode is not None:
+        st.session_state["sim_manual_input_mode_selector"] = str(target_manual_input_mode)
+    if payload.get("skip_base_reset"):
+        st.session_state["sim_skip_base_reset"] = True
+    if payload.get("flash_message"):
+        _queue_flash(str(payload["flash_message"]))
+
+
+def _apply_pending_preset_payload() -> None:
+    payload = st.session_state.pop(PENDING_PRESET_KEY, None)
+    if not isinstance(payload, dict):
+        return
+    apply_user_simulation_preset(st.session_state, payload)
+    st.session_state["sim_substrate_mode_selector"] = str(st.session_state.get("sim_substrate_mode", "preset"))
+    st.session_state["sim_manual_input_mode_selector"] = str(st.session_state.get("sim_manual_input_mode", "manual"))
+    st.session_state["sim_skip_base_reset"] = True
+    preset_name = payload.get("__pending_preset_name")
+    if preset_name:
+        _queue_flash(f"Preset `{preset_name}` aplicado.")
 
 
 # --- Page setup ---
@@ -69,6 +127,9 @@ default_preset_id = next(iter(single_substrate_options)) if single_substrate_opt
 session_defaults = {
     "sim_reactor_type": preferences.get("default_reactor", "cstr"),
     "sim_substrate_mode": "preset",
+    "sim_substrate_mode_selector": "preset",
+    "sim_manual_input_mode": "manual",
+    "sim_manual_input_mode_selector": "manual",
     "sim_preset_id": default_preset_id,
     "sim_custom_substrate_name": None,
     "sim_backend_choice": preferences.get("default_backend", "full"),
@@ -117,6 +178,9 @@ for key, value in session_defaults.items():
     if key not in st.session_state:
         st.session_state[key] = value
 
+_apply_pending_preset_payload()
+_apply_pending_manual_feed_update()
+
 # --- Draft e review ---
 
 draft: SimulationDraft = session_state_to_draft(dict(st.session_state))
@@ -135,7 +199,7 @@ render_page_header(
     title="Simular Reator",
     description=(
         "Fluxo principal: configurar o caso, validar os inputs, salvar presets "
-        "e rodar a simulacao ADM1 sem sair da web UI."
+        "e rodar a simulação ADM1 sem sair da web UI."
     ),
 )
 _render_flash()
@@ -153,7 +217,7 @@ render_workflow_links(
 )
 render_usage_guide(
     title="Como usar esta tela",
-    summary="Escolha um preset tecnico, valide o caso, rode a simulacao e, se fizer sentido, salve a configuracao como preset do usuario.",
+    summary="Escolha um preset tecnico, valide o caso, rode a simulação e, se fizer sentido, salve a configuracao como preset do usuario.",
     steps=[
         "Escolha o reator, o modo de alimentacao e o backend na aba 📋 Definir Caso.",
         "Revise volume, temperatura e HRT na aba ⚙️ Operação.",
@@ -199,10 +263,10 @@ can_run = render_technical_review(review)
 # --- Botao de execucao ---
 
 if can_run:
-    if st.button("Executar simulacao", type="primary", use_container_width=True):
+    if st.button("Executar simulação", type="primary", use_container_width=True):
         backend_options = get_backend_options()
         _backend_label = backend_options.get(review.backend_predicted, review.backend_predicted.upper())
-        with st.spinner(f"Executando a simulacao ADM1 com {_backend_label}..."):
+        with st.spinner(f"Executando a simulação ADM1 com {_backend_label}..."):
             result, error = execute_simulation(draft)
         if error:
             st.session_state["latest_simulation"] = None
@@ -221,10 +285,10 @@ if st.session_state.get("latest_error"):
 latest_simulation = st.session_state.get("latest_simulation")
 if latest_simulation:
     st.divider()
-    st.subheader("Resultado da simulacao")
+    st.subheader("Resultado da simulação")
     render_result_area(
         latest_simulation,
         show_advanced=(st.session_state.get("sim_ui_mode") == "especialista"),
     )
 else:
-    st.info("Configure o caso e clique em Executar simulacao para gerar os primeiros resultados.")
+    st.info("Configure o caso e clique em Executar simulação para gerar os primeiros resultados.")
