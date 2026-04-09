@@ -111,6 +111,7 @@ session_defaults = {
     "te_param_k_c_co": 23.99,
     "hydraulic_mode": "hrt",
     "flow_rate_active": 150.0,
+    "manual_sic_kmol_m3": 0.0,
 }
 for key, value in session_defaults.items():
     if key not in st.session_state:
@@ -217,11 +218,12 @@ if st.session_state.get("latest_error"):
 
 # --- Resultado ---
 
-if st.session_state.get("latest_simulation"):
+latest_simulation = st.session_state.get("latest_simulation")
+if latest_simulation:
     st.divider()
     st.subheader("Resultado da simulacao")
     render_result_area(
-        st.session_state["latest_simulation"],
+        latest_simulation,
         show_advanced=(st.session_state.get("sim_ui_mode") == "especialista"),
     )
 else:

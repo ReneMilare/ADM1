@@ -23,6 +23,15 @@ DEFAULT_VAULT_PATH = str(Path(__file__).resolve().parents[2] / "vaultObsidianAMD
 
 # ─── Helpers internos ─────────────────────────────────────────────────────────
 
+def _feed_sic_kmol_m3(feed: Any) -> float | None:
+    raw = getattr(feed, "sic_kmol_m3", None)
+    if raw in (None, ""):
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
 def _draft_from_result(result: SimulationResult) -> SimulationDraft:
     """Reconstrói SimulationDraft a partir de SimulationResult (parcial/lossy)."""
     preset_id = str(result.metadata.get("substrate_preset", "") or "").strip() or None
@@ -31,6 +40,7 @@ def _draft_from_result(result: SimulationResult) -> SimulationDraft:
         substrate_mode = "preset" if preset_id else "manual"
 
     feed = result.feed
+    feed_sic_kmol_m3 = _feed_sic_kmol_m3(feed)
     feed_params: dict[str, float] = {
         "particulate_cod": feed.particulate_cod,
         "soluble_cod": feed.soluble_cod,
@@ -39,6 +49,7 @@ def _draft_from_result(result: SimulationResult) -> SimulationDraft:
         "hydrogen": feed.hydrogen,
         "inorganic_nitrogen": feed.inorganic_nitrogen,
         "alkalinity": feed.alkalinity,
+        "sic_kmol_m3": float(feed_sic_kmol_m3 or 0.0),
         "ph": feed.ph,
     }
 

@@ -15,8 +15,8 @@ _COLOR_MAP = {
 }
 _COMPARISON_PALETTE = ["#006d67", "#c66c2b", "#2f4f6f", "#7b3f00", "#8f3b76", "#496b2d"]
 SERIES_PLOT_OPTIONS = {
-    "methane_m3_day": {"label": "Metano", "title": "Producao de metano", "y_axis_title": "m3/d"},
-    "biogas_m3_day": {"label": "Biogas", "title": "Producao de biogas", "y_axis_title": "m3/d"},
+    "methane_m3_day": {"label": "Metano", "title": "Producao de metano", "y_axis_title": "Nm3/d"},
+    "biogas_m3_day": {"label": "Biogas", "title": "Producao de biogas", "y_axis_title": "Nm3/d"},
     "ph": {"label": "pH", "title": "Perfil de pH", "y_axis_title": "pH"},
     "vfa_total": {"label": "VFA total", "title": "Perfil de VFA total", "y_axis_title": "kgCOD/m3"},
     "free_ammonia_kgN_m3": {"label": "Amonia livre (FAN)", "title": "Amonia livre (FAN)", "y_axis_title": "kgN/m3"},
@@ -231,7 +231,7 @@ def render_core_profile_charts(result: SimulationResult) -> None:
                 result,
                 series_names=["methane_m3_day"],
                 title="Methane production",
-                y_axis_title="m3/d",
+                y_axis_title="Nm3/d",
                 color_key="methane",
             )
         )
@@ -241,7 +241,7 @@ def render_core_profile_charts(result: SimulationResult) -> None:
                 result,
                 series_names=["biogas_m3_day"],
                 title="Biogas production",
-                y_axis_title="m3/d",
+                y_axis_title="Nm3/d",
                 color_key="biogas",
             )
         )
@@ -372,7 +372,7 @@ def render_phase_profile_charts(result: SimulationResult) -> None:
                     result,
                     series_names=methane_series,
                     title="Producao de metano por fase",
-                    y_axis_title="m3/d",
+                    y_axis_title="Nm3/d",
                     color_key="methane",
                 )
             )

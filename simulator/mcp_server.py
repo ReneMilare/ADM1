@@ -62,7 +62,8 @@ class SimulateReactorInput(BaseModel):
     acetate_fraction: float = Field(default=0.06, ge=0.0, le=0.3)
     propionate_fraction: float = Field(default=0.03, ge=0.0, le=0.3)
     ammonium_kg_n_m3: float = Field(default=1.3, ge=0.0)
-    alkalinity_kmol_m3: float = Field(default=4.8, gt=0.0)
+    alkalinity_kmol_m3: float = Field(default=4.8, gt=0.0, description="Legacy alkalinity proxy used by the reduced backend and as fallback when sic_kmol_m3 is omitted.")
+    sic_kmol_m3: float | None = Field(default=None, ge=0.0, description="Explicit dissolved inorganic carbon S_IC for full ADM1 / PyADM1 [kmol/m3].")
     ph: float = Field(default=7.1, ge=5.0, le=8.5)
     segments: int = Field(default=6, ge=2, le=20)
     ammonia_inhibition_mode: str = Field(default="simple", description="One of: simple or fan.")
@@ -98,7 +99,8 @@ class CompareBackendsInput(BaseModel):
     acetate_fraction: float = Field(default=0.06, ge=0.0, le=0.3)
     propionate_fraction: float = Field(default=0.03, ge=0.0, le=0.3)
     ammonium_kg_n_m3: float = Field(default=1.3, ge=0.0)
-    alkalinity_kmol_m3: float = Field(default=4.8, gt=0.0)
+    alkalinity_kmol_m3: float = Field(default=4.8, gt=0.0, description="Legacy alkalinity proxy used by the reduced backend and as fallback when sic_kmol_m3 is omitted.")
+    sic_kmol_m3: float | None = Field(default=None, ge=0.0, description="Explicit dissolved inorganic carbon S_IC for full ADM1 / PyADM1 [kmol/m3].")
     ph: float = Field(default=7.1, ge=5.0, le=8.5)
     segments: int = Field(default=6, ge=2, le=20)
     ammonia_inhibition_mode: str = Field(default="simple", description="One of: simple or fan.")
@@ -182,6 +184,7 @@ def _build_feed(
     propionate_fraction: float,
     ammonium_kg_n_m3: float,
     alkalinity_kmol_m3: float,
+    sic_kmol_m3: float | None,
     ph: float,
     substrate: str,
 ) -> FeedDefinition:
@@ -197,6 +200,7 @@ def _build_feed(
         propionate=propionate,
         inorganic_nitrogen=ammonium_kg_n_m3,
         alkalinity=alkalinity_kmol_m3,
+        sic_kmol_m3=sic_kmol_m3,
         ph=ph,
     )
 
@@ -274,6 +278,7 @@ async def simulate_reactor(
     propionate_fraction: float = 0.03,
     ammonium_kg_n_m3: float = 1.3,
     alkalinity_kmol_m3: float = 4.8,
+    sic_kmol_m3: float | None = None,
     ph: float = 7.1,
     segments: int = 6,
     ammonia_inhibition_mode: str = "simple",
@@ -297,6 +302,7 @@ async def simulate_reactor(
         propionate_fraction=propionate_fraction,
         ammonium_kg_n_m3=ammonium_kg_n_m3,
         alkalinity_kmol_m3=alkalinity_kmol_m3,
+        sic_kmol_m3=sic_kmol_m3,
         ph=ph,
         segments=segments,
         ammonia_inhibition_mode=ammonia_inhibition_mode,
@@ -311,6 +317,7 @@ async def simulate_reactor(
         propionate_fraction=params.propionate_fraction,
         ammonium_kg_n_m3=params.ammonium_kg_n_m3,
         alkalinity_kmol_m3=params.alkalinity_kmol_m3,
+        sic_kmol_m3=params.sic_kmol_m3,
         ph=params.ph,
         substrate=params.substrate,
     )
@@ -407,6 +414,7 @@ async def simulate_two_phase(
     propionate_fraction: float = 0.03,
     ammonium_kg_n_m3: float = 1.3,
     alkalinity_kmol_m3: float = 4.8,
+    sic_kmol_m3: float | None = None,
     ph: float = 7.1,
     phase1_volume_fraction: float = 0.3,
     phase1_ph_setpoint: float = 5.5,
@@ -425,6 +433,7 @@ async def simulate_two_phase(
         propionate_fraction=propionate_fraction,
         ammonium_kg_n_m3=ammonium_kg_n_m3,
         alkalinity_kmol_m3=alkalinity_kmol_m3,
+        sic_kmol_m3=sic_kmol_m3,
         ph=ph,
         substrate=substrate,
     )
@@ -477,6 +486,7 @@ async def simulate_tpad(
     propionate_fraction: float = 0.03,
     ammonium_kg_n_m3: float = 1.3,
     alkalinity_kmol_m3: float = 4.8,
+    sic_kmol_m3: float | None = None,
     ph: float = 7.1,
     thermo_temperature_c: float = 55.0,
     thermo_hrt_days: float = 3.0,
@@ -496,6 +506,7 @@ async def simulate_tpad(
         propionate_fraction=propionate_fraction,
         ammonium_kg_n_m3=ammonium_kg_n_m3,
         alkalinity_kmol_m3=alkalinity_kmol_m3,
+        sic_kmol_m3=sic_kmol_m3,
         ph=ph,
         substrate=substrate,
     )
@@ -549,6 +560,7 @@ async def simulate_batch(
     propionate_fraction: float = 0.03,
     ammonium_kg_n_m3: float = 1.3,
     alkalinity_kmol_m3: float = 4.8,
+    sic_kmol_m3: float | None = None,
     ph: float = 7.1,
     inoculum_fraction: float = 0.3,
     ammonia_inhibition_mode: str = "fan",
@@ -565,6 +577,7 @@ async def simulate_batch(
         propionate_fraction=propionate_fraction,
         ammonium_kg_n_m3=ammonium_kg_n_m3,
         alkalinity_kmol_m3=alkalinity_kmol_m3,
+        sic_kmol_m3=sic_kmol_m3,
         ph=ph,
         substrate=substrate,
     )
@@ -666,6 +679,7 @@ async def compare_backends(
     propionate_fraction: float = 0.03,
     ammonium_kg_n_m3: float = 1.3,
     alkalinity_kmol_m3: float = 4.8,
+    sic_kmol_m3: float | None = None,
     ph: float = 7.1,
     segments: int = 6,
     ammonia_inhibition_mode: str = "simple",
@@ -689,6 +703,7 @@ async def compare_backends(
         propionate_fraction=propionate_fraction,
         ammonium_kg_n_m3=ammonium_kg_n_m3,
         alkalinity_kmol_m3=alkalinity_kmol_m3,
+        sic_kmol_m3=sic_kmol_m3,
         ph=ph,
         segments=segments,
         ammonia_inhibition_mode=ammonia_inhibition_mode,
@@ -703,6 +718,7 @@ async def compare_backends(
         propionate_fraction=params.propionate_fraction,
         ammonium_kg_n_m3=params.ammonium_kg_n_m3,
         alkalinity_kmol_m3=params.alkalinity_kmol_m3,
+        sic_kmol_m3=params.sic_kmol_m3,
         ph=params.ph,
         substrate=params.substrate,
     )

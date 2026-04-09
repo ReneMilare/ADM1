@@ -175,6 +175,11 @@ def render_substrate_config() -> None:
                         _custom_data.get("inorganic_nitrogen", base_feed.inorganic_nitrogen)
                     ),
                     "alkalinity": float(_custom_data.get("alkalinity", base_feed.alkalinity)),
+                    "sic_kmol_m3": (
+                        float(_custom_data["sic_kmol_m3"])
+                        if _custom_data.get("sic_kmol_m3") not in (None, "", 0, 0.0)
+                        else base_feed.sic_kmol_m3
+                    ),
                     "ph": float(_custom_data.get("ph", base_feed.ph)),
                 }
             )
@@ -211,6 +216,7 @@ def render_substrate_config() -> None:
             st.session_state["manual_hydrogen"] = float(base_feed.hydrogen)
             st.session_state["manual_inorganic_nitrogen"] = float(base_feed.inorganic_nitrogen)
             st.session_state["manual_alkalinity"] = float(base_feed.alkalinity)
+            st.session_state["manual_sic_kmol_m3"] = float(base_feed.sic_kmol_m3 or 0.0)
             st.session_state["manual_feed_ph"] = float(base_feed.ph)
         st.session_state["sim_base_signature"] = source_signature
 
@@ -218,6 +224,7 @@ def render_substrate_config() -> None:
     if substrate_mode == "manual":
         st.divider()
         st.markdown("**Composição da alimentação (manual)**")
+        st.caption("Separe o proxy legado de alcalinidade do carbono inorgânico real `S_IC` quando estiver usando `full` ou `pyadm1`.")
         _mf_left, _mf_right = st.columns(2)
         _defaults = base_feed if base_feed is not None else get_manual_defaults()[0]
         with _mf_left:
@@ -271,11 +278,21 @@ def render_substrate_config() -> None:
                 key="manual_inorganic_nitrogen",
             )
             st.number_input(
-                "Alkalinity [kmol/m³ eq.]",
+                "Alkalinity proxy [escala legada]",
                 min_value=0.1,
                 value=float(st.session_state.get("manual_alkalinity", _defaults.alkalinity)),
                 step=0.05,
                 key="manual_alkalinity",
+                help="Usado pelo backend reduced e como fallback legado quando S_IC real não for informado.",
+            )
+            st.number_input(
+                "S_IC real [kmol/m³] (0 = derivar do proxy)",
+                min_value=0.0,
+                value=float(st.session_state.get("manual_sic_kmol_m3", _defaults.sic_kmol_m3 or 0.0)),
+                step=0.005,
+                format="%.4f",
+                key="manual_sic_kmol_m3",
+                help="Entrada física de carbono inorgânico dissolvido usada pelo ADM1 full e pelo PyADM1.",
             )
             st.number_input(
                 "Influent pH",
@@ -297,7 +314,8 @@ def render_substrate_config() -> None:
                     {"parametro": "Propionate", "valor": f"{base_feed.propionate:.3f} kgCOD/m³"},
                     {"parametro": "Influent pH", "valor": f"{base_feed.ph:.2f}"},
                     {"parametro": "Inorganic N", "valor": f"{base_feed.inorganic_nitrogen:.3f} kgN/m³"},
-                    {"parametro": "Alkalinity", "valor": f"{base_feed.alkalinity:.3f} kmol/m³"},
+                    {"parametro": "Alkalinity proxy", "valor": f"{base_feed.alkalinity:.3f} escala legada"},
+                    {"parametro": "S_IC real", "valor": f"{base_feed.sic_kmol_m3:.4f} kmol/m³" if base_feed.sic_kmol_m3 is not None else "derivado do proxy"},
                 ])
 
     elif substrate_mode == "preset":
@@ -402,7 +420,8 @@ def _render_asm1_interface() -> None:
                 st.session_state["manual_propionate"] = 0.0
                 st.session_state["manual_hydrogen"] = 0.0
                 st.session_state["manual_inorganic_nitrogen"] = float(_sin_kgN)
-                st.session_state["manual_alkalinity"] = float(_alk)
+                st.session_state["manual_alkalinity"] = float(st.session_state.get("manual_alkalinity", 4.0))
+                st.session_state["manual_sic_kmol_m3"] = float(_alk)
                 st.session_state["manual_feed_ph"] = 7.0
                 st.session_state["sim_substrate_mode"] = "manual"
                 st.session_state["sim_skip_base_reset"] = True

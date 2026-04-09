@@ -138,8 +138,8 @@ def render_simulation_kpis(result: SimulationResult) -> None:
     summary = result.summary
     metadata = result.metadata
     columns = st.columns(5)
-    columns[0].metric("Metano final", f"{summary.methane_final_m3_day:.2f} m3/d")
-    columns[1].metric("Biogas final", f"{summary.biogas_final_m3_day:.2f} m3/d")
+    columns[0].metric("Metano final", f"{summary.methane_final_m3_day:.2f} Nm3/d")
+    columns[1].metric("Biogas final", f"{summary.biogas_final_m3_day:.2f} Nm3/d")
     columns[2].metric("Fracao CH4", f"{summary.ch4_fraction_final:.3f}")
     columns[3].metric("pH final", f"{summary.ph_final:.3f}")
     columns[4].metric("VFA final", f"{summary.vfa_final:.3f}")

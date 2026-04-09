@@ -46,6 +46,7 @@ CUSTOM_SUBSTRATE_FIELDS = (
     "alkalinity",
     "ph",
 )
+OPTIONAL_CUSTOM_SUBSTRATE_FIELDS = ("sic_kmol_m3",)
 MAX_CUSTOM_SUBSTRATE_NAME_LENGTH = 80
 
 
@@ -348,6 +349,13 @@ def save_custom_substrate(name: str, values: dict[str, float]) -> list[dict[str,
         if raw is None:
             raise ValueError(f"Campo obrigatório ausente no substrato personalizado: '{field}'")
         substrate[field] = float(raw)
+    for field in OPTIONAL_CUSTOM_SUBSTRATE_FIELDS:
+        raw = values.get(field)
+        if raw is None:
+            continue
+        numeric = float(raw)
+        if numeric > 0.0:
+            substrate[field] = numeric
 
     # Validações de domínio básicas
     total_cod = (
@@ -362,6 +370,8 @@ def save_custom_substrate(name: str, values: dict[str, float]) -> list[dict[str,
         raise ValueError("O pH do substrato personalizado deve estar entre 5,0 e 8,5.")
     if substrate["alkalinity"] <= 0.0:
         raise ValueError("A alcalinidade do substrato personalizado deve ser maior que zero.")
+    if "sic_kmol_m3" in substrate and substrate["sic_kmol_m3"] <= 0.0:
+        raise ValueError("S_IC real do substrato personalizado deve ser maior que zero quando informado.")
 
     state = load_workbench_state()
     substrates = state.get("custom_substrates", [])

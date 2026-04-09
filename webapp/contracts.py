@@ -47,7 +47,7 @@ class SimulationDraft:
 
     # Feed manual (quando substrate_mode in {"manual", "custom"})
     # chaves: particulate_cod, soluble_cod, acetate, propionate, hydrogen,
-    #         inorganic_nitrogen, alkalinity, ph
+    #         inorganic_nitrogen, alkalinity, sic_kmol_m3, ph
     feed_params: dict[str, float] = field(default_factory=dict)
 
     # Operação

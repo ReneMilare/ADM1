@@ -65,10 +65,10 @@ PARAMETER_BRIDGES = [
     {
         "priority": 90,
         "group": "Feed",
-        "parameter_path": "FeedDefinition.alkalinity",
-        "ui_location": "Simular Reator > modo manual > Alkalinity [kmol/m3 eq.]",
-        "when_to_review": "quando a referencia discutir buffer, alcalinidade ou estabilidade frente a VFA.",
-        "keywords": ["alkalinity", "alcalinidade", "buffer", "buffering"],
+        "parameter_path": "FeedDefinition.alkalinity / FeedDefinition.sic_kmol_m3",
+        "ui_location": "Simular Reator > modo manual > Alkalinity proxy / S_IC real",
+        "when_to_review": "quando a referencia discutir buffer, alcalinidade, S_IC ou estabilidade frente a VFA.",
+        "keywords": ["alkalinity", "alcalinidade", "buffer", "buffering", "s_ic", "inorganic carbon"],
     },
     {
         "priority": 88,

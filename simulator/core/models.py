@@ -46,7 +46,8 @@ class FeedDefinition(StrictModel):
     propionate: float = Field(default=0.25, ge=0.0, description="Influent propionate equivalent [kgCOD/m3].")
     hydrogen: float = Field(default=0.001, ge=0.0, description="Influent dissolved hydrogen proxy [kgCOD/m3].")
     inorganic_nitrogen: float = Field(default=1.3, ge=0.0, description="Influent inorganic nitrogen proxy [kgN/m3].")
-    alkalinity: float = Field(default=4.8, gt=0.0, description="Influent alkalinity proxy [kmol/m3 equivalent].")
+    alkalinity: float = Field(default=4.8, gt=0.0, description="Influent alkalinity proxy for the reduced model [legacy equivalent scale].")
+    sic_kmol_m3: float | None = Field(default=None, ge=0.0, description="Influent dissolved inorganic carbon S_IC for full ADM1 / PyADM1 [kmol/m3].")
     ph: float = Field(default=7.1, ge=5.0, le=8.5, description="Influent pH.")
     flow_rate_m3_day: float | None = Field(default=None, gt=0.0, description="Influent flow. If omitted, volume/HRT is used.")
 
@@ -113,6 +114,13 @@ class CoDigestionBlend(StrictModel):
         blended: dict[str, float | str | None] = {"name": self.name}
         for field in numeric_fields:
             blended[field] = sum(component.volume_fraction * getattr(component.feed, field) for component in self.components)
+        if all(component.feed.sic_kmol_m3 is not None for component in self.components):
+            blended["sic_kmol_m3"] = sum(
+                component.volume_fraction * float(component.feed.sic_kmol_m3 or 0.0)
+                for component in self.components
+            )
+        else:
+            blended["sic_kmol_m3"] = None
         blended_h_plus = sum(component.volume_fraction * 10.0 ** (-component.feed.ph) for component in self.components)
         blended["ph"] = -math.log10(max(blended_h_plus, 1e-14))
         flow_terms = [
@@ -143,6 +151,7 @@ class InitialState(StrictModel):
     hydrogenotrophic_biomass: float = Field(default=0.35, ge=0.0)
     inorganic_nitrogen: float = Field(default=1.4, ge=0.0)
     alkalinity: float = Field(default=5.1, gt=0.0)
+    sic_kmol_m3: float | None = Field(default=None, ge=0.0)
 
     def to_vector(self) -> list[float]:
         return [
@@ -393,6 +402,28 @@ class SimulationResult(StrictModel):
     series: dict[str, list[float]]
     summary: SimulationSummary
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+def get_feed_sic_kmol_m3(feed: Any) -> float | None:
+    raw = getattr(feed, "sic_kmol_m3", None)
+    if raw in (None, ""):
+        return None
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def coerce_simulation_result(value: Any) -> SimulationResult:
+    if isinstance(value, SimulationResult):
+        return value
+    if isinstance(value, dict):
+        payload = value
+    elif hasattr(value, "model_dump"):
+        payload = value.model_dump()
+    else:
+        raise TypeError("Unsupported simulation result payload.")
+    return SimulationResult.model_validate(payload)
 
 
 class SensitivityPoint(StrictModel):

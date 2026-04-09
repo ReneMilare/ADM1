@@ -27,6 +27,7 @@ def make_default_initial_state(feed: FeedDefinition | None = None) -> InitialSta
         hydrogen=max(base.hydrogen * 4.0, 0.001),                 # ×4 vs feed (dissolved H2 pool at new k_m_h2 SS)
         inorganic_nitrogen=max(base.inorganic_nitrogen * 1.08, 0.1),  # slight N accumulation
         alkalinity=max(base.alkalinity * 1.06, 0.5),              # slight alkalinity build-up
+        sic_kmol_m3=max(base.sic_kmol_m3 * 1.06, 1e-6) if base.sic_kmol_m3 is not None else None,
     )
 
 

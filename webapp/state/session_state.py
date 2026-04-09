@@ -38,6 +38,7 @@ def ensure_session_state() -> None:
         "temperature_active": 35.0,
         "hrt_active": 20.0,
         "flow_rate_active": 150.0,
+        "manual_sic_kmol_m3": 0.0,
         "duration_days": 45.0,
         "evaluation_points": 181,
         "solver_choice": "BDF",

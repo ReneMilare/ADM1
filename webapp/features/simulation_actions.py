@@ -219,6 +219,7 @@ def execute_simulation(
             "hydrogen":            fp.get("hydrogen",            0.001),
             "inorganic_nitrogen":  fp.get("inorganic_nitrogen",  1.0),
             "alkalinity":          fp.get("alkalinity",          4.0),
+            "sic_kmol_m3":         fp.get("sic_kmol_m3",         0.0),
             "ph":                  fp.get("ph",                  7.0),
         }
 
@@ -231,7 +232,7 @@ def execute_simulation(
             custom_substrate_values = {
                 k: cs_data[k]
                 for k in ("name", "particulate_cod", "soluble_cod", "acetate",
-                          "propionate", "hydrogen", "inorganic_nitrogen", "alkalinity", "ph")
+                          "propionate", "hydrogen", "inorganic_nitrogen", "alkalinity", "sic_kmol_m3", "ph")
                 if k in cs_data
             }
 
