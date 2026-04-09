@@ -14,6 +14,189 @@ from webapp.utils.presets import (
     preset_rows,
 )
 
+_MANUAL_INPUT_MODE_LABELS = {
+    "manual": "Entrada manual",
+    "composition_converter": "Preencher por composição",
+}
+_PENDING_MANUAL_FEED_KEY = "sim_pending_manual_feed_application"
+
+
+def _queue_manual_feed_application(
+    *,
+    feed_values: dict[str, float | str],
+    flash_message: str,
+    substrate_mode: str | None = None,
+    manual_input_mode: str = "manual",
+) -> None:
+    """Agenda a aplicação do feed manual para o próximo rerun.
+
+    Evita mutar chaves de widgets já instanciados na mesma execução do Streamlit.
+    """
+    st.session_state[_PENDING_MANUAL_FEED_KEY] = {
+        "substrate_mode": substrate_mode,
+        "manual_input_mode": manual_input_mode,
+        "manual_feed_values": dict(feed_values),
+        "skip_base_reset": True,
+        "flash_message": flash_message,
+    }
+
+
+def _render_manual_feed_form(base_feed) -> None:
+    """Renderiza o formulário canônico de alimentação manual."""
+    st.caption(
+        "Separe o proxy legado de alcalinidade do carbono inorgânico real `S_IC` "
+        "quando estiver usando `full` ou `pyadm1`."
+    )
+    _mf_left, _mf_right = st.columns(2)
+    _defaults = base_feed if base_feed is not None else get_manual_defaults()[0]
+    with _mf_left:
+        st.text_input(
+            "Nome da alimentação",
+            value=st.session_state.get("manual_feed_name", _defaults.name),
+            key="manual_feed_name",
+        )
+        st.number_input(
+            "Particulate COD [kgCOD/m³]",
+            min_value=0.0,
+            value=float(st.session_state.get("manual_particulate_cod", _defaults.particulate_cod)),
+            step=0.1,
+            key="manual_particulate_cod",
+        )
+        st.number_input(
+            "Soluble COD [kgCOD/m³]",
+            min_value=0.0,
+            value=float(st.session_state.get("manual_soluble_cod", _defaults.soluble_cod)),
+            step=0.1,
+            key="manual_soluble_cod",
+        )
+        st.number_input(
+            "Acetate [kgCOD/m³]",
+            min_value=0.0,
+            value=float(st.session_state.get("manual_acetate", _defaults.acetate)),
+            step=0.05,
+            key="manual_acetate",
+        )
+        st.number_input(
+            "Propionate [kgCOD/m³]",
+            min_value=0.0,
+            value=float(st.session_state.get("manual_propionate", _defaults.propionate)),
+            step=0.05,
+            key="manual_propionate",
+        )
+    with _mf_right:
+        st.number_input(
+            "Hydrogen [kgCOD/m³]",
+            min_value=0.0,
+            value=float(st.session_state.get("manual_hydrogen", _defaults.hydrogen)),
+            step=0.001,
+            format="%.4f",
+            key="manual_hydrogen",
+        )
+        st.number_input(
+            "Inorganic nitrogen [kgN/m³]",
+            min_value=0.0,
+            value=float(st.session_state.get("manual_inorganic_nitrogen", _defaults.inorganic_nitrogen)),
+            step=0.05,
+            key="manual_inorganic_nitrogen",
+        )
+        st.number_input(
+            "Alkalinity proxy [escala legada]",
+            min_value=0.1,
+            value=float(st.session_state.get("manual_alkalinity", _defaults.alkalinity)),
+            step=0.05,
+            key="manual_alkalinity",
+            help="Usado pelo backend reduced e como fallback legado quando S_IC real não for informado.",
+        )
+        st.number_input(
+            "S_IC real [kmol/m³] (0 = derivar do proxy)",
+            min_value=0.0,
+            value=float(st.session_state.get("manual_sic_kmol_m3", _defaults.sic_kmol_m3 or 0.0)),
+            step=0.005,
+            format="%.4f",
+            key="manual_sic_kmol_m3",
+            help="Entrada física de carbono inorgânico dissolvido usada pelo ADM1 full e pelo PyADM1.",
+        )
+        st.number_input(
+            "Influent pH",
+            min_value=5.0,
+            max_value=8.5,
+            value=float(st.session_state.get("manual_feed_ph", _defaults.ph)),
+            step=0.05,
+            key="manual_feed_ph",
+        )
+
+
+def _render_last_composition_details() -> None:
+    """Renderiza detalhes não canônicos da última conversão por composição."""
+    result_dict = st.session_state.get("conv_composition_result")
+    if not isinstance(result_dict, dict):
+        return
+
+    rf = result_dict.get("reduced_feed_values", {})
+    fi = result_dict.get("full_influent_state_overrides", {})
+
+    with st.expander("Detalhes da última conversão por composição", expanded=False):
+        mc1, mc2, mc3, mc4 = st.columns(4)
+        mc1.metric("COD particulado (kgCOD/m³)", f"{rf.get('particulate_cod', 0):.2f}")
+        mc2.metric("COD solúvel (kgCOD/m³)", f"{rf.get('soluble_cod', 0):.2f}")
+        mc3.metric("N inorgânico (kgN/m³)", f"{rf.get('inorganic_nitrogen', 0):.3f}")
+        mc4.metric("pH efetivo", f"{rf.get('ph', 7.0):.1f}")
+
+        state_rows = []
+        for k, v in fi.items():
+            if v is None or v == 0.0:
+                continue
+            if k in ("S_IN",):
+                unit = "kgN/m³"
+            elif k in ("S_IC",):
+                unit = "kmol/m³"
+            elif k == "ph":
+                unit = "—"
+            else:
+                unit = "kgCOD/m³"
+            state_rows.append({"Estado ADM1": k, "Valor": f"{v:.4f}", "Unidade": unit})
+        if state_rows:
+            st.dataframe(state_rows, use_container_width=True)
+
+        for w in st.session_state.get("conv_conversion_warnings", []):
+            st.warning(w)
+
+        assumptions_list = st.session_state.get("conv_conversion_assumptions", [])
+        if assumptions_list:
+            st.markdown("**Hipóteses adotadas**")
+            for a in assumptions_list:
+                st.caption(
+                    f"**{a.get('field', '')}** = {a.get('assumed_value', '')} "
+                    f"— {a.get('reason', '')}"
+                )
+
+        if st.button("💾 Salvar como substrato personalizado", key="conv_save_custom"):
+            from webapp.services.preferences_service import save_custom_substrate_with_provenance
+
+            save_name = st.session_state.get("conv_sample_name", "Amostra")
+            values = {
+                "particulate_cod": float(rf.get("particulate_cod", 0.0)),
+                "soluble_cod": float(rf.get("soluble_cod", 0.0)),
+                "acetate": float(rf.get("acetate", 0.0)),
+                "propionate": float(rf.get("propionate", 0.0)),
+                "hydrogen": float(rf.get("hydrogen", 0.0)),
+                "inorganic_nitrogen": float(rf.get("inorganic_nitrogen", 0.0)),
+                "alkalinity": float(rf.get("alkalinity", 4.0)),
+                "sic_kmol_m3": float(rf.get("sic_kmol_m3") or 0.0),
+                "ph": float(rf.get("ph", 7.0)),
+            }
+            try:
+                save_custom_substrate_with_provenance(
+                    save_name,
+                    values,
+                    composition_input=st.session_state.get("conv_composition_input"),
+                    assumptions=st.session_state.get("conv_conversion_assumptions"),
+                    warnings=st.session_state.get("conv_conversion_warnings"),
+                )
+                st.success(f"Substrato '{save_name}' salvo com proveniência.")
+            except Exception as e:
+                st.error(f"Erro ao salvar: {e}")
+
 
 def render_substrate_config() -> None:
     """Renderiza o seletor e configuração de substrato com base em sim_substrate_mode."""
@@ -222,86 +405,35 @@ def render_substrate_config() -> None:
 
     # ── Manual feed fields ──────────────────────────────────────────────────────
     if substrate_mode == "manual":
+        if st.session_state.get("sim_manual_input_mode") not in _MANUAL_INPUT_MODE_LABELS:
+            st.session_state["sim_manual_input_mode"] = "manual"
         st.divider()
-        st.markdown("**Composição da alimentação (manual)**")
-        st.caption("Separe o proxy legado de alcalinidade do carbono inorgânico real `S_IC` quando estiver usando `full` ou `pyadm1`.")
-        _mf_left, _mf_right = st.columns(2)
-        _defaults = base_feed if base_feed is not None else get_manual_defaults()[0]
-        with _mf_left:
-            st.text_input(
-                "Nome da alimentação",
-                value=st.session_state.get("manual_feed_name", _defaults.name),
-                key="manual_feed_name",
-            )
-            st.number_input(
-                "Particulate COD [kgCOD/m³]",
-                min_value=0.0,
-                value=float(st.session_state.get("manual_particulate_cod", _defaults.particulate_cod)),
-                step=0.1,
-                key="manual_particulate_cod",
-            )
-            st.number_input(
-                "Soluble COD [kgCOD/m³]",
-                min_value=0.0,
-                value=float(st.session_state.get("manual_soluble_cod", _defaults.soluble_cod)),
-                step=0.1,
-                key="manual_soluble_cod",
-            )
-            st.number_input(
-                "Acetate [kgCOD/m³]",
-                min_value=0.0,
-                value=float(st.session_state.get("manual_acetate", _defaults.acetate)),
-                step=0.05,
-                key="manual_acetate",
-            )
-            st.number_input(
-                "Propionate [kgCOD/m³]",
-                min_value=0.0,
-                value=float(st.session_state.get("manual_propionate", _defaults.propionate)),
-                step=0.05,
-                key="manual_propionate",
-            )
-        with _mf_right:
-            st.number_input(
-                "Hydrogen [kgCOD/m³]",
-                min_value=0.0,
-                value=float(st.session_state.get("manual_hydrogen", _defaults.hydrogen)),
-                step=0.001,
-                format="%.4f",
-                key="manual_hydrogen",
-            )
-            st.number_input(
-                "Inorganic nitrogen [kgN/m³]",
-                min_value=0.0,
-                value=float(st.session_state.get("manual_inorganic_nitrogen", _defaults.inorganic_nitrogen)),
-                step=0.05,
-                key="manual_inorganic_nitrogen",
-            )
-            st.number_input(
-                "Alkalinity proxy [escala legada]",
-                min_value=0.1,
-                value=float(st.session_state.get("manual_alkalinity", _defaults.alkalinity)),
-                step=0.05,
-                key="manual_alkalinity",
-                help="Usado pelo backend reduced e como fallback legado quando S_IC real não for informado.",
-            )
-            st.number_input(
-                "S_IC real [kmol/m³] (0 = derivar do proxy)",
-                min_value=0.0,
-                value=float(st.session_state.get("manual_sic_kmol_m3", _defaults.sic_kmol_m3 or 0.0)),
-                step=0.005,
-                format="%.4f",
-                key="manual_sic_kmol_m3",
-                help="Entrada física de carbono inorgânico dissolvido usada pelo ADM1 full e pelo PyADM1.",
-            )
-            st.number_input(
-                "Influent pH",
-                min_value=5.0,
-                max_value=8.5,
-                value=float(st.session_state.get("manual_feed_ph", _defaults.ph)),
-                step=0.05,
-                key="manual_feed_ph",
-            )
+        manual_input_mode_options = list(_MANUAL_INPUT_MODE_LABELS)
+        current_manual_input_mode = str(st.session_state.get("sim_manual_input_mode", "manual"))
+        selector_key = "sim_manual_input_mode_selector"
+        if st.session_state.get(selector_key) not in manual_input_mode_options:
+            st.session_state[selector_key] = current_manual_input_mode
+        manual_input_mode_index = (
+            manual_input_mode_options.index(current_manual_input_mode)
+            if current_manual_input_mode in manual_input_mode_options
+            else 0
+        )
+        selected_manual_input_mode = st.radio(
+            "Forma de entrada do substrato",
+            options=manual_input_mode_options,
+            index=manual_input_mode_index,
+            horizontal=True,
+            key=selector_key,
+            format_func=lambda value: _MANUAL_INPUT_MODE_LABELS[value],
+        )
+        if selected_manual_input_mode != current_manual_input_mode:
+            st.session_state["sim_manual_input_mode"] = selected_manual_input_mode
+        manual_input_mode = str(st.session_state.get("sim_manual_input_mode", "manual"))
+        st.markdown("**Composição da alimentação**")
+        if manual_input_mode == "manual":
+            _render_manual_feed_form(base_feed)
+        else:
+            _render_composition_converter()
 
     elif substrate_mode == "custom":
         if ui_mode == "especialista" and base_feed is not None:
@@ -413,17 +545,119 @@ def _render_asm1_interface() -> None:
                 _scod = _inf.get("S_su", 0.0) + _inf.get("S_aa", 0.0) + _inf.get("S_I", 0.0)
                 _sin_kgN = _inf.get("S_IN", 0.0) * 14.0
                 _alk = max(_inf.get("S_IC", 0.1), 0.1)
-                st.session_state["manual_feed_name"] = "Influente ASM1→ADM1 (E14)"
-                st.session_state["manual_particulate_cod"] = float(_pcod)
-                st.session_state["manual_soluble_cod"] = float(_scod)
-                st.session_state["manual_acetate"] = 0.0
-                st.session_state["manual_propionate"] = 0.0
-                st.session_state["manual_hydrogen"] = 0.0
-                st.session_state["manual_inorganic_nitrogen"] = float(_sin_kgN)
-                st.session_state["manual_alkalinity"] = float(st.session_state.get("manual_alkalinity", 4.0))
-                st.session_state["manual_sic_kmol_m3"] = float(_alk)
-                st.session_state["manual_feed_ph"] = 7.0
-                st.session_state["sim_substrate_mode"] = "manual"
-                st.session_state["sim_skip_base_reset"] = True
-                st.success("Influente ADM1 aplicado. Modo trocado para 'Manual temporário'.")
+                _queue_manual_feed_application(
+                    feed_values={
+                        "name": "Influente ASM1→ADM1 (E14)",
+                        "particulate_cod": float(_pcod),
+                        "soluble_cod": float(_scod),
+                        "acetate": 0.0,
+                        "propionate": 0.0,
+                        "hydrogen": 0.0,
+                        "inorganic_nitrogen": float(_sin_kgN),
+                        "alkalinity": float(st.session_state.get("manual_alkalinity", 4.0)),
+                        "sic_kmol_m3": float(_alk),
+                        "ph": 7.0,
+                    },
+                    flash_message="Influente ADM1 aplicado. Modo trocado para 'Manual temporário'.",
+                    substrate_mode="manual",
+                )
                 st.rerun()
+
+
+def _render_composition_converter() -> None:
+    """Renderiza o painel de conversão de composição bioquímica → ADM1."""
+    st.caption(
+        "Informe a composição em **base úmida** (% do peso fresco). "
+        "Ao calcular, os valores convertidos serão preenchidos no mesmo formulário manual."
+    )
+
+    col1, col2, col3 = st.columns(3)
+    sample_name = col1.text_input("Nome da alimentação", value="Amostra", key="conv_sample_name")
+    dry_matter = col2.number_input("Matéria seca (%BU)", 0.1, 100.0, 10.0, step=0.1, key="conv_dry_matter_pct")
+    organic_matter = col3.number_input("Matéria orgânica (%BU)", 0.0, 100.0, 7.0, step=0.1, key="conv_organic_matter_pct")
+
+    col4, col5, col6, col7 = st.columns(4)
+    protein = col4.number_input("Proteína (%BU)", 0.0, 100.0, 1.0, step=0.1, key="conv_protein_pct")
+    lipids = col5.number_input("Lipídeos (%BU)", 0.0, 100.0, 1.0, step=0.1, key="conv_lipids_pct")
+    cellulose = col6.number_input("Celulose (%BU)", 0.0, 100.0, 2.0, step=0.1, key="conv_cellulose_pct")
+    lignin = col7.number_input("Lignina (%BU)", 0.0, 100.0, 0.5, step=0.1, key="conv_lignin_pct")
+
+    other_carb = organic_matter - protein - lipids - cellulose - lignin
+    if other_carb < 0:
+        st.warning(f"⚠️ Outros carboidratos negativos ({other_carb:.2f}%). Revise a composição.")
+    else:
+        st.caption(f"📊 Outros carboidratos (calculado): **{other_carb:.2f}** %BU")
+
+    st.markdown("**Parâmetros opcionais**")
+    col8, col9, col10 = st.columns(3)
+    ph_input = col8.number_input(
+        "pH", 0.0, 14.0, 0.0, step=0.1, key="conv_ph_input",
+        help="Deixe 0 para usar default (7.0 assumido)",
+    )
+    alk_input = col9.number_input(
+        "Alcalinidade (mEq/L)", 0.0, 2000.0, 0.0, step=1.0, key="conv_alk_meq_l",
+        help="Deixe 0 para usar default",
+    )
+    tan_input = col10.number_input(
+        "TAN/NH₄⁺ (mg N/L)", 0.0, 5000.0, 0.0, step=1.0, key="conv_tan_mg_l",
+        help="Deixe 0 quando não medido",
+    )
+
+    ph_val = ph_input if ph_input > 0.0 else None
+    alk_val = alk_input if alk_input > 0.0 else None
+    tan_val = tan_input if tan_input > 0.0 else None
+
+    if st.button("▶ Preencher a composição da alimentação", key="conv_calculate"):
+        import dataclasses
+
+        from simulator.substrate_conversion.contracts import CompositionInput
+        from simulator.substrate_conversion.service import convert_composition_to_adm1
+
+        inp = CompositionInput(
+            sample_name=sample_name,
+            dry_matter_pct=dry_matter,
+            organic_matter_pct=organic_matter,
+            protein_pct=protein,
+            lipids_pct=lipids,
+            cellulose_pct=cellulose,
+            lignin_pct=lignin,
+            ph=ph_val,
+            alkalinity_meq_l=alk_val,
+            tan_mg_l=tan_val,
+        )
+        try:
+            result = convert_composition_to_adm1(inp)
+            rf = dataclasses.asdict(result.reduced_feed_values)
+            st.session_state["conv_composition_input"] = dataclasses.asdict(inp)
+            st.session_state["conv_composition_result"] = dataclasses.asdict(result)
+            st.session_state["conv_full_influent_state_overrides"] = dataclasses.asdict(
+                result.full_influent_state_overrides
+            )
+            st.session_state["conv_conversion_assumptions"] = [
+                dataclasses.asdict(a) for a in result.assumptions_used
+            ]
+            st.session_state["conv_conversion_warnings"] = list(result.warnings)
+            st.session_state["conv_conversion_applied_to_manual"] = True
+            _queue_manual_feed_application(
+                feed_values={
+                    "name": str(rf.get("name") or sample_name),
+                    "particulate_cod": float(rf.get("particulate_cod", 8.0)),
+                    "soluble_cod": float(rf.get("soluble_cod", 4.0)),
+                    "acetate": float(rf.get("acetate", 0.0)),
+                    "propionate": float(rf.get("propionate", 0.0)),
+                    "hydrogen": float(rf.get("hydrogen", 0.0)),
+                    "inorganic_nitrogen": float(rf.get("inorganic_nitrogen", 1.0)),
+                    "alkalinity": float(rf.get("alkalinity", 4.0)),
+                    "sic_kmol_m3": float(rf.get("sic_kmol_m3") or 0.0),
+                    "ph": float(rf.get("ph", 7.0)),
+                },
+                flash_message="Valores preenchidos a partir da composição informada.",
+                manual_input_mode="manual",
+            )
+            st.rerun()
+        except ValueError as e:
+            st.error(f"Erro na conversão: {e}")
+
+    if st.session_state.get("conv_conversion_applied_to_manual"):
+        st.info("A última conversão já foi aplicada ao formulário manual.")
+        _render_last_composition_details()

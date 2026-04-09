@@ -28,6 +28,7 @@ def ensure_session_state() -> None:
         # defaults de segurança para acesso cross-página.
         "sim_reactor_type": "cstr",
         "sim_substrate_mode": "preset",
+        "sim_manual_input_mode": "manual",
         # sim_preset_id é inicializado pela página 01_Simular_Reator.py com o
         # primeiro preset disponível — não definir aqui para não bloquear esse default.
         "sim_custom_substrate_name": None,
@@ -43,6 +44,13 @@ def ensure_session_state() -> None:
         "evaluation_points": 181,
         "solver_choice": "BDF",
         "persist_case": True,
+        # ── Plano 03: conversor de composição ─────────────────────────────────
+        "conv_composition_input": None,
+        "conv_composition_result": None,
+        "conv_full_influent_state_overrides": None,
+        "conv_conversion_assumptions": [],
+        "conv_conversion_warnings": [],
+        "conv_conversion_applied_to_manual": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:

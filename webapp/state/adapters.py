@@ -64,6 +64,28 @@ _FEED_PARAM_DEFAULTS: dict[str, float] = {
 }
 
 
+# ─── coercion helpers ──────────────────────────────────────────────────────────
+
+def _coerce_float(value: Any, default: float) -> float:
+    """Converte valores numéricos tolerando None e string vazia."""
+    if value in (None, ""):
+        return float(default)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _coerce_int(value: Any, default: int) -> int:
+    """Converte valores inteiros tolerando None e string vazia."""
+    if value in (None, ""):
+        return int(default)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(default)
+
+
 # ─── session_state → SimulationDraft ─────────────────────────────────────────
 
 def session_state_to_draft(state: dict[str, Any]) -> SimulationDraft:
@@ -76,26 +98,27 @@ def session_state_to_draft(state: dict[str, Any]) -> SimulationDraft:
         SimulationDraft populado com os valores do estado atual.
     """
     feed_params: dict[str, float] = {
-        key: float(state.get(f"manual_{key}", _FEED_PARAM_DEFAULTS[key]))
+        key: _coerce_float(state.get(f"manual_{key}"), _FEED_PARAM_DEFAULTS[key])
         for key in _FEED_PARAM_DEFAULTS
     }
     # "ph" está em manual_feed_ph, não manual_ph
-    feed_params["ph"] = float(state.get("manual_feed_ph", _FEED_PARAM_DEFAULTS["ph"]))
+    feed_params["ph"] = _coerce_float(state.get("manual_feed_ph"), _FEED_PARAM_DEFAULTS["ph"])
 
     ext_state: dict[str, float] = {
-        key: float(state.get(key, default))
+        key: _coerce_float(state.get(key), default)
         for key, default in _EXT_STATE_DEFAULTS.items()
     }
     ext_influent: dict[str, float] = {
-        key: float(state.get(key, default))
+        key: _coerce_float(state.get(key), default)
         for key, default in _EXT_INFLUENT_DEFAULTS.items()
     }
     ext_params: dict[str, float] = {
-        key: float(state.get(key, default))
+        key: _coerce_float(state.get(key), default)
         for key, default in _EXT_PARAM_DEFAULTS.items()
     }
 
     substrate_mode = str(state.get("sim_substrate_mode", "preset"))
+    manual_input_mode = str(state.get("sim_manual_input_mode", "manual"))
 
     # For co-digestion, the active preset key is "codigestion_preset", not "sim_preset_id"
     if substrate_mode == "codigestion":
@@ -105,7 +128,7 @@ def session_state_to_draft(state: dict[str, Any]) -> SimulationDraft:
             selected_substrates: list[str] = list(state.get("codig_custom_substrates") or [])
             n = max(len(selected_substrates), 1)
             codigestion_fractions: dict[str, float] | None = {
-                sub_id: float(state.get(f"codig_frac_{sub_id}", 1.0 / n))
+                sub_id: _coerce_float(state.get(f"codig_frac_{sub_id}"), 1.0 / n)
                 for sub_id in selected_substrates
             } if selected_substrates else None
         else:
@@ -119,25 +142,32 @@ def session_state_to_draft(state: dict[str, Any]) -> SimulationDraft:
         substrate_mode=substrate_mode,
         preset_id=preset_id,
         custom_substrate_name=state.get("sim_custom_substrate_name"),
-        feed_name=str(state.get("manual_feed_name", "Manual feed")),
+        feed_name=str(state.get("manual_feed_name") or "Manual feed"),
+        manual_input_mode=manual_input_mode,
         feed_params=feed_params,
         hydraulic_mode=str(state.get("hydraulic_mode", "hrt")),
-        volume_m3=float(state.get("volume_active", 3000.0)),
-        temperature_c=float(state.get("temperature_active", 35.0)),
-        hrt_days=float(state.get("hrt_active", 20.0)),
-        flow_rate_m3_day=float(state.get("flow_rate_active", 150.0)),
+        volume_m3=_coerce_float(state.get("volume_active"), 3000.0),
+        temperature_c=_coerce_float(state.get("temperature_active"), 35.0),
+        hrt_days=_coerce_float(state.get("hrt_active"), 20.0),
+        flow_rate_m3_day=_coerce_float(state.get("flow_rate_active"), 150.0),
         backend_requested=str(state.get("sim_backend_choice", "full")),
         extensions=list(state.get("sim_full_extensions", [])),
         extension_state_overrides=ext_state,
         extension_influent_overrides=ext_influent,
         extension_param_overrides=ext_params,
-        duration_days=float(state.get("duration_days", 45.0)),
-        evaluation_points=int(state.get("evaluation_points", 181)),
+        duration_days=_coerce_float(state.get("duration_days"), 45.0),
+        evaluation_points=_coerce_int(state.get("evaluation_points"), 181),
         solver=str(state.get("solver_choice", "BDF")),
         persist=bool(state.get("persist_case", True)),
         ammonia_inhibition_mode=str(state.get("ammonia_inhibition_mode", "simple")),
         variant_config=state.get("variant_config"),
         codigestion_fractions=codigestion_fractions,
+        composition_input=state.get("conv_composition_input"),
+        composition_result=state.get("conv_composition_result"),
+        full_influent_state_overrides=state.get("conv_full_influent_state_overrides"),
+        conversion_assumptions=list(state.get("conv_conversion_assumptions") or []),
+        conversion_warnings=list(state.get("conv_conversion_warnings") or []),
+        conversion_applied_to_manual=bool(state.get("conv_conversion_applied_to_manual", False)),
         origin="manual",
     )
 
@@ -158,6 +188,7 @@ def draft_to_session_state(draft: SimulationDraft) -> dict[str, Any]:
         # Seletores principais
         "sim_reactor_type": draft.reactor_type,
         "sim_substrate_mode": draft.substrate_mode,
+        "sim_manual_input_mode": draft.manual_input_mode,
         "sim_preset_id": draft.preset_id,
         "sim_custom_substrate_name": draft.custom_substrate_name,
         "sim_backend_choice": draft.backend_requested,
@@ -201,7 +232,29 @@ def draft_to_session_state(draft: SimulationDraft) -> dict[str, Any]:
             state["codig_custom_substrates"] = list(draft.codigestion_fractions.keys())
             for sub_id, frac in draft.codigestion_fractions.items():
                 state[f"codig_frac_{sub_id}"] = frac
+    # Bloco do conversor de composição
+    state["conv_composition_input"] = draft.composition_input
+    state["conv_composition_result"] = draft.composition_result
+    state["conv_full_influent_state_overrides"] = draft.full_influent_state_overrides
+    state["conv_conversion_assumptions"] = list(draft.conversion_assumptions)
+    state["conv_conversion_warnings"] = list(draft.conversion_warnings)
+    state["conv_conversion_applied_to_manual"] = draft.conversion_applied_to_manual
     return state
+
+
+# ─── helpers internos ────────────────────────────────────────────────────────
+
+def _composition_converter_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Extrai o bloco do conversor de composição de um payload de preset."""
+    conv = payload.get("composition_converter") or {}
+    return {
+        "composition_input": conv.get("composition_input"),
+        "composition_result": conv.get("composition_result"),
+        "full_influent_state_overrides": conv.get("full_influent_state_overrides"),
+        "conversion_assumptions": list(conv.get("conversion_assumptions") or []),
+        "conversion_warnings": list(conv.get("conversion_warnings") or []),
+        "conversion_applied_to_manual": bool(conv.get("conversion_applied_to_manual", False)),
+    }
 
 
 # ─── preset_payload → SimulationDraft ────────────────────────────────────────
@@ -223,20 +276,20 @@ def preset_payload_to_draft(payload: dict[str, Any]) -> SimulationDraft:
     ext_params = payload.get("full_extension_param_inputs") or {}
 
     feed_params: dict[str, float] = {
-        key: float(manual_feed.get(key, _FEED_PARAM_DEFAULTS[key]))
+        key: _coerce_float(manual_feed.get(key), _FEED_PARAM_DEFAULTS[key])
         for key in _FEED_PARAM_DEFAULTS
     }
 
     ext_state: dict[str, float] = {
-        key: float(ext_inputs.get(key, default))
+        key: _coerce_float(ext_inputs.get(key), default)
         for key, default in _EXT_STATE_DEFAULTS.items()
     }
     ext_influent_dict: dict[str, float] = {
-        key: float(ext_influent.get(key, default))
+        key: _coerce_float(ext_influent.get(key), default)
         for key, default in _EXT_INFLUENT_DEFAULTS.items()
     }
     ext_params_dict: dict[str, float] = {
-        key: float(ext_params.get(key, default))
+        key: _coerce_float(ext_params.get(key), default)
         for key, default in _EXT_PARAM_DEFAULTS.items()
     }
 
@@ -247,25 +300,27 @@ def preset_payload_to_draft(payload: dict[str, Any]) -> SimulationDraft:
         substrate_mode=str(payload.get("substrate_mode", "preset")),
         preset_id=payload.get("preset_id"),
         custom_substrate_name=payload.get("custom_substrate_name"),
-        feed_name=str(manual_feed.get("name", "Manual feed")),
+        feed_name=str(manual_feed.get("name") or "Manual feed"),
+        manual_input_mode=str(payload.get("manual_input_mode", "manual")),
         feed_params=feed_params,
         hydraulic_mode=hydraulic_mode,
-        volume_m3=float(operating.get("volume_m3", 3000.0)),
-        temperature_c=float(operating.get("temperature_c", 35.0)),
-        hrt_days=float(operating.get("hrt_days", 20.0)),
-        flow_rate_m3_day=float(operating.get("flow_rate_m3_day", 150.0)),
+        volume_m3=_coerce_float(operating.get("volume_m3"), 3000.0),
+        temperature_c=_coerce_float(operating.get("temperature_c"), 35.0),
+        hrt_days=_coerce_float(operating.get("hrt_days"), 20.0),
+        flow_rate_m3_day=_coerce_float(operating.get("flow_rate_m3_day"), 150.0),
         backend_requested=str(payload.get("backend_choice", "full")),
         extensions=list(payload.get("sim_full_extensions") or []),
         extension_state_overrides=ext_state,
         extension_influent_overrides=ext_influent_dict,
         extension_param_overrides=ext_params_dict,
-        duration_days=float(simulation.get("duration_days", 45.0)),
-        evaluation_points=int(simulation.get("evaluation_points", 181)),
+        duration_days=_coerce_float(simulation.get("duration_days"), 45.0),
+        evaluation_points=_coerce_int(simulation.get("evaluation_points"), 181),
         solver=str(simulation.get("solver", "BDF")),
         persist=bool(simulation.get("persist", True)),
         ammonia_inhibition_mode=str(payload.get("ammonia_inhibition_mode", "simple")),
         variant_config=payload.get("variant_config"),
         origin="preset_user",
+        **_composition_converter_from_payload(payload),
     )
 
 
@@ -294,6 +349,7 @@ def draft_to_preset_payload(draft: SimulationDraft) -> dict[str, Any]:
     return {
         "reactor_type": draft.reactor_type,
         "substrate_mode": draft.substrate_mode,
+        "manual_input_mode": draft.manual_input_mode,
         "preset_id": draft.preset_id,
         "custom_substrate_name": draft.custom_substrate_name,
         "backend_choice": draft.backend_requested,   # compatibilidade com apply_user_simulation_preset
@@ -316,5 +372,13 @@ def draft_to_preset_payload(draft: SimulationDraft) -> dict[str, Any]:
         "full_extension_influent_inputs": {key: ei.get(key, default) for key, default in _EXT_INFLUENT_DEFAULTS.items()},
         "full_extension_param_inputs": {key: ep.get(key, default) for key, default in _EXT_PARAM_DEFAULTS.items()},
         "sim_full_extensions": list(draft.extensions),
+        "composition_converter": {
+            "composition_input": draft.composition_input,
+            "composition_result": draft.composition_result,
+            "full_influent_state_overrides": draft.full_influent_state_overrides,
+            "conversion_assumptions": list(draft.conversion_assumptions),
+            "conversion_warnings": list(draft.conversion_warnings),
+            "conversion_applied_to_manual": draft.conversion_applied_to_manual,
+        },
         "schema_version": "1",
     }
