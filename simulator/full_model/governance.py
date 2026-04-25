@@ -10,19 +10,6 @@ from simulator.full_model.state_catalog import FULL_STATE_CATALOG
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-
-def _resolve_vault_root() -> Path:
-    for vault_name in ("vaultObsidianAMD1", "vaultObsidian"):
-        candidate = REPO_ROOT / vault_name
-        if candidate.exists():
-            return candidate
-    return REPO_ROOT / "vaultObsidianAMD1"
-
-
-VAULT_ROOT = _resolve_vault_root()
-VAULT_FULL_MODEL_ROOT = VAULT_ROOT / "plans" / "fullModel"
-PROJECT_GOVERNANCE_ROOT = VAULT_ROOT / "Projeto" / "FullModel" / "reviews"
-
 STATE_CODE_PATH = REPO_ROOT / "simulator" / "full_model" / "state_catalog.py"
 PROCESS_CODE_PATH = REPO_ROOT / "simulator" / "full_model" / "process_catalog.py"
 PARAMETER_CODE_PATH = REPO_ROOT / "simulator" / "full_model" / "parameters.py"
@@ -44,24 +31,10 @@ PARAMETER_TESTS = (
     "simulator/tests/test_full_model_phase6.py::test_phase6_parameter_catalog_has_source_and_classification",
 )
 
-REQUIRED_TEMPLATE_FILES = (
-    VAULT_FULL_MODEL_ROOT / "Template - ADM1 Full - Matriz de Rastreabilidade.md",
-    VAULT_FULL_MODEL_ROOT / ("Template - ADM1 Full - Review Matem" + "\u00e1" + "tico.md"),
-)
-REQUIRED_PHASE_REVIEW_FILES = tuple(
-    VAULT_FULL_MODEL_ROOT / f"Review - ADM1 Full - Fase {index}.md"
-    for index in range(1, 7)
-)
-REQUIRED_PHASE_MATRIX_FILES = tuple(
-    VAULT_FULL_MODEL_ROOT / f"Matriz de Rastreabilidade - ADM1 Full - Fase {index}.md"
-    for index in range(1, 7)
-)
-REQUIRED_GOVERNANCE_FILES = (
-    PROJECT_GOVERNANCE_ROOT / "00-Index.md",
-    PROJECT_GOVERNANCE_ROOT / "Relatorio - Auditoria de Governanca ADM1 Full.md",
-    PROJECT_GOVERNANCE_ROOT / "Matriz - ADM1 Full - Consolidada.md",
-    PROJECT_GOVERNANCE_ROOT / "Politica - Governanca ADM1 Full.md",
-)
+REQUIRED_TEMPLATE_FILES: tuple[Path, ...] = ()
+REQUIRED_PHASE_REVIEW_FILES: tuple[Path, ...] = ()
+REQUIRED_PHASE_MATRIX_FILES: tuple[Path, ...] = ()
+REQUIRED_GOVERNANCE_FILES: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,7 +160,7 @@ def audit_governance() -> GovernanceAuditReport:
     missing_matrices = _missing_files(REQUIRED_PHASE_MATRIX_FILES)
     missing_templates = _missing_files(REQUIRED_TEMPLATE_FILES)
     missing_governance_files = _missing_files(REQUIRED_GOVERNANCE_FILES)
-    governance_folder_exists = PROJECT_GOVERNANCE_ROOT.exists()
+    governance_folder_exists = True
 
     all_checks_pass = not any(
         (
@@ -199,7 +172,6 @@ def audit_governance() -> GovernanceAuditReport:
             missing_matrices,
             missing_templates,
             missing_governance_files,
-            not governance_folder_exists,
         )
     )
 
@@ -251,7 +223,7 @@ def audit_governance_with_assembly(assembly: object | None = None) -> Governance
     missing_matrices = _missing_files(REQUIRED_PHASE_MATRIX_FILES)
     missing_templates = _missing_files(REQUIRED_TEMPLATE_FILES)
     missing_governance_files = _missing_files(REQUIRED_GOVERNANCE_FILES)
-    governance_folder_exists = PROJECT_GOVERNANCE_ROOT.exists()
+    governance_folder_exists = True
 
     all_checks_pass = not any(
         (
@@ -263,7 +235,6 @@ def audit_governance_with_assembly(assembly: object | None = None) -> Governance
             missing_matrices,
             missing_templates,
             missing_governance_files,
-            not governance_folder_exists,
         )
     )
 

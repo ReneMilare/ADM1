@@ -4,7 +4,7 @@ import shutil
 import unittest
 from pathlib import Path
 
-from simulator.literature_validation import run_literature_validation, write_vault_report
+from simulator.literature_validation import run_literature_validation
 
 WORKSPACE_TMP = Path("simulator") / "tests" / "tmp_literature_validation"
 WORKSPACE_TMP.mkdir(parents=True, exist_ok=True)
@@ -26,17 +26,14 @@ class LiteratureValidationTest(unittest.TestCase):
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
-    def test_literature_validation_can_write_vault_note(self) -> None:
-        tmpdir = WORKSPACE_TMP / "case_note"
+    def test_literature_validation_uses_public_relative_sources(self) -> None:
+        tmpdir = WORKSPACE_TMP / "case_sources"
         shutil.rmtree(tmpdir, ignore_errors=True)
         tmpdir.mkdir(parents=True, exist_ok=False)
         try:
-            report, output_dir = run_literature_validation(output_root=tmpdir / "artifacts")
-            note_path = write_vault_report(report, artifact_dir=output_dir, note_root=tmpdir / "notes")
-            self.assertTrue(note_path.exists())
-            note_text = note_path.read_text(encoding="utf-8-sig")
-            self.assertIn("Validação contra Literatura BSM2", note_text)
-            self.assertIn("Qgas", note_text)
+            report, _ = run_literature_validation(output_root=tmpdir)
+            initial_source = report["pyadm1"]["execution"]["initial_state_source"]
+            self.assertEqual(initial_source, "vendor/PyADM1/src/digester_initial.csv")
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 

@@ -195,7 +195,6 @@ with st.sidebar:
 # --- Header e status ---
 
 render_page_header(
-    eyebrow="Fase W2 + W7",
     title="Simular Reator",
     description=(
         "Fluxo principal: configurar o caso, validar os inputs, salvar presets "
@@ -212,7 +211,6 @@ render_workflow_links(
     items=[
         {"path": "pages/02_Comparar_Cenarios.py", "label": "Comparar Cenarios", "caption": "Usar depois de persistir mais de um caso."},
         {"path": "pages/04_Validacao.py", "label": "Validacao", "caption": "Checar aderencia do backend antes de estudos mais sensiveis."},
-        {"path": "pages/05_Consulta_Tecnica.py", "label": "Consulta Tecnica", "caption": "Consultar literatura e mapear parametros do caso."},
     ],
 )
 render_usage_guide(

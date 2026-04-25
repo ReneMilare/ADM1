@@ -7,10 +7,8 @@ ensure_project_root()
 import streamlit as st
 
 from webapp.components.status_cards import (
-    render_artifact_table,
     render_dependency_table,
     render_issue_messages,
-    render_path_table,
     render_service_table,
     render_sidebar_panel,
     render_summary_cards,
@@ -21,8 +19,6 @@ from webapp.components.tables import render_frame
 from webapp.services.health import collect_health_snapshot
 from webapp.services.preferences_service import (
     get_preferences,
-    list_favorite_queries,
-    list_recent_queries,
     list_recent_simulations,
     list_simulation_presets,
 )
@@ -37,9 +33,8 @@ st.session_state["recent_page"] = "home"
 preferences = get_preferences()
 render_sidebar_panel(snapshot, current_page="Visao geral")
 render_page_header(
-    eyebrow="Fases W1 a W7",
     title="ADM1 Workbench",
-    description="Interface local para simulacao, comparacao de cenarios, design assistido, validacao tecnica, consulta documental e operacao recorrente por presets, historico e configuracoes do usuario.",
+    description="Interface local para simulacao, comparacao de cenarios, design assistido, validacao tecnica e operacao recorrente por presets, historico e configuracoes do usuario.",
 )
 
 if snapshot["issues"]:
@@ -55,7 +50,6 @@ render_workflow_links(
         {"path": "pages/02_Comparar_Cenarios.py", "label": "Comparar Cenarios", "caption": "Comparar casos persistidos lado a lado."},
         {"path": "pages/03_Design_de_Reator.py", "label": "Design de Reator", "caption": "Escolher o reator mais adequado ao objetivo."},
         {"path": "pages/04_Validacao.py", "label": "Validacao", "caption": "Checar benchmark interno e literatura."},
-        {"path": "pages/05_Consulta_Tecnica.py", "label": "Consulta Tecnica", "caption": "Buscar trechos do acervo ADM1 com citacao."},
         {"path": "pages/06_Configuracoes.py", "label": "Configuracoes", "caption": "Gerenciar preferencias, presets e historico."},
     ],
 )
@@ -68,7 +62,6 @@ if bool(preferences.get("show_home_onboarding", True)):
             "Comece em `Simular Reator` para montar ou reaplicar um caso.",
             "Use `Comparar Cenarios` quando houver pelo menos dois cenarios persistidos.",
             "Consulte `Validacao` antes de tratar um numero como referencia tecnica externa.",
-            "Passe por `Consulta Tecnica` para relacionar literatura, fonte/pagina e parametros do modelo.",
             "Ajuste defaults e limpe historicos em `Configuracoes` quando quiser estabilizar o uso recorrente.",
         ],
         tips=[
@@ -78,8 +71,6 @@ if bool(preferences.get("show_home_onboarding", True)):
     )
 
 recent_simulations = list_recent_simulations(limit=6)
-recent_queries = list_recent_queries(limit=6)
-favorite_queries = list_favorite_queries()[:6]
 saved_presets = list_simulation_presets()[:6]
 
 left, right = st.columns((1.35, 1.0))
@@ -89,13 +80,13 @@ with left:
     st.markdown("- Comparacao de cenarios com deltas e sobreposicao de curvas.")
     st.markdown("- Design assistido com ranking, interpretacao e export do estudo.")
     st.markdown("- Validacao tecnica com benchmark interno, benchmark BSM2 e artefatos baixaveis.")
-    st.markdown("- Consulta ao RAG local com citacao por fonte/pagina, expansao de contexto e favoritos.")
+    st.markdown("- Operacao recorrente com historico local e configuracoes persistentes.")
 with right:
-    st.subheader("Camada W7")
+    st.subheader("Operacao recorrente")
     st.markdown("- Onboarding curto embutido na interface.")
     st.markdown("- Navegacao direta entre fluxos pelo sidebar e pela home.")
-    st.markdown("- Configuracoes persistentes de backend, reator e busca tecnica.")
-    st.markdown("- Historico recente e gestao local de presets/favoritos.")
+    st.markdown("- Configuracoes persistentes de backend, reator e exibicao da interface.")
+    st.markdown("- Historico recente e gestao local de presets.")
 
 activity_col1, activity_col2 = st.columns(2)
 with activity_col1:
@@ -105,16 +96,23 @@ with activity_col1:
     else:
         st.caption("As simulacoes mais recentes aparecerao aqui depois da primeira execucao com sucesso.")
 with activity_col2:
-    st.subheader("Consultas e favoritos")
-    if recent_queries or favorite_queries:
-        if favorite_queries:
-            st.markdown("**Favoritas**")
-            render_frame(favorite_queries)
-        if recent_queries:
-            st.markdown("**Recentes**")
-            render_frame(recent_queries)
+    st.subheader("Presets recentes")
+    if saved_presets:
+        preset_rows = []
+        for item in saved_presets:
+            summary = item.get("summary", {}) if isinstance(item.get("summary"), dict) else {}
+            preset_rows.append(
+                {
+                    "preset": item.get("name"),
+                    "reator": summary.get("reactor_type"),
+                    "modo": summary.get("substrate_mode"),
+                    "backend": summary.get("backend_choice"),
+                    "atualizado_em": item.get("updated_at"),
+                }
+            )
+        render_frame(preset_rows)
     else:
-        st.caption("As consultas tecnicas recentes e favoritas aparecerao aqui depois do uso da tela `Consulta Tecnica`.")
+        st.caption("Os presets recentes aparecerao aqui depois dos primeiros salvamentos na tela `Simular Reator`.")
 
 st.subheader("Cenários recentes")
 recent_artifacts = list_recent_artifacts(limit=5)
@@ -158,10 +156,6 @@ render_dependency_table(snapshot)
 
 st.subheader("Servicos do backend")
 render_service_table(snapshot)
-
-st.subheader("Pastas e artefatos")
-render_path_table(snapshot)
-render_artifact_table(snapshot)
 
 st.subheader("Como abrir a interface")
 st.code("streamlit run webapp/app.py", language="bash")

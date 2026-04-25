@@ -18,14 +18,14 @@ def configure_page(title: str) -> None:
     st.markdown(_theme_css, unsafe_allow_html=True)
 
 
-def render_page_header(*, eyebrow: str, title: str, description: str) -> None:
-    safe_eyebrow = html.escape(eyebrow)
+def render_page_header(*, title: str, description: str, eyebrow: str | None = None) -> None:
     safe_title = html.escape(title)
     safe_description = html.escape(description)
+    kicker_html = f'<div class="adm1-kicker">{html.escape(eyebrow)}</div>' if eyebrow else ""
     st.markdown(
         f"""
         <div class=\"adm1-hero\">
-          <div class=\"adm1-kicker\">{safe_eyebrow}</div>
+          {kicker_html}
           <h1>{safe_title}</h1>
           <p class=\"adm1-note\">{safe_description}</p>
         </div>

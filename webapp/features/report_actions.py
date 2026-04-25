@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from webapp.contracts import ReportPayload
-from webapp.services.report_service import DEFAULT_VAULT_PATH
+from webapp.services.report_service import DEFAULT_REPORT_DIR
 
 if TYPE_CHECKING:
     from simulator.core.models import SimulationResult
@@ -24,12 +24,12 @@ def generate_report(
 
 def export_report(
     payload: ReportPayload,
-    vault_path: str = DEFAULT_VAULT_PATH,
+    output_dir: str = str(DEFAULT_REPORT_DIR),
 ) -> tuple[str, str | None]:
-    """Salva relatório no vault. Retorna (path, None) ou ('', error_msg)."""
-    from webapp.services.report_service import export_report_to_vault
+    """Salva relatório em artefatos locais. Retorna (path, None) ou ('', error_msg)."""
+    from webapp.services.report_service import export_report_to_local_file
     try:
-        path = export_report_to_vault(payload, vault_path)
+        path = export_report_to_local_file(payload, output_dir)
         return path, None
     except Exception as exc:
         return "", str(exc)

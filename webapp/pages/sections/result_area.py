@@ -495,8 +495,8 @@ def _render_export(result: Any, *, show_advanced: bool = False) -> None:
     _rep_col1, _rep_col2 = st.columns(2)
     with _rep_col1:
         if st.button(
-            "📄 Exportar relatório Markdown",
-            key=f"export_vault_{result.simulation_id}",
+            "📄 Salvar relatório Markdown",
+            key=f"export_report_{result.simulation_id}",
             use_container_width=True,
         ):
             from webapp.features.report_actions import export_report, generate_report, render_markdown

@@ -27,17 +27,8 @@ if (Test-Path $zipPath) {
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $stagingRoot -Force | Out-Null
 
-$vaultDir = @(
-    "vaultObsidianAMD1",
-    "vaultObsidian"
-) | Where-Object {
-    Test-Path (Join-Path $projectRoot $_)
-} | Select-Object -First 1
-
 $topLevelItems = @(
     ".streamlit",
-    "documentation",
-    "rag",
     "scripts",
     "simulator",
     "vendor",
@@ -48,12 +39,6 @@ $topLevelItems = @(
     "README.md",
     "requirements.txt"
 )
-
-if ($vaultDir) {
-    $topLevelItems += $vaultDir
-} else {
-    Write-Warning "Nenhum vault Obsidian encontrado para incluir no bundle."
-}
 
 function Get-RelativePath([string]$fullPath) {
     return $fullPath.Substring($projectRoot.Length).TrimStart('\\')
@@ -77,7 +62,8 @@ function Should-Exclude([string]$relativePath) {
     if ($path -match '^simulator\\\.pyadm1_runtime\\probe-[^\\]+(\\|$)') { return $true }
     if ($path -match '^simulator\\\.pyadm1_runtime\\run-[^\\]+(\\|$)') { return $true }
     if ($path -match '^simulator\\\.pyadm1_runtime\\run_[^\\]+(\\|$)') { return $true }
-    if ($path -match '^vaultObsidian(AMD1)?\\\.obsidian\\workspace\.json$') { return $true }
+    if ($path -match '^documentation(\\|$)') { return $true }
+    if ($path -match '^vaultObsidian(AMD1)?(\\|$)') { return $true }
     if ($path -match '^dist(\\|$)') { return $true }
 
     return $false

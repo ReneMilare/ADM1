@@ -13,7 +13,6 @@ _PAGE_LINKS = [
     {"path": "pages/02_Comparar_Cenarios.py", "label": "Comparar Cenarios"},
     {"path": "pages/03_Design_de_Reator.py", "label": "Design de Reator"},
     {"path": "pages/04_Validacao.py", "label": "Validacao"},
-    {"path": "pages/05_Consulta_Tecnica.py", "label": "Consulta Tecnica"},
     {"path": "pages/06_Configuracoes.py", "label": "Configuracoes"},
 ]
 
@@ -44,7 +43,6 @@ def render_sidebar_panel(snapshot: dict[str, Any], *, current_page: str) -> None
         status_html = " ".join(
             [
                 status_chip("Servicos prontos", "ok" if snapshot["summary"]["services_ok"] == snapshot["summary"]["services_total"] else "warning"),
-                status_chip("RAG pronto", "ok" if snapshot["summary"]["rag_ready"] else "warning"),
                 status_chip("Sem bloqueios", "ok" if snapshot["summary"]["critical_issues"] == 0 else "error"),
             ]
         )
@@ -101,27 +99,12 @@ def render_service_table(snapshot: dict[str, Any]) -> None:
     st.dataframe(rows, use_container_width=True, hide_index=True)
 
 
-def render_path_table(snapshot: dict[str, Any]) -> None:
-    rows = []
-    for item in snapshot["paths"]:
-        rows.append(
-            {
-                "recurso": item["label"],
-                "status": item["status"],
-                "itens": item["item_count"],
-                "caminho": item["path"],
-            }
-        )
-    st.dataframe(rows, use_container_width=True, hide_index=True)
-
-
 def render_artifact_table(snapshot: dict[str, Any]) -> None:
     artifacts = snapshot["artifacts"]
     rows = [
-        {"artefato": "PDFs em documentation", "valor": artifacts["pdf_count"]},
-        {"artefato": "Fontes indexadas no RAG", "valor": artifacts["rag_source_count"]},
+        {"artefato": "Cenarios salvos", "valor": artifacts["saved_scenario_count"]},
         {"artefato": "Benchmark runs", "valor": artifacts["benchmark_run_count"]},
-        {"artefato": "Fase 3 validation runs", "valor": artifacts["validation_run_count"]},
+        {"artefato": "Validation runs", "valor": artifacts["validation_run_count"]},
         {"artefato": "Literature validation runs", "valor": artifacts["literature_validation_count"]},
     ]
     st.dataframe(rows, use_container_width=True, hide_index=True)

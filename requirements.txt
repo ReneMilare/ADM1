@@ -1,10 +1,6 @@
-﻿# Fase 1: RAG + Obsidian
-chromadb>=0.5
-docling>=2.0
+# Runtime principal: simulacao, MCP do simulador e webapp
 mcp[cli]>=1.0
-ollama>=0.4
 pydantic>=2,<3
-pymupdf>=1.24
 pyyaml>=6.0
 
 # Fase 2 em diante: simulacao e visualizacao

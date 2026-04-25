@@ -18,7 +18,8 @@ from webapp.contracts import (
     SimulationReviewSnapshot,
 )
 
-DEFAULT_VAULT_PATH = str(Path(__file__).resolve().parents[2] / "vaultObsidianAMD1")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_REPORT_DIR = Path("webapp") / "user_data" / "reports"
 
 
 # ─── Helpers internos ─────────────────────────────────────────────────────────
@@ -364,27 +365,32 @@ def render_report_markdown(payload: ReportPayload) -> str:
     return "\n".join(lines)
 
 
-def export_report_to_vault(payload: ReportPayload, vault_path: str = DEFAULT_VAULT_PATH) -> str:
-    """Salva o relatório Markdown no vault do Obsidian.
+def export_report_to_local_file(payload: ReportPayload, output_dir: str | Path = DEFAULT_REPORT_DIR) -> str:
+    """Salva o relatório Markdown em uma pasta local ignorada pelo Git.
 
     Args:
         payload: ReportPayload com os dados do relatório.
-        vault_path: Caminho para o vault Obsidian. Usa DEFAULT_VAULT_PATH se omitido.
+        output_dir: Pasta de destino absoluta ou relativa à raiz do projeto.
 
     Returns:
-        Caminho absoluto do arquivo criado.
+        Caminho relativo ao projeto quando possível.
     """
     sim_id = payload.scenario_id or payload.draft.draft_id
     date_str = payload.generated_at[:10] if payload.generated_at else datetime.now(timezone.utc).strftime("%Y-%m-%d")
     filename = f"Relatorio_Sim_{sim_id}_{date_str}.md"
 
-    reports_dir = Path(vault_path) / "reports"
+    reports_dir = Path(output_dir)
+    if not reports_dir.is_absolute():
+        reports_dir = PROJECT_ROOT / reports_dir
     reports_dir.mkdir(parents=True, exist_ok=True)
 
     file_path = reports_dir / filename
     content = render_report_markdown(payload)
     file_path.write_text(content, encoding="utf-8")
-    return str(file_path)
+    try:
+        return file_path.relative_to(PROJECT_ROOT).as_posix()
+    except ValueError:
+        return str(file_path)
 
 
 def report_payload_to_csv_bytes(payload: ReportPayload) -> bytes:

@@ -1,98 +1,243 @@
-﻿# Projeto ADM1
+# ADM1 Workbench
 
-Base local para estudo, busca semantica e simulacao ADM1 voltada ao design de reatores de biogas.
+> Plataforma local em Python para simular, comparar, validar e apoiar o design de reatores de digestão anaeróbia usando o **Anaerobic Digestion Model No. 1 (IWA ADM1)**.
 
-## Estado Atual
+![Python](https://img.shields.io/badge/Python-3.11%2B-blue?logo=python&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Streamlit-UI-FF4B4B?logo=streamlit&logoColor=white)
+![PyADM1](https://img.shields.io/badge/Backend-PyADM1%20%2B%20Reduced-green)
+![License](https://img.shields.io/badge/License-Apache%202.0-blue)
+![AI-Assisted](https://img.shields.io/badge/Desenvolvido%20com-IA-8A2BE2?logo=openai&logoColor=white)
 
-- Fase 1 concluida: extracao estruturada de PDFs, indice vetorial persistente, embeddings locais via Ollama e MCP de RAG read-only
-- Fase 2 concluida: motor ADM1 com backend padrao `pyadm1`, fallback explicito para `reduced` em reatores ainda nao suportados pelo original, persistencia de cenarios e MCP do simulador
-- Fase 3 implementada na camada local: validacao automatizada, pipeline de design e ferramentas MCP adicionais; OpenModelica ainda depende da toolchain externa
-- Fases W1 a W7 concluidas: shell da interface web em `Streamlit`, simulacao, comparacao de cenarios, design assistido, validacao tecnica, consulta ao acervo RAG e camada de operacao recorrente com presets do usuario, historico, favoritos e configuracoes persistentes
+---
 
-## Estrutura Principal
+## Desenvolvido com IA
 
-- `rag/`: extracao, indexacao, busca hibrida e MCP de documentos
-- `simulator/`: motor numerico, modelos de reator, benchmark de backends, validacao Fase 3, pipeline de design, persistencia e MCP de simulacao
-- `vaultObsidianAMD1/`: mapa conceitual, notas tecnicas e plano do projeto
-- `webapp/`: interface web local em `Streamlit`
+Este projeto foi construído com participação ativa de modelos de linguagem ao longo de todo o ciclo de desenvolvimento — não apenas como assistente de código, mas como parceiro de arquitetura, revisão técnica e documentação.
 
-## Como usar
+| Modelo | Uso principal |
+|---|---|
+| **Claude (Anthropic)** | Arquitetura, revisão de código, documentação, validações técnicas |
+| **Codex (OpenAI)** | Geração e refatoração de código |
+| **GitHub Copilot** | Autocompletar e iterações rápidas no editor |
+| **Gemini (Google)** | Revisão e contraponto técnico, busca na internet |
+
+As decisões de arquitetura, curadoria de escopo e responsabilidade de publicação permanecem sob revisão humana.
+
+---
+
+## Visão Geral
+
+ADM1 Workbench combina um motor numérico ADM1, uma interface web Streamlit e ferramentas CLI em um único repositório autocontido:
+
+| Componente | Descrição |
+|---|---|
+| `simulator/` | Motor ADM1, backends numéricos, validações, design e servidor MCP |
+| `webapp/` | Interface Streamlit com 5 páginas funcionais |
+| `vendor/PyADM1/` | Submódulo PyADM1 vendorizado (backend de alta fidelidade) |
+| `scripts/` | Automações PowerShell para setup, execução e verificação |
+
+---
+
+## Funcionalidades
+
+- **Simulação** — execute estudos ADM1 com persistência opcional de cenários
+- **Comparação** — compare cenários salvos com deltas de KPIs e sobreposição de séries temporais
+- **Design assistido** — ranqueie tipos de reator conforme objetivo técnico (metano, estabilidade, etc.)
+- **Validação** — benchmark interno, caso BSM2 e checagem OpenModelica
+- **Dois backends** — `pyadm1` (alta fidelidade) e `reduced` (rápido, sempre disponível)
+- **Servidor MCP** — integração com agentes e automações externas
+
+---
+
+## Início Rápido
+
+### 1. Clone com submódulos
 
 ```bash
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-python rag/extract_pdfs.py
-python rag/index_documents.py
-python rag/mcp_server.py
-python simulator/mcp_server.py
-python -m simulator.benchmark
-python -m simulator.validation
-python -m simulator.design_pipeline --substrate "Lodo de Esgoto" --goal balanced --backend auto
-streamlit run webapp/app.py
+git clone --recurse-submodules <repo-url>
+cd ADM1
 ```
 
-## Variaveis de ambiente
+Se o clone já foi feito sem submódulos:
 
-- `ADM1_OLLAMA_HOST`: host HTTP do Ollama. Padrao: `http://127.0.0.1:11434`
-- `ADM1_EMBED_MODEL`: modelo de embedding. Padrao: `bge-m3`
-- `ADM1_CHROMA_COLLECTION`: nome da colecao Chroma. Padrao: `adm1_docs`
-- `ADM1_CHUNK_TOKENS`: tamanho alvo dos chunks. Padrao: `450`
-- `ADM1_CHUNK_OVERLAP`: overlap fracionario entre janelas. Padrao: `0.2`
+```bash
+git submodule update --init --recursive
+```
 
-## Fluxo Atual
+### 2. Crie o ambiente e instale dependências
 
-1. PDFs em `documentation/`
-2. JSONs estruturados em `rag/extracted/`
-3. Banco vetorial persistente em `rag/db/`
-4. Simulacoes e cenarios persistidos em `simulator/runs/`
-5. Ferramentas MCP para documentos e para o simulador ADM1
-6. Benchmark local entre `reduced` e `pyadm1` em `simulator/benchmarks/`
-7. Relatorios de validacao da Fase 3 em `simulator/validation_runs/`
-8. Pipeline de design de reatores em `simulator/design_pipeline.py`
-9. Interface web local em `webapp/app.py`
+```powershell
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-## Fluxo Recomendado Para Testes Locais
-
-Para distribuir a solucao para outras pessoas testarem localmente, preserve a estrutura completa do projeto e use os scripts em `scripts/`.
-
-### Setup inicial
+Ou use o script de setup:
 
 ```powershell
 .\scripts\setup_local.ps1
 ```
 
-O setup prepara o `.venv`, instala as dependencias Python e pergunta se o usuario quer habilitar o RAG agora.
-
-### Verificacao rapida do ambiente
+### 3. Verifique o ambiente
 
 ```powershell
 .\scripts\check_env.ps1
 ```
 
-### Subir a interface
+### 4. Inicie a interface web
 
 ```powershell
-.\scripts\run_webapp.ps1
+streamlit run webapp/app.py
 ```
 
-### Sobre o RAG opcional
+Acesse em: **http://localhost:8501**
 
-- O projeto principal roda sem RAG.
-- Sem RAG, os fluxos de simulacao, comparacao, design e validacao continuam funcionais.
-- A tela `Consulta Tecnica` passa a depender de indice local em `rag/db`, Ollama local e modelo de embedding `bge-m3`.
-- O setup tenta detectar `Ollama` e o modelo; se nao encontrar, pergunta se o usuario quer instalar/baixar.
+---
 
-## Clonando do GitHub
+## Screenshots
 
-Se voce clonar a partir do repositório Git, inicialize tambem o submodulo vendorizado do PyADM1:
+### Visão geral — Home
 
-```bash
-git clone --recurse-submodules <repo-url>
+![Home](docs/screenshots/01_home.png)
+
+### Simular Reator — configuração do caso
+
+![Simular Reator](docs/screenshots/03_simular_reator_resultado.png)
+
+### Comparar Cenários — curvas sobrepostas
+
+![Comparar Cenarios - graficos](docs/screenshots/06_comparar_graficos.png)
+
+### Design de Reator — pipeline assistido
+
+![Design de Reator](docs/screenshots/07_design_de_reator.png)
+
+---
+
+## Interface Web
+
+Cinco páginas acessíveis pelo sidebar:
+
+| Página | Função |
+|---|---|
+| **Simular Reator** | Monta e executa estudos ADM1; salva presets e cenários |
+| **Comparar Cenários** | Compara execuções persistidas com deltas KPI e séries sobrepostas |
+| **Design de Reator** | Ranqueia reatores candidatos conforme objetivo técnico |
+| **Validação** | Executa e lê validações locais (benchmark interno, BSM2, OpenModelica) |
+| **Configurações** | Gerencia preferências, presets e histórico local |
+
+---
+
+## Backends de Simulação
+
+| Backend | Fidelidade | Velocidade | Indicado para |
+|---|---|---|---|
+| `pyadm1` | Alta — ADM1 IWA completo | Mais lento | Estudos CSTR com rigor técnico |
+| `reduced` | Modelo 11 estados | Mais rápido | Exploração, fallback, protótipos |
+| `auto` | — | — | Seleção automática com registro explícito de fallback |
+
+O backend `pyadm1` está vendorizado em `vendor/PyADM1/` como submódulo Git.
+
+---
+
+## Uso Via CLI
+
+```powershell
+# Benchmark local
+python -m simulator.benchmark
+
+# Validação
+python -m simulator.validation
+
+# Design de reator
+python -m simulator.design_pipeline --substrate "Lodo de Esgoto" --goal balanced --backend auto
+
+# Servidor MCP
+python simulator/mcp_server.py
 ```
 
-Se o clone ja tiver sido feito sem submodulos:
+---
 
-```bash
-git submodule update --init --recursive
+## Testes
+
+```powershell
+# Suíte principal
+python -m pytest simulator/tests -q
+
+# Testes do webapp
+python -m pytest webapp/testing -q
+
+# Testes focados
+python -m pytest simulator/tests/test_simulator.py -q
+python -m pytest simulator/tests/test_literature_validation.py -q
+python -m pytest simulator/tests/test_full_model_phase6.py -q
 ```
+
+---
+
+## Estrutura do Projeto
+
+```text
+ADM1/
+├── simulator/              # motor ADM1, backends, validações, design e MCP
+│   ├── core/               # modelos Pydantic, defaults, cinética e adapter PyADM1
+│   ├── full_model/         # modelo full nativo, extensões e governança
+│   ├── reactor_models/     # estratégias de reator (CSTR, UASB, plug-flow)
+│   └── tests/              # suíte pytest do simulador
+├── webapp/                 # interface Streamlit
+│   ├── pages/              # páginas numeradas da interface
+│   ├── services/           # serviços consumidos pela UI
+│   └── testing/            # testes de suporte do webapp
+├── scripts/                # automações PowerShell
+├── vendor/PyADM1/          # submódulo PyADM1
+├── requirements.txt
+└── pyproject.toml
+```
+
+Diretórios gerados localmente (não versionados): `simulator/runs/`, `simulator/.pyadm1_runtime/`, `webapp/user_data/`, `dist/`.
+
+---
+
+## Requisitos
+
+- **Python 3.11+**
+- **Git** com suporte a submódulos
+- **Windows PowerShell** (para os scripts em `scripts/`)
+- **OpenModelica** — opcional; necessário apenas para validações cruzadas específicas
+
+---
+
+## Artefatos Locais
+
+Fluxos do workbench podem gerar arquivos locais (todos ignorados pelo `.gitignore`):
+
+| Diretório | Conteúdo |
+|---|---|
+| `simulator/runs/` | Cenários persistidos |
+| `simulator/benchmarks/` | Resultados de benchmark |
+| `simulator/validation_runs/` | Validações internas |
+| `simulator/literature_validation_runs/` | Validações BSM2 |
+| `webapp/user_data/` | Preferências e presets da UI |
+
+---
+
+## Desenvolvimento
+
+Stack principal: Python 3.11+, Pydantic v2, NumPy, SciPy, Pandas, Plotly, Streamlit.
+
+Não há formatter ou linter obrigatório configurado — siga o estilo local: type hints, funções pequenas, testes focados.
+
+- **Ao alterar cinética, estequiometria ou backends** → atualize ou adicione testes em `simulator/tests/`
+- **Ao alterar a UI** → valide manualmente no Streamlit e rode `webapp/testing` quando aplicável
+
+---
+
+## Licença
+
+Copyright 2026 Rene Pereira Milare
+
+Distribuído sob a **Apache License 2.0** — veja o arquivo [`LICENSE`](LICENSE) para os termos completos.
+
+### Dependência vendorizada — PyADM1
+
+O subdiretório `vendor/PyADM1/` é um submódulo Git apontando para o projeto [PyADM1](https://github.com/CaptainFest/PyADM1), licenciado sob **MIT License** (Copyright 2021 Peyman Sadrimajd). A atribuição original deve ser mantida ao redistribuir ou publicar bundles derivados.

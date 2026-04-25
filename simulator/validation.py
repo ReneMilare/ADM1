@@ -18,8 +18,8 @@ MODELICA_ROOT = Path(__file__).resolve().parent / "modelica"
 
 def detect_openmodelica_environment() -> dict[str, Any]:
     ompython_available = importlib.util.find_spec("OMPython") is not None
-    omc_path = shutil.which("omc")
-    omc_available = omc_path is not None
+    omc_executable = shutil.which("omc")
+    omc_available = omc_executable is not None
     omc_version = None
     ompython_session_ok = False
     ompython_error = None
@@ -28,7 +28,7 @@ def detect_openmodelica_environment() -> dict[str, Any]:
     if omc_available:
         try:
             completed = subprocess.run(
-                [omc_path, "--version"],
+                [str(omc_executable), "--version"],
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -67,7 +67,7 @@ def detect_openmodelica_environment() -> dict[str, Any]:
         ready = False
         notes = [
             "A toolchain básica existe, mas ainda não há arquivos Modelica `.mo` no workspace para a validação cruzada.",
-            f"Coloque os modelos em `{MODELICA_ROOT}` ou em outro diretório versionado do projeto.",
+            "Coloque os modelos em `simulator/modelica/` ou em outro diretório versionado do projeto.",
         ]
     elif ompython_available and omc_available and modelica_files:
         status = "ready"
@@ -90,7 +90,7 @@ def detect_openmodelica_environment() -> dict[str, Any]:
         "ompython_session_ok": ompython_session_ok,
         "ompython_error": ompython_error,
         "omc_available": omc_available,
-        "omc_path": omc_path,
+        "omc_path": Path(omc_executable).name if omc_executable else None,
         "omc_version": omc_version,
         "modelica_files": modelica_files,
         "notes": notes,
@@ -133,7 +133,7 @@ def run_phase3_validation(
 
     benchmark_report, benchmark_dir = run_benchmark(output_root=output_dir)
     benchmark_summary = {
-        "artifact_dir": str(benchmark_dir),
+        "artifact_dir": _safe_project_path(benchmark_dir),
         "runtime_seconds": benchmark_report["aggregate"]["runtime_seconds"],
         "summary_metrics": benchmark_report["aggregate"]["summary_metrics"],
         "series_metrics": benchmark_report["aggregate"]["series_metrics"],
@@ -145,7 +145,7 @@ def run_phase3_validation(
         scenario_export = export_openmodelica_scenarios(output_dir)
         external_validation = {
             "status": "completed" if openmodelica["ready"] else "pending_environment",
-            "scenario_export_path": str(scenario_export),
+            "scenario_export_path": _safe_project_path(scenario_export),
             "notes": openmodelica["notes"],
         }
     else:
@@ -188,7 +188,7 @@ def _next_steps(*, openmodelica: dict[str, Any], recommendation: dict[str, Any])
     steps: list[str] = []
     if not openmodelica.get("ready", False):
         steps.append("Instalar e configurar OpenModelica + OMPython para executar a validação cruzada externa.")
-        steps.append(f"Adicionar os modelos `.mo` em `{MODELICA_ROOT}` ou em outro diretório versionado do workspace.")
+        steps.append("Adicionar os modelos `.mo` em `simulator/modelica/` ou em outro diretório versionado do workspace.")
     if recommendation.get("prefer_pyadm1_for_cstr_fidelity", False):
         steps.append("Usar `backend=pyadm1` explicitamente nos estudos de CSTR em que fidelidade ao modelo original seja prioridade.")
     if not recommendation.get("promote_pyadm1_as_global_default", False):
@@ -224,6 +224,13 @@ def _render_markdown(report: dict[str, Any]) -> str:
     for step in conclusion["next_steps"]:
         lines.append(f"- {step}")
     return "\n".join(lines)
+
+
+def _safe_project_path(path: Path) -> str:
+    try:
+        return path.relative_to(PROJECT_ROOT).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def main() -> None:

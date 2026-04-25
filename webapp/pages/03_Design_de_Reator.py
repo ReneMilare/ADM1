@@ -33,7 +33,6 @@ snapshot = collect_health_snapshot()
 st.session_state["recent_page"] = "design_de_reator"
 render_sidebar_panel(snapshot, current_page="Design de Reator")
 render_page_header(
-    eyebrow="Fase W4",
     title="Design de Reator",
     description="Pipeline de design assistido ligado ao backend real: comparar candidatos, interpretar os scores e gerar uma recomendacao legivel para um usuario tecnico.",
 )
@@ -110,8 +109,8 @@ with form_col:
         with right:
             duration_days = st.number_input("Duracao do estudo [dias]", min_value=5.0, value=45.0, step=1.0)
             evaluation_points = st.number_input("Pontos de avaliacao", min_value=31, max_value=401, value=181, step=10)
-            persist_note = st.checkbox("Salvar nota do estudo no vault/Projeto", value=False)
-            note_title = st.text_input("Titulo da nota", value="") if persist_note else ""
+            persist_note = st.checkbox("Salvar Markdown do estudo em artefatos locais", value=False)
+            note_title = st.text_input("Titulo do relatorio", value="") if persist_note else ""
         submitted = st.form_submit_button("Rodar design assistido")
 
 if submitted:
@@ -160,7 +159,7 @@ if report is not None:
     st.markdown(f"**Recomendacao principal:** `{recommended_reactor}` com backend `{recommended_backend}`.")
     st.markdown(f"**Justificativa:** {recommendation_reason}")
     if note_path:
-        st.info(f"Nota tecnica salva em `{note_path}`")
+        st.info(f"Relatorio Markdown salvo em `{note_path}`")
 
     fallback_candidates = [candidate for candidate in candidates if str(candidate.get('backend_requested')) != str(candidate.get('backend_used'))]
     if fallback_candidates:

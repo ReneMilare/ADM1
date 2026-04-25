@@ -32,9 +32,8 @@ snapshot = collect_health_snapshot()
 st.session_state["recent_page"] = "validacao"
 render_sidebar_panel(snapshot, current_page="Validacao")
 render_page_header(
-    eyebrow="Fase W5",
     title="Validacao",
-    description="Execucao e leitura tecnica das validacoes locais do projeto: benchmark interno da Fase 3, benchmark BSM2 e estado atual da toolchain OpenModelica.",
+    description="Execucao e leitura tecnica das validacoes locais do projeto: benchmark interno, benchmark BSM2 e estado atual da toolchain OpenModelica.",
 )
 
 if snapshot["issues"]:
@@ -61,11 +60,10 @@ with controls_col1:
                 st.session_state["latest_phase3_validation_error"] = str(exc)
 with controls_col2:
     st.subheader("Executar validacao contra literatura")
-    write_vault_note_enabled = st.checkbox("Salvar nota no vault ao final da validacao BSM2", value=False)
     if st.button("Rodar validacao BSM2", use_container_width=True):
         with st.spinner("Executando a validacao contra a literatura BSM2..."):
             try:
-                st.session_state["latest_literature_validation"] = run_literature_workflow(write_vault_note_enabled=write_vault_note_enabled)
+                st.session_state["latest_literature_validation"] = run_literature_workflow()
                 st.session_state["latest_literature_validation_error"] = None
             except Exception as exc:
                 st.session_state["latest_literature_validation_error"] = str(exc)
@@ -173,7 +171,7 @@ if literature_bundle and literature_bundle.get("report"):
         st.markdown("**reduced vs referência**")
         render_frame(literature_comparison_frame(literature_report, backend="reduced"))
 
-    artifact_col1, artifact_col2, artifact_col3 = st.columns(3)
+    artifact_col1, artifact_col2 = st.columns(2)
     with artifact_col1:
         json_bytes = artifact_bytes(literature_bundle.get("json_path"))
         if json_bytes is not None:
@@ -192,17 +190,6 @@ if literature_bundle and literature_bundle.get("report"):
                 file_name=Path(str(literature_bundle['markdown_path'])).name,
                 mime="text/markdown",
             )
-    with artifact_col3:
-        note_path = literature_bundle.get("vault_note_path")
-        note_bytes = artifact_bytes(note_path)
-        if note_bytes is not None:
-            st.download_button(
-                label="Baixar nota do vault",
-                data=note_bytes,
-                file_name=Path(str(note_path)).name,
-                mime="text/markdown",
-            )
-
     markdown_preview = markdown_artifact_text(literature_bundle.get("markdown_path"))
     if markdown_preview:
         with st.expander("Preview do markdown da literatura", expanded=False):

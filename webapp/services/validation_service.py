@@ -6,7 +6,7 @@ from typing import Any
 
 import pandas as pd
 
-from simulator.literature_validation import run_literature_validation, write_vault_report
+from simulator.literature_validation import run_literature_validation
 from simulator.validation import detect_openmodelica_environment, run_phase3_validation
 from webapp.services.health import load_latest_report
 
@@ -31,11 +31,8 @@ def run_phase3_workflow(*, include_openmodelica: bool) -> dict[str, Any]:
     }
 
 
-def run_literature_workflow(*, write_vault_note_enabled: bool) -> dict[str, Any]:
+def run_literature_workflow() -> dict[str, Any]:
     report, output_dir = run_literature_validation()
-    note_path = None
-    if write_vault_note_enabled:
-        note_path = write_vault_report(report, artifact_dir=output_dir)
     json_path = output_dir / "literature_validation.json"
     md_path = output_dir / "literature_validation.md"
     return {
@@ -43,7 +40,6 @@ def run_literature_workflow(*, write_vault_note_enabled: bool) -> dict[str, Any]
         "output_dir": str(output_dir),
         "json_path": str(json_path),
         "markdown_path": str(md_path),
-        "vault_note_path": str(note_path) if note_path is not None else None,
     }
 
 
@@ -158,15 +154,4 @@ def _bundle_from_latest(latest: dict[str, Any] | None, *, markdown_name: str) ->
         "markdown_path": str(markdown_path) if markdown_path.exists() else None,
         "error": None,
     }
-    if markdown_name == "literature_validation.md":
-        report = latest.get("data") or {}
-        bundle["vault_note_path"] = _find_literature_vault_note(report)
     return bundle
-
-
-def _find_literature_vault_note(report: dict[str, Any]) -> str | None:
-    for vault_name in ("vaultObsidianAMD1", "vaultObsidian"):
-        project_note = PROJECT_ROOT / vault_name / "Projeto" / "Validação contra Literatura BSM2.md"
-        if project_note.exists():
-            return str(project_note)
-    return None

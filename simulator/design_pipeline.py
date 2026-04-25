@@ -11,11 +11,7 @@ from simulator.core.models import CoDigestionBlend, FeedDefinition, OperatingCon
 from simulator.service import ADM1SimulationService
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-VAULT_ROOT = next(
-    (candidate for candidate in (PROJECT_ROOT / "vaultObsidianAMD1", PROJECT_ROOT / "vaultObsidian") if candidate.exists()),
-    PROJECT_ROOT / "vaultObsidianAMD1",
-)
-DEFAULT_NOTE_ROOT = VAULT_ROOT / "Projeto"
+DEFAULT_NOTE_ROOT = PROJECT_ROOT / "simulator" / "design_runs"
 
 SUBSTRATE_PRESETS: dict[str, dict[str, Any]] = {
     "lodo_de_esgoto": {
@@ -243,7 +239,7 @@ class ADM1DesignPipeline:
             "backend_policy_note": backend_policy_note,
             "reduced_is_exploratory": reduced_is_exploratory,
             "candidates": scored_candidates,
-            "note_path": str(note_path) if note_path is not None else None,
+            "note_path": _safe_project_path(note_path) if note_path is not None else None,
         }
 
     def _resolve_substrate(self, substrate: str) -> tuple[str, dict[str, Any]]:
@@ -382,7 +378,7 @@ def _render_note(
         "",
         "## Entrada",
         "",
-        f"- Substrato: {preset['note_link']}",
+        f"- Substrato: `{preset['label']}`",
         f"- Objetivo: `{design_goal}`",
         f"- Estratégia de backend: `{backend}`",
         f"- Volume: `{operating.volume_m3:.1f} m3`",
@@ -439,6 +435,13 @@ def _render_note(
             f"| {candidate['reactor_type']} | {candidate['backend_requested']} | {candidate['backend_used']} | {candidate['score']:.3f} | {summary['methane_final_m3_day']:.3f} | {summary['ph_final']:.3f} | {summary['vfa_final']:.3f} | {summary['effluent_cod_final']:.3f} |"
         )
     return "\n".join(lines)
+
+
+def _safe_project_path(path: Path) -> str:
+    try:
+        return path.relative_to(PROJECT_ROOT).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def main() -> None:

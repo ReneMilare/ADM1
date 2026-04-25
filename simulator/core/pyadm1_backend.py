@@ -227,7 +227,7 @@ def simulate_with_pyadm1_frames(
     initial_frame: pd.DataFrame,
 ) -> dict[str, Any]:
     if not VENDOR_PYADM1_SRC.exists():
-        raise FileNotFoundError(f"PyADM1 vendor source was not found in {VENDOR_PYADM1_SRC}")
+        raise FileNotFoundError("PyADM1 vendor source was not found in vendor/PyADM1/src")
 
     influent = _coerce_frame(frame=influent_frame, columns=INFLUENT_COLUMNS, frame_name="influent_frame")
     initial = _coerce_frame(frame=initial_frame, columns=INITIAL_COLUMNS, frame_name="initial_frame")
@@ -279,7 +279,7 @@ def _execute_pyadm1_case(
             "solver_status": f"PyADM1 completed with {simulation.solver}",
             "final_internal_state": final_internal_state,
             "pyadm1_runtime": "subprocess",
-            "pyadm1_source": str(VENDOR_PYADM1_SRC / "PyADM1.py"),
+            "pyadm1_source": "vendor/PyADM1/src/PyADM1.py",
             "pyadm1_state_columns": RESULT_COLUMNS,
         }
         success = True
@@ -289,7 +289,7 @@ def _execute_pyadm1_case(
             "metadata": metadata,
         }
     except Exception as exc:
-        raise RuntimeError(f"PyADM1 execution failed; runtime preserved in {runtime_dir}") from exc
+        raise RuntimeError(f"PyADM1 execution failed; runtime preserved in {_safe_project_path(runtime_dir)}") from exc
     finally:
         if success:
             _cleanup_runtime_dir(runtime_dir)
@@ -305,6 +305,13 @@ def _coerce_frame(*, frame: pd.DataFrame, columns: list[str], frame_name: str) -
     for column in columns:
         coerced[column] = coerced[column].astype(float)
     return coerced
+
+
+def _safe_project_path(path: Path) -> str:
+    try:
+        return path.relative_to(PROJECT_ROOT).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def _prepare_runtime_dir() -> Path:

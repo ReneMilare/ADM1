@@ -35,7 +35,6 @@ snapshot = collect_health_snapshot()
 st.session_state["recent_page"] = "comparar_cenarios"
 render_sidebar_panel(snapshot, current_page="Comparar Cenarios")
 render_page_header(
-    eyebrow="Fase W3",
     title="Comparar Cenarios",
     description="Catálogo filtrável de cenários persistidos, comparação KPI a KPI e sobreposição das curvas principais para estudo técnico lado a lado.",
 )
@@ -347,8 +346,8 @@ else:
             _rcol1, _rcol2 = st.columns(2)
             with _rcol1:
                 if st.button(
-                    "📄 Exportar relatório do cenário A",
-                    key=f"rep_vault_a_{diff_id_a}",
+                    "📄 Salvar relatório do cenário A",
+                    key=f"rep_report_a_{diff_id_a}",
                     use_container_width=True,
                 ):
                     _rpath, _rerr = export_report(_rep_payload)

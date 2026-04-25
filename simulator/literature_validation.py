@@ -22,12 +22,6 @@ from simulator.service import ADM1SimulationService
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT_ROOT = Path(__file__).resolve().parent / "literature_validation_runs"
-VAULT_ROOT = next(
-    (candidate for candidate in (PROJECT_ROOT / "vaultObsidianAMD1", PROJECT_ROOT / "vaultObsidian") if candidate.exists()),
-    PROJECT_ROOT / "vaultObsidianAMD1",
-)
-DEFAULT_VAULT_NOTE_ROOT = VAULT_ROOT / "Projeto"
-DEFAULT_VAULT_NOTE_NAME = "Validação contra Literatura BSM2.md"
 PYADM1_REL_TOL_PCT = 0.2
 PYADM1_ABS_TOL = 1e-5
 
@@ -195,20 +189,6 @@ def run_literature_validation(*, output_root: Path | None = None) -> tuple[dict[
     return report, output_dir
 
 
-def write_vault_report(
-    report: dict[str, Any],
-    *,
-    artifact_dir: Path,
-    note_root: Path | None = None,
-    note_name: str = DEFAULT_VAULT_NOTE_NAME,
-) -> Path:
-    root = note_root or DEFAULT_VAULT_NOTE_ROOT
-    root.mkdir(parents=True, exist_ok=True)
-    note_path = root / note_name
-    note_path.write_text(_render_vault_note(report, artifact_dir=artifact_dir), encoding="utf-8-sig")
-    return note_path
-
-
 def run_pyadm1_reference_case() -> dict[str, Any]:
     operating_conditions = build_reference_operating_conditions()
     feed = build_reference_pyadm1_feed()
@@ -235,7 +215,7 @@ def run_pyadm1_reference_case() -> dict[str, Any]:
             "rtol": simulation.rtol,
             "atol": simulation.atol,
             "influent_source": "Tabela 5 do benchmark BSM2",
-            "initial_state_source": str(VENDOR_PYADM1_SRC / "digester_initial.csv"),
+            "initial_state_source": "vendor/PyADM1/src/digester_initial.csv",
         },
         "actual_outputs": actual_outputs,
         "comparison": comparison,
@@ -396,138 +376,17 @@ def _render_markdown(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _render_vault_note(report: dict[str, Any], *, artifact_dir: Path) -> str:
-    pyadm1 = report["pyadm1"]
-    reduced = report["reduced"]
-    lines = [
-        "---",
-        "tags: [projeto, validacao, literatura, bsm2]",
-        f"created: {datetime.now().date().isoformat()}",
-        "status: ativo",
-        "---",
-        "",
-        "# Validação contra Literatura BSM2",
-        "",
-        "## Objetivo",
-        "",
-        "Validar a implementação local do ADM1 contra um benchmark publicado com valores numéricos explícitos, antes de decidir política de backend para CSTR.",
-        "",
-        "## Fonte de referência",
-        "",
-        f"- Relatório: `{report['source']['title']}`",
-        f"- Autores: `{', '.join(report['source']['authors'])}`",
-        f"- Ano: `{report['source']['year']}`",
-        f"- Tabelas usadas: `{', '.join(str(item) for item in report['source']['tables_used'])}`",
-    ]
-    for url in report["source"]["urls"]:
-        lines.append(f"- URL: {url}")
-    lines.extend([
-        "",
-        "## Cenário reproduzido",
-        "",
-        "Os valores de entrada foram montados a partir da Tabela 5 do benchmark BSM2. O alvo de saída veio da Tabela 6, após 200 dias de simulação até steady-state.",
-        "",
-        f"- Temperatura: `{report['scenario']['operating_conditions']['temperature_c']} °C`",
-        f"- Volume líquido: `{report['scenario']['operating_conditions']['liquid_volume_m3']} m3`",
-        f"- Volume de gás: `{report['scenario']['operating_conditions']['gas_volume_m3']} m3`",
-        f"- Vazão de alimentação: `{report['scenario']['operating_conditions']['flow_rate_m3_day']} m3/d`",
-        f"- Duração da simulação: `{report['scenario']['operating_conditions']['simulation_days']} d`",
-        "",
-        "### Influent ADM1 de referência",
-        "",
-        "| Estado | Valor | Unidade |",
-        "| --- | ---: | --- |",
-    ])
-    for key, value in REFERENCE_INFLUENT.items():
-        unit = "kmol/m3" if key in {"S_IC", "S_IN", "S_cation", "S_anion"} else "kgCOD/m3"
-        lines.append(f"| {key} | {value:.9f} | {unit} |")
-    lines.extend([
-        "",
-        "## Valores de referência da literatura",
-        "",
-        "| Métrica | Valor | Unidade | Comentário |",
-        "| --- | ---: | --- | --- |",
-    ])
-    for metric_name, metric in REFERENCE_OUTPUTS.items():
-        lines.append(f"| {metric_name} | {metric['value']:.12f} | {metric['unit']} | {metric['description']} |")
-    lines.extend([
-        "",
-        "## O que a nossa implementação devolveu",
-        "",
-        "### Backend pyadm1",
-        "",
-        "O backend `pyadm1` foi executado com o influente ADM1 completo, usando o código original integrado e a condição inicial de `vendor/PyADM1/src/digester_initial.csv`. Nesta validação eu corrigi a normalização de vazão de gás no adapter para comparar com `Nm3/d` atmosféricos, que é como o benchmark publica `Qgas`.",
-        "",
-        "| Métrica | Referência | pyadm1 | Delta abs | Delta rel (%) | Dentro da tolerância? |",
-        "| --- | ---: | ---: | ---: | ---: | --- |",
-    ])
-    for metric_name, metric in pyadm1["comparison"].items():
-        within = "sim" if metric["within_tolerance"] else "não"
-        lines.append(
-            f"| {metric_name} | {metric['reference']:.12f} | {metric['actual']:.12f} | {metric['abs_delta']:.12f} | {metric['rel_delta_pct']:.6f} | {within} |"
-        )
-    lines.extend([
-        "",
-        f"- `Qch4_Nm3_day` obtido pelo pyadm1: `{pyadm1['actual_outputs']['Qch4_Nm3_day']:.6f}`",
-        f"- Fração molar/volumétrica úmida de CH4 no gás: `{pyadm1['actual_outputs']['ch4_fraction_wet']:.6f}`",
-        f"- Fração molar/volumétrica úmida de CO2 no gás: `{pyadm1['actual_outputs']['co2_fraction_wet']:.6f}`",
-        f"- Fator de normalização do gás aplicado no adapter: `{pyadm1['actual_outputs']['gas_normalization_factor']:.6f}` (= `Pgas / Patm`)",
-        "",
-        "### Backend reduced",
-        "",
-        "O backend `reduced` não roda o vetor ADM1 completo. Para compará-lo com o benchmark, a alimentação foi agregada para os estados simplificados do projeto. Isso permite avaliar tendência e ordem de grandeza, mas não equivalência estado a estado.",
-        "",
-        "| Métrica | Referência | reduced | Delta abs | Delta rel (%) |",
-        "| --- | ---: | ---: | ---: | ---: |",
-    ])
-    for metric_name, metric in reduced["comparison"].items():
-        lines.append(
-            f"| {metric_name} | {metric['reference']:.12f} | {metric['actual']:.12f} | {metric['abs_delta']:.12f} | {metric['rel_delta_pct']:.6f} |"
-        )
-    lines.extend([
-        "",
-        "## Interpretação",
-        "",
-        f"- `pyadm1` reproduziu o benchmark com erro máximo de `{report['conclusion']['pyadm1_max_rel_delta_pct']:.6f}%` nas métricas comparadas.",
-        f"- `reduced` ficou muito distante da referência, com erro máximo de `{report['conclusion']['reduced_max_rel_delta_pct']:.6f}%` nas métricas comparadas.",
-        "- A conclusão prática é que, para estudos de `CSTR` em que a pergunta é aderência ao ADM1/BSM2 publicado, o backend correto é `pyadm1`.",
-        "- O backend `reduced` continua útil como motor rápido e geral do projeto, mas não deve ser tratado como equivalente numérico ao benchmark do ADM1 original.",
-        "",
-        "## Artefatos gerados",
-        "",
-        f"- Relatório JSON: `{artifact_dir / 'literature_validation.json'}`",
-        f"- Relatório Markdown: `{artifact_dir / 'literature_validation.md'}`",
-        "",
-        "## Observação importante",
-        "",
-        "Durante esta validação foi identificado e corrigido um detalhe no adapter do `pyadm1`: a vazão de gás estava sendo exposta na condição de pressão do headspace, enquanto a literatura reporta `Qgas` em `Nm3/d` atmosféricos. Depois da correção, `Qgas` passou a coincidir com o benchmark BSM2 dentro da tolerância desta validação.",
-    ])
-    return "\n".join(lines)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run literature validation of the ADM1 implementation against the published BSM2 benchmark.")
     parser.add_argument("--output-root", type=Path, default=DEFAULT_OUTPUT_ROOT)
-    parser.add_argument("--write-vault-note", action="store_true")
-    parser.add_argument("--vault-note-root", type=Path, default=DEFAULT_VAULT_NOTE_ROOT)
-    parser.add_argument("--vault-note-name", default=DEFAULT_VAULT_NOTE_NAME)
     args = parser.parse_args()
     report, output_dir = run_literature_validation(output_root=args.output_root)
-    note_path = None
-    if args.write_vault_note:
-        note_path = write_vault_report(
-            report,
-            artifact_dir=output_dir,
-            note_root=args.vault_note_root,
-            note_name=args.vault_note_name,
-        )
     summary = {
         "output_dir": str(output_dir),
         "pyadm1_validated": report["pyadm1"]["validated"],
         "reduced_validated": report["reduced"]["validated"],
         "pyadm1_max_rel_delta_pct": report["conclusion"]["pyadm1_max_rel_delta_pct"],
         "reduced_max_rel_delta_pct": report["conclusion"]["reduced_max_rel_delta_pct"],
-        "vault_note_path": str(note_path) if note_path is not None else None,
     }
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 

@@ -1,26 +1,112 @@
 # Repository Guidelines
 
-## Project Structure & Module Organization
-`simulator/` contains the ADM1 engine, reactor models, validation pipeline, and pytest suite in `simulator/tests/`. `rag/` holds PDF extraction, chunking, indexing, and MCP endpoints. `webapp/` is the Streamlit UI; numbered files in `webapp/pages/` map to app screens. `vaultObsidian/` stores project notes, plans, and code review context. `documentation/` contains reference PDFs. Treat `dist/`, `rag/db/`, `rag/extracted/`, `simulator/runs/`, and `simulator/*_runs/` as generated artifacts, not source.
+## Project Overview
+ADM1 Workbench is a Python platform for designing and validating anaerobic digestion reactors with IWA ADM1-based simulations. It combines a numerical simulator, a simulator MCP server, and a Streamlit web interface. The main reader is a developer or technical user learning anaerobic digestion, so keep domain math explicit, well typed, and locally testable.
 
-## Build, Test, and Development Commands
-Create the environment with `python -m venv .venv` and `.\.venv\Scripts\activate`, then install dependencies with `pip install -r requirements.txt`.
+The public repository intentionally excludes the old internal RAG, private note vaults, reference PDFs, user data, generated simulation runs, and local machine paths.
 
-- `.\scripts\setup_local.ps1`: bootstrap local dev setup and optional RAG tooling.
-- `.\scripts\check_env.ps1`: verify Python, Ollama, embedding model, and local index status.
-- `.\scripts\run_webapp.ps1` or `streamlit run webapp/app.py`: start the local UI.
-- `python -m pytest simulator/tests -q`: run the simulator regression suite.
-- `python rag/extract_pdfs.py` and `python rag/index_documents.py`: rebuild extracted documents and the Chroma index.
-- `python -m simulator.validation` or `python -m simulator.design_pipeline --substrate "Lodo de Esgoto" --goal balanced --backend auto`: run validation and design workflows.
+## Project Structure
+- `simulator/`: ADM1 engine, reactor models, validation workflows, design pipeline, scenario persistence, and simulator MCP server.
+- `simulator/core/`: shared Pydantic models, defaults, kinetics, and PyADM1 backend adapter.
+- `simulator/full_model/`: native full-model implementation, extensions, catalogs, governance checks, and solvers.
+- `simulator/reactor_models/`: reactor strategy implementations such as CSTR, UASB, plug-flow, TPAD, two-phase, and batch.
+- `simulator/tests/`: pytest regression suite.
+- `webapp/`: Streamlit application.
+- `webapp/pages/`: numbered Streamlit pages; keep filenames numbered to preserve navigation order.
+- `webapp/services/`: UI-facing service layer around simulator, validation, reporting, preferences, and scenarios.
+- `scripts/`: PowerShell helpers for setup, environment checks, webapp startup, and release bundle generation.
+- `vendor/PyADM1/`: vendored PyADM1 git submodule.
 
-## Coding Style & Naming Conventions
-Use Python 3.11+ style with 4-space indentation, type hints, and small, testable functions. Prefer `snake_case` for modules, functions, and variables; use `PascalCase` for classes and Pydantic models. Keep Streamlit page filenames numbered (`01_...`, `02_...`) to preserve navigation order. Follow existing patterns before introducing abstractions; add comments only when the math, stoichiometry, or workflow is not obvious.
+Treat `dist/`, `simulator/runs/`, `simulator/*_runs/`, `simulator/.pyadm1_runtime/`, `webapp/user_data/`, private notes, and reference PDFs as local/generated artifacts, not source.
 
-## Testing Guidelines
-Tests use `pytest` and live under `simulator/tests/` with `test_*.py` names. Add or update regression tests whenever kinetics, backend selection, persistence, or RAG scoring changes. Before opening a PR, run `python -m pytest simulator/tests -q` and note any manual checks such as `streamlit run webapp/app.py` or RAG indexing.
+## Commands
+Create the environment with:
 
-## Commit & Pull Request Guidelines
-Recent history uses short, imperative subjects such as `Adjust GitHub publishing constraints` and `Initial ADM1 local test bundle`. Keep commits focused and descriptive. PRs should summarize behavior changes, list commands run, call out data or config impacts, and include screenshots for `webapp/` UI changes. Link the relevant issue, plan note, or code review note from `vaultObsidian/` when applicable.
+```powershell
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-## Security & Configuration Tips
-Do not commit `.venv/`, `webapp/user_data/`, runtime caches, or generated indexes. Large reference files may exceed GitHub limits; keep them in local bundles or release assets when needed. RAG features depend on local Ollama configuration via `ADM1_OLLAMA_HOST` and `ADM1_EMBED_MODEL`.
+Common commands:
+
+```powershell
+.\scripts\setup_local.ps1
+.\scripts\check_env.ps1
+.\scripts\run_webapp.ps1
+python -m pytest simulator/tests -q
+python -m simulator.benchmark
+python -m simulator.validation
+python -m simulator.design_pipeline --substrate "Lodo de Esgoto" --goal balanced --backend auto
+python simulator/mcp_server.py
+streamlit run webapp/app.py
+```
+
+Run a focused test with:
+
+```powershell
+python -m pytest simulator/tests/test_kinetics.py -q
+python -m pytest simulator/tests/test_simulator.py::ADM1SimulationServiceTest::test_simulation_returns_profiles -q
+```
+
+No linter or formatter is configured. There is no `ruff`, `mypy`, or `black` quality gate in this repository.
+
+## Architecture
+The simulator has two main backends:
+
+- `pyadm1`: default high-fidelity backend via `vendor/PyADM1/`. It writes temporary CSVs, runs PyADM1 as a subprocess, and parses outputs. It is the preferred backend for CSTR reference fidelity.
+- `reduced`: native Python 11-state simplified model in `simulator/core/kinetics.py`. It is always available, faster, and useful as fallback or exploratory backend.
+
+Backend resolution lives in `simulator/service.py`. The `auto` setting currently selects PyADM1 for CSTR-oriented reference work and uses explicit fallback behavior where needed. Every `SimulationResult` records `backend_requested`, `backend_used`, and fallback information in metadata.
+
+Reactor behavior follows a strategy pattern. `simulator/reactor_models/base.py` defines `ReactorBase`, and concrete reactors override hydrodynamic, washout, gas capture, and segment behavior. New reactor types should subclass `ReactorBase` and be registered in `simulator/reactor_models/__init__.py`.
+
+The reduced model state vector is defined in `simulator/core/models.py` as `STATE_NAMES`: `particulate_cod`, `soluble_cod`, `acetate`, `propionate`, `hydrogen`, biomass populations, `inorganic_nitrogen`, and `alkalinity`. Kinetics, inhibition functions, and stoichiometric splits live in `simulator/core/kinetics.py`. COD balance is covered by tests; maintain `splits + yield = 1.0` per pathway when changing stoichiometry.
+
+Typical data flow:
+
+1. CLI, MCP, or webapp assembles Pydantic configs.
+2. `ADM1SimulationService.simulate()` resolves and dispatches the backend.
+3. Backend returns time series and profiles.
+4. The service computes summary metrics such as methane, biogas, VFA, pH, effluent COD, and stability index.
+5. `ScenarioStore` persists JSON results under `simulator/runs/` when persistence is enabled.
+
+## Module Boundaries
+- `simulator/` should remain usable without Streamlit.
+- `webapp/` consumes simulator capabilities through service modules and shared contracts.
+- Report and validation exports should write to generated project artifacts or `webapp/user_data/`, not private external folders.
+- The simulator MCP server should expose validated, JSON-serializable, read/write-safe tools through Pydantic input models.
+
+## Coding Style
+Use Python 3.11+ with `from __future__ import annotations` in Python modules. Prefer 4-space indentation, type hints, `snake_case` for functions and variables, and `PascalCase` for classes and Pydantic models.
+
+All domain models should follow the existing strict Pydantic pattern with assignment validation and `extra="forbid"`. Default configs should stay centralized in `simulator/core/defaults.py`.
+
+Follow local patterns before adding abstractions. Add comments only where math, stoichiometry, numerical behavior, or workflow intent is not obvious from the code.
+
+## Testing
+Tests use `pytest` and live under `simulator/tests/` with `test_*.py` names. Add or update regression tests whenever kinetics, backend selection, persistence, full-model governance, or user-facing workflows change.
+
+Before opening a PR, run:
+
+```powershell
+python -m pytest simulator/tests -q
+```
+
+For webapp-specific service checks, also run:
+
+```powershell
+python -m pytest webapp/testing -q
+```
+
+Include any manual checks such as `streamlit run webapp/app.py` in PR notes when UI behavior changes.
+
+## Security And Publication
+Do not commit `.venv/`, `webapp/user_data/`, runtime caches, private vaults, reference PDFs, `.env*`, Streamlit secrets, tokens, keys, generated bundles, or local absolute paths.
+
+Public-facing output should not display local paths such as user home directories, workspace roots, junction targets, or private documentation paths. Prefer project-relative paths in metadata and UI messages.
+
+Release bundles should include only source code, public configuration, and required vendored/submodule code. Keep private references and local documentation outside the public repository.
+
+## Commit And PR Notes
+Recent history uses short imperative subjects such as `Adjust GitHub publishing constraints`. Keep commits focused. PRs should summarize behavior changes, commands run, data/config impacts, and screenshots for `webapp/` UI changes.
