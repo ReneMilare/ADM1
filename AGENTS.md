@@ -14,7 +14,7 @@ The public repository intentionally excludes the old internal RAG, private note 
 - `webapp/`: Streamlit application.
 - `webapp/pages/`: numbered Streamlit pages; keep filenames numbered to preserve navigation order.
 - `webapp/services/`: UI-facing service layer around simulator, validation, reporting, preferences, and scenarios.
-- `scripts/`: PowerShell helpers for setup, environment checks, webapp startup, and release bundle generation.
+- `scripts/`: setup, environment check, webapp startup, and release bundle helpers. Each exists as PowerShell (`.ps1`, Windows) and Bash (`.sh`, Linux/macOS); keep both in sync when changing one.
 - `vendor/PyADM1/`: vendored PyADM1 git submodule.
 
 Treat `dist/`, `simulator/runs/`, `simulator/*_runs/`, `simulator/.pyadm1_runtime/`, `webapp/user_data/`, private notes, and reference PDFs as local/generated artifacts, not source.
@@ -28,7 +28,14 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-Common commands:
+On Linux/macOS:
+
+```bash
+./scripts/setup_local.sh   # creates .venv, inits vendor/PyADM1, installs requirements
+source .venv/bin/activate
+```
+
+Common commands (Windows paths shown; on Linux/macOS use `./scripts/<name>.sh`):
 
 ```powershell
 .\scripts\setup_local.ps1
@@ -48,6 +55,8 @@ Run a focused test with:
 python -m pytest simulator/tests/test_kinetics.py -q
 python -m pytest simulator/tests/test_simulator.py::ADM1SimulationServiceTest::test_simulation_returns_profiles -q
 ```
+
+`mcp` is pinned to `<2`: `simulator/mcp_server.py` uses `FastMCP`, which mcp 2.x renamed. Migrating to mcp 2.x is a separate task. `webapp/testing/test_phase_indicators_removed.py` needs `playwright` (dev extra) and a webapp running on port 8501; it is skipped when playwright is missing.
 
 No linter or formatter is configured. There is no `ruff`, `mypy`, or `black` quality gate in this repository.
 

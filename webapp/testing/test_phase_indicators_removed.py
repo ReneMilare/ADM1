@@ -5,7 +5,12 @@ import re
 import sys
 import time
 
-from playwright.sync_api import sync_playwright, Page
+try:
+    from playwright.sync_api import sync_playwright, Page
+except ImportError:  # optional dev dependency for this manual UI check
+    import pytest
+
+    pytest.skip("playwright is not installed", allow_module_level=True)
 
 BASE_URL = "http://localhost:8501"
 
