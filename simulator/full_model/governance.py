@@ -278,6 +278,8 @@ def render_traceability_markdown(rows: Iterable[TraceabilityRow], *, title: str 
 
 
 def render_audit_markdown(report: GovernanceAuditReport) -> str:
+    # Python 3.11 rejects backslash escapes inside f-string expressions.
+    folder_exists = "sim" if report.governance_folder_exists else "n\u00e3o"
     lines = [
         "---",
         "tags: [review, governanca, adm1, full-model]",
@@ -289,7 +291,7 @@ def render_audit_markdown(report: GovernanceAuditReport) -> str:
         "## Resumo",
         "",
         f"- auditoria automatizada: {'aprovada' if report.all_checks_pass else 'pendente'}",
-        f"- pasta de governan\u00e7a existe: {'sim' if report.governance_folder_exists else 'n\u00e3o'}",
+        f"- pasta de governan\u00e7a existe: {folder_exists}",
         f"- itens de rastreabilidade consolidados: {len(report.traceability_rows)}",
         "",
         "## Classifica\u00e7\u00f5es de par\u00e2metros",
