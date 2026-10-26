@@ -758,6 +758,8 @@ class ADM1SimulationService:
     ) -> tuple[object, str]:
         if "." not in parameter_path:
             raise ValueError("parameter_path must look like 'kinetics.k_hyd' or 'feed.alkalinity'")
+        if any(not part or part.startswith("_") for part in parameter_path.split(".")):
+            raise ValueError("parameter_path contains an invalid segment")
         root, remainder = parameter_path.split(".", 1)
         targets = {
             "reactor": reactor,

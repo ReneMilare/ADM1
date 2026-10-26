@@ -8,7 +8,7 @@ if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from mcp.server.fastmcp import FastMCP
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from simulator.core.models import (
     BatchConfig,
@@ -26,6 +26,7 @@ from simulator.core.models import (
 from simulator.design_pipeline import ADM1DesignPipeline, SUBSTRATE_ALIASES, SUBSTRATE_PRESETS
 from simulator.full_model import list_registered_extensions as _list_registered_extensions
 from simulator.service import ADM1SimulationService
+from simulator.paths import _safe_project_path
 from simulator.validation import run_phase3_validation as run_phase3_validation_report
 
 mcp = FastMCP("adm1_simulator_mcp")
@@ -56,7 +57,7 @@ class SimulateReactorInput(BaseModel):
     volume_m3: float = Field(default=3000.0, gt=0.0)
     temperature_c: float = Field(default=35.0, ge=15.0, le=60.0)
     hrt_days: float = Field(default=20.0, gt=0.1)
-    duration_days: float = Field(default=60.0, gt=0.1)
+    duration_days: float = Field(default=60.0, gt=0.1, le=3650.0)
     feed_cod_kg_m3: float = Field(default=19.5, gt=0.0)
     particulate_fraction: float = Field(default=0.72, ge=0.0, le=0.95)
     acetate_fraction: float = Field(default=0.06, ge=0.0, le=0.3)
@@ -67,9 +68,9 @@ class SimulateReactorInput(BaseModel):
     ph: float = Field(default=7.1, ge=5.0, le=8.5)
     segments: int = Field(default=6, ge=2, le=20)
     ammonia_inhibition_mode: str = Field(default="simple", description="One of: simple or fan.")
-    full_extensions: list[str] = Field(default_factory=list, description="Active extensions for the full backend, e.g. ['srb', 'microalgae', 'syngas', 'trace_elements']. Use list_extensions to see available options.")
-    full_extension_parameter_overrides: dict[str, float] = Field(default_factory=dict, description="Parameter overrides for extensions, e.g. {'f_hyd_alg': 1.0, 'f_co_to_h2': 0.65, 'S_DOM_TE': 0.5, 'K_c_Ni': 27.54, 'K_c_Co': 23.99}.")
-    full_initial_state_overrides: dict[str, float] = Field(default_factory=dict, description="Initial state overrides for extension states, e.g. {'X_alg': 0.5, 'S_CO': 0.01, 'S_gas_CO': 0.5, 'X_met_CO': 0.05, 'S_Ni': 2e-6, 'S_Co': 5e-7, 'S_Fe2_te': 1e-5}.")
+    full_extensions: list[str] = Field(default_factory=list, max_length=20, description="Active extensions for the full backend, e.g. ['srb', 'microalgae', 'syngas', 'trace_elements']. Use list_extensions to see available options.")
+    full_extension_parameter_overrides: dict[str, float] = Field(default_factory=dict, max_length=200, description="Parameter overrides for extensions, e.g. {'f_hyd_alg': 1.0, 'f_co_to_h2': 0.65, 'S_DOM_TE': 0.5, 'K_c_Ni': 27.54, 'K_c_Co': 23.99}.")
+    full_initial_state_overrides: dict[str, float] = Field(default_factory=dict, max_length=200, description="Initial state overrides for extension states, e.g. {'X_alg': 0.5, 'S_CO': 0.01, 'S_gas_CO': 0.5, 'X_met_CO': 0.05, 'S_Ni': 2e-6, 'S_Co': 5e-7, 'S_Fe2_te': 1e-5}.")
 
 
 class ProfileInput(BaseModel):
@@ -81,19 +82,19 @@ class ProfileInput(BaseModel):
 class CompareScenariosInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True, extra="forbid")
 
-    simulation_ids: list[str] = Field(..., min_length=2, description="List of persisted simulation identifiers.")
+    simulation_ids: list[str] = Field(..., min_length=2, max_length=100, description="List of persisted simulation identifiers.")
 
 
 class CompareBackendsInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True, extra="forbid")
 
     reactor_type: str = Field(default="cstr", description="One of: cstr, uasb, plug_flow, two_phase, tpad, batch.")
-    backends: list[str] = Field(default_factory=lambda: ["pyadm1", "full"], min_length=2)
+    backends: list[str] = Field(default_factory=lambda: ["pyadm1", "full"], min_length=2, max_length=10)
     substrate: str = Field(default="generic_sludge", description="Label saved with the scenario metadata.")
     volume_m3: float = Field(default=3000.0, gt=0.0)
     temperature_c: float = Field(default=35.0, ge=15.0, le=60.0)
     hrt_days: float = Field(default=20.0, gt=0.1)
-    duration_days: float = Field(default=60.0, gt=0.1)
+    duration_days: float = Field(default=60.0, gt=0.1, le=3650.0)
     feed_cod_kg_m3: float = Field(default=19.5, gt=0.0)
     particulate_fraction: float = Field(default=0.72, ge=0.0, le=0.95)
     acetate_fraction: float = Field(default=0.06, ge=0.0, le=0.3)
@@ -104,9 +105,9 @@ class CompareBackendsInput(BaseModel):
     ph: float = Field(default=7.1, ge=5.0, le=8.5)
     segments: int = Field(default=6, ge=2, le=20)
     ammonia_inhibition_mode: str = Field(default="simple", description="One of: simple or fan.")
-    full_extensions: list[str] = Field(default_factory=list, description="Active extensions for the full backend, e.g. ['srb', 'microalgae', 'syngas', 'trace_elements'].")
-    full_extension_parameter_overrides: dict[str, float] = Field(default_factory=dict, description="Parameter overrides for extensions, e.g. {'f_hyd_alg': 1.0, 'f_co_to_h2': 0.65, 'S_DOM_TE': 0.5, 'K_c_Ni': 27.54, 'K_c_Co': 23.99}.")
-    full_initial_state_overrides: dict[str, float] = Field(default_factory=dict, description="Initial state overrides for extension states, e.g. {'X_alg': 0.5, 'S_CO': 0.01, 'S_gas_CO': 0.5, 'X_met_CO': 0.05, 'S_Ni': 2e-6, 'S_Co': 5e-7, 'S_Fe2_te': 1e-5}.")
+    full_extensions: list[str] = Field(default_factory=list, max_length=20, description="Active extensions for the full backend, e.g. ['srb', 'microalgae', 'syngas', 'trace_elements'].")
+    full_extension_parameter_overrides: dict[str, float] = Field(default_factory=dict, max_length=200, description="Parameter overrides for extensions, e.g. {'f_hyd_alg': 1.0, 'f_co_to_h2': 0.65, 'S_DOM_TE': 0.5, 'K_c_Ni': 27.54, 'K_c_Co': 23.99}.")
+    full_initial_state_overrides: dict[str, float] = Field(default_factory=dict, max_length=200, description="Initial state overrides for extension states, e.g. {'X_alg': 0.5, 'S_CO': 0.01, 'S_gas_CO': 0.5, 'X_met_CO': 0.05, 'S_Ni': 2e-6, 'S_Co': 5e-7, 'S_Fe2_te': 1e-5}.")
 
 
 class OptimizeParameterInput(BaseModel):
@@ -123,7 +124,7 @@ class OptimizeParameterInput(BaseModel):
     volume_m3: float = Field(default=3000.0, gt=0.0)
     temperature_c: float = Field(default=35.0, ge=15.0, le=60.0)
     hrt_days: float = Field(default=20.0, gt=0.1)
-    duration_days: float = Field(default=60.0, gt=0.1)
+    duration_days: float = Field(default=60.0, gt=0.1, le=3650.0)
 
 
 class CalibrateModelInput(BaseModel):
@@ -131,6 +132,7 @@ class CalibrateModelInput(BaseModel):
 
     experimental_points_json: str = Field(
         ...,
+        max_length=1_000_000,
         description='JSON array like [{"time_days": 5, "observed_methane_m3_day": 120.0}, ...]',
     )
     parameter_path: str = Field(default="kinetics.k_hyd")
@@ -141,7 +143,15 @@ class CalibrateModelInput(BaseModel):
     volume_m3: float = Field(default=3000.0, gt=0.0)
     temperature_c: float = Field(default=35.0, ge=15.0, le=60.0)
     hrt_days: float = Field(default=20.0, gt=0.1)
-    duration_days: float = Field(default=60.0, gt=0.1)
+    duration_days: float = Field(default=60.0, gt=0.1, le=3650.0)
+
+
+    @field_validator("experimental_points_json", mode="before")
+    @classmethod
+    def limit_raw_payload(cls, value: object) -> object:
+        if isinstance(value, str) and len(value) > 1_000_000:
+            raise ValueError("experimental_points_json exceeds the maximum length of 1,000,000 characters.")
+        return value
 
 
 class ValidatePhase3Input(BaseModel):
@@ -166,14 +176,20 @@ class DesignReactorInput(BaseModel):
     volume_m3: float | None = Field(default=None, gt=0.0)
     temperature_c: float | None = Field(default=None, ge=15.0, le=60.0)
     hrt_days: float | None = Field(default=None, gt=0.1)
-    duration_days: float = Field(default=45.0, gt=0.1)
+    duration_days: float = Field(default=45.0, gt=0.1, le=3650.0)
     evaluation_points: int = Field(default=181, ge=21, le=4001)
-    candidate_reactors: list[str] = Field(default_factory=lambda: ["cstr", "uasb", "plug_flow"])
+    candidate_reactors: list[str] = Field(default_factory=lambda: ["cstr", "uasb", "plug_flow"], max_length=10)
     persist_note: bool = Field(default=False)
     note_title: str | None = Field(default=None)
-    full_extensions: list[str] = Field(default_factory=list, description="Active extensions for the full backend, e.g. ['srb', 'microalgae', 'syngas', 'trace_elements'].")
-    full_extension_parameter_overrides: dict[str, float] = Field(default_factory=dict, description="Parameter overrides for extensions, e.g. {'f_hyd_alg': 1.0, 'f_co_to_h2': 0.65, 'S_DOM_TE': 0.5, 'K_c_Ni': 27.54, 'K_c_Co': 23.99}.")
-    full_initial_state_overrides: dict[str, float] = Field(default_factory=dict, description="Initial state overrides for extension states, e.g. {'X_alg': 0.5, 'S_CO': 0.01, 'S_gas_CO': 0.5, 'X_met_CO': 0.05, 'S_Ni': 2e-6, 'S_Co': 5e-7, 'S_Fe2_te': 1e-5}.")
+    full_extensions: list[str] = Field(default_factory=list, max_length=20, description="Active extensions for the full backend, e.g. ['srb', 'microalgae', 'syngas', 'trace_elements'].")
+    full_extension_parameter_overrides: dict[str, float] = Field(default_factory=dict, max_length=200, description="Parameter overrides for extensions, e.g. {'f_hyd_alg': 1.0, 'f_co_to_h2': 0.65, 'S_DOM_TE': 0.5, 'K_c_Ni': 27.54, 'K_c_Co': 23.99}.")
+    full_initial_state_overrides: dict[str, float] = Field(default_factory=dict, max_length=200, description="Initial state overrides for extension states, e.g. {'X_alg': 0.5, 'S_CO': 0.01, 'S_gas_CO': 0.5, 'X_met_CO': 0.05, 'S_Ni': 2e-6, 'S_Co': 5e-7, 'S_Fe2_te': 1e-5}.")
+
+
+    @field_validator("candidate_reactors")
+    @classmethod
+    def deduplicate_candidates(cls, values: list[str]) -> list[str]:
+        return list(dict.fromkeys(values))
 
 
 def _build_feed(
@@ -218,10 +234,14 @@ def _resolve_preset_feed(name: str) -> FeedDefinition:
 
 
 def _build_blend_from_json(substrates_json: str) -> CoDigestionBlend:
+    if len(substrates_json) > 1_000_000:
+        raise ValueError("substrates_json exceeds the maximum length of 1,000,000 characters.")
     try:
         raw_components = json.loads(substrates_json)
     except json.JSONDecodeError as exc:
         raise ValueError("substrates_json must be a valid JSON array.") from exc
+    if not isinstance(raw_components, list) or len(raw_components) > 10:
+        raise ValueError("substrates_json must be an array of at most 10 components.")
     components = [CoDigestionComponentInput.model_validate(item) for item in raw_components]
     fractions = [
         SubstrateFraction(feed=_resolve_preset_feed(component.name), volume_fraction=component.fraction)
@@ -860,6 +880,8 @@ async def calibrate_model(
         raw_points = json.loads(params.experimental_points_json)
     except json.JSONDecodeError as exc:
         raise ValueError("experimental_points_json must be a valid JSON array of calibration points.") from exc
+    if not isinstance(raw_points, list) or len(raw_points) > 5000:
+        raise ValueError("experimental_points_json must be an array of at most 5000 points.")
     experimental_data = [CalibrationPoint.model_validate(item) for item in raw_points]
     operating = OperatingConditions(volume_m3=params.volume_m3, temperature_c=params.temperature_c, hrt_days=params.hrt_days)
     simulation = SimulationConfig(duration_days=params.duration_days, backend=params.backend)
@@ -891,7 +913,7 @@ async def run_phase3_validation(include_openmodelica: bool = True) -> str:
     params = ValidatePhase3Input(include_openmodelica=include_openmodelica)
     report, output_dir = run_phase3_validation_report(include_openmodelica=params.include_openmodelica)
     payload = {
-        "output_dir": str(output_dir),
+        "output_dir": _safe_project_path(output_dir),
         "openmodelica_status": report["openmodelica"]["status"],
         "prefer_pyadm1_for_cstr_fidelity": report["conclusion"]["prefer_pyadm1_for_cstr_fidelity"],
         "promote_pyadm1_as_global_default": report["conclusion"]["promote_pyadm1_as_global_default"],

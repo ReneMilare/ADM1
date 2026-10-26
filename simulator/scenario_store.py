@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 from simulator.core.models import SimulationResult
+from simulator.paths import _safe_project_path
 
 # Ids become file names. Rejecting both "/" and backslash keeps traversal
 # protection identical on Windows and POSIX, where backslash is a valid name char.
@@ -34,7 +35,7 @@ class ScenarioStore:
     def load(self, simulation_id: str) -> SimulationResult:
         path = self.path_for(simulation_id)
         if not path.exists():
-            raise FileNotFoundError(f"Simulation '{simulation_id}' was not found in {self.root}")
+            raise FileNotFoundError(f"Simulation '{simulation_id}' was not found in {_safe_project_path(self.root)}")
         return SimulationResult.model_validate_json(path.read_text(encoding="utf-8"))
 
     def list_simulation_ids(self) -> list[str]:

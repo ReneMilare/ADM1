@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from simulator.paths import _safe_project_path
 from simulator.core.models import SimulationResult
 from webapp.contracts import (
     ReportPayload,
@@ -387,10 +388,7 @@ def export_report_to_local_file(payload: ReportPayload, output_dir: str | Path =
     file_path = reports_dir / filename
     content = render_report_markdown(payload)
     file_path.write_text(content, encoding="utf-8")
-    try:
-        return file_path.relative_to(PROJECT_ROOT).as_posix()
-    except ValueError:
-        return str(file_path)
+    return _safe_project_path(file_path)
 
 
 def report_payload_to_csv_bytes(payload: ReportPayload) -> bytes:

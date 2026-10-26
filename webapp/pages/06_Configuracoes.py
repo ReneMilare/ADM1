@@ -6,6 +6,7 @@ ensure_project_root()
 
 import streamlit as st
 
+from simulator.paths import _safe_project_path
 from webapp.components.status_cards import (
     render_issue_messages,
     render_sidebar_panel,
@@ -130,7 +131,7 @@ meta_col1, meta_col2, meta_col3 = st.columns(3)
 meta_col1.metric("Presets do usuario", str(len(list_simulation_presets())))
 meta_col2.metric("Substratos personalizados", str(len(list_custom_substrates())))
 meta_col3.metric("Simulacoes recentes", str(len(list_recent_simulations(limit=20))))
-st.caption(f"Arquivo de estado local: `{STATE_PATH}`")
+st.caption(f"Arquivo de estado local: `{_safe_project_path(STATE_PATH)}`")
 st.download_button(
     label="Baixar workbench_state.json",
     data=export_workbench_state_bytes(),

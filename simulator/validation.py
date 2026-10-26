@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from simulator.benchmark import build_default_scenarios, run_benchmark
+from simulator.paths import _safe_project_path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT_ROOT = Path(__file__).resolve().parent / "validation_runs"
@@ -225,12 +226,6 @@ def _render_markdown(report: dict[str, Any]) -> str:
         lines.append(f"- {step}")
     return "\n".join(lines)
 
-
-def _safe_project_path(path: Path) -> str:
-    try:
-        return path.relative_to(PROJECT_ROOT).as_posix()
-    except ValueError:
-        return str(path)
 
 
 def main() -> None:

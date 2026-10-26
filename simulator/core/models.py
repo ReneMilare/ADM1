@@ -334,24 +334,27 @@ class KineticParameters(StrictModel):
 
 
 class SimulationConfig(StrictModel):
-    duration_days: float = Field(default=60.0, gt=0.1)
+    duration_days: float = Field(default=60.0, gt=0.1, le=3650.0)
     evaluation_points: int = Field(default=241, ge=21, le=4001)
     solver: Literal["BDF", "Radau", "DOP853"] = Field(default="BDF")
     backend: Literal["reduced", "pyadm1", "full", "auto"] = Field(default="pyadm1")
     rtol: float = Field(default=1e-5, gt=0.0)
     atol: float = Field(default=1e-7, gt=0.0)
     persist: bool = Field(default=True)
-    full_extensions: list[str] = Field(default_factory=list, description="Extens?es ativas do backend ADM1 full.")
+    full_extensions: list[str] = Field(default_factory=list, max_length=20, description="Extens?es ativas do backend ADM1 full.")
     full_extension_parameter_overrides: dict[str, float] = Field(
         default_factory=dict,
+        max_length=200,
         description="Overrides pontuais de par?metros do assembly full, incluindo extens?es ativas.",
     )
     full_initial_state_overrides: dict[str, float] = Field(
         default_factory=dict,
+        max_length=200,
         description="Overrides pontuais do estado inicial completo do backend full, incluindo estados de extens?es.",
     )
     full_influent_state_overrides: dict[str, float] = Field(
         default_factory=dict,
+        max_length=200,
         description="Overrides pontuais do afluente completo do backend full, incluindo estados de extens?es.",
     )
 
@@ -474,7 +477,7 @@ class OptimizationResult(StrictModel):
 
 
 class CalibrationPoint(StrictModel):
-    time_days: float = Field(ge=0.0)
+    time_days: float = Field(ge=0.0, le=3650.0)
     observed_methane_m3_day: float = Field(ge=0.0)
 
 
