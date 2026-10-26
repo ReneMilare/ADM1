@@ -37,3 +37,4 @@ rag/
 .streamlit/secrets.toml
 *.pem
 *.key
+simulator/audit_*/
