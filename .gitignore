@@ -13,9 +13,9 @@ simulator/benchmarks/
 simulator/validation_runs/
 simulator/literature_validation_runs/
 simulator/followup_runs/
+simulator/*_runs/
+simulator/design_runs/
 
-rag/db/
-rag/extracted/
 webapp/user_data/
 
 dist/
@@ -25,7 +25,15 @@ dist/
 adm1-theme-probe.png
 dynamic_out.csv
 
-documentation/Biological Wastewater Treatment - Principles - Modelling - Design.pdf
+# Private material that must never return to this public repository
+documentation/
+vaultObsidian*/
+rag/
+*.pdf
 
-vaultObsidian/.obsidian/workspace.json
-vaultObsidianAMD1/.obsidian/workspace.json
+# Secrets and local configuration
+.env
+.env.*
+.streamlit/secrets.toml
+*.pem
+*.key

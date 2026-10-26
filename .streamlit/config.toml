@@ -5,3 +5,13 @@ backgroundColor = "#fbfaf7"
 secondaryBackgroundColor = "#eef4f1"
 textColor = "#142230"
 font = "sans serif"
+
+# The webapp has no authentication and one shared state file, so it listens on
+# loopback only. To expose it on purpose, pass --server.address explicitly.
+[server]
+address = "localhost"
+enableCORS = true
+enableXsrfProtection = true
+
+[browser]
+gatherUsageStats = false
