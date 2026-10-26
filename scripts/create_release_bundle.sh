@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-script_dir=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+script_dir=$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source=_common.sh
 source "$script_dir/_common.sh"
 project_root=$ADM1_PROJECT_ROOT
@@ -27,7 +27,7 @@ case "$output_dir" in
 esac
 staging_root="$output_root/$bundle_name-staging"
 mkdir -p -- "$output_root"
-output_root=$(CDPATH= cd -- "$output_root" && pwd)
+output_root=$(CDPATH='' cd -- "$output_root" && pwd)
 staging_root="$output_root/$bundle_name-staging"
 if command -v zip >/dev/null 2>&1; then
     archive_path="$output_root/$bundle_name.zip"

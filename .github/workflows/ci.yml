@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: tests (${{ matrix.os }}, py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.11", "3.12", "3.13"]
+        include:
+          - os: windows-latest
+            python: "3.12"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      # The setup scripts are the documented entry point, so CI exercises them
+      # instead of a hand-written pip install.
+      - name: Setup (Bash)
+        if: runner.os != 'Windows'
+        run: ./scripts/setup_local.sh --python-exe python
+
+      - name: Setup (PowerShell)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/setup_local.ps1 -PythonExe python -AutoApprove
+
+      - name: Simulator tests (Bash)
+        if: runner.os != 'Windows'
+        run: .venv/bin/python -m pytest simulator/tests webapp/testing -q
+
+      - name: Simulator tests (PowerShell)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\.venv\Scripts\python -m pytest simulator/tests webapp/testing -q
+
+      - name: Webapp smoke test
+        if: runner.os == 'Linux' && matrix.python == '3.12'
+        run: |
+          ./scripts/run_webapp.sh --headless --port 8501 > streamlit.log 2>&1 &
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:8501/_stcore/health; then exit 0; fi
+            sleep 2
+          done
+          cat streamlit.log
+          exit 1
+
+  scripts:
+    name: scripts lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: ShellCheck
+        run: shellcheck -x -P SCRIPTDIR scripts/*.sh
+
+      - name: PowerShell parse check
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($file in Get-ChildItem scripts -Filter *.ps1) {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) { $errors | ForEach-Object { Write-Error "$($file.Name): $_" }; $failed = $true }
+          }
+          if ($failed) { exit 1 }
+
+  dependency-audit:
+    name: dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+
+      - name: pip-audit
+        run: |
+          python -m pip install pip-audit
+          pip-audit -r requirements.txt --strict
