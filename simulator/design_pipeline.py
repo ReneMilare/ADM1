@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import re
 import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import Any
 
 from simulator.core.models import CoDigestionBlend, FeedDefinition, OperatingConditions, SimulationConfig, SubstrateFraction
 from simulator.service import ADM1SimulationService
+from simulator.paths import _safe_project_path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_NOTE_ROOT = PROJECT_ROOT / "simulator" / "design_runs"
@@ -304,7 +306,10 @@ class ADM1DesignPipeline:
         self.note_root.mkdir(parents=True, exist_ok=True)
         title = note_title or f"Estudo de Design - {preset['label']} - {datetime.now(UTC).strftime('%Y-%m-%d %H%M')}"
         safe_name = _slugify(title) + ".md"
-        path = self.note_root / safe_name
+        root = self.note_root.resolve()
+        path = (root / safe_name).resolve()
+        if not path.is_relative_to(root):
+            raise ValueError("Note path must be inside the note root")
         path.write_text(
             _render_note(
                 title=title,
@@ -326,7 +331,9 @@ def _normalize_key(value: str) -> str:
 
 
 def _slugify(value: str) -> str:
-    return _normalize_key(value)
+    ascii_value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-z0-9_-]+", "_", ascii_value.lower()).lstrip("._")[:120]
+    return slug or "note"
 
 
 def _normalize_positive(value: float, values: list[float]) -> float:
@@ -435,13 +442,6 @@ def _render_note(
             f"| {candidate['reactor_type']} | {candidate['backend_requested']} | {candidate['backend_used']} | {candidate['score']:.3f} | {summary['methane_final_m3_day']:.3f} | {summary['ph_final']:.3f} | {summary['vfa_final']:.3f} | {summary['effluent_cod_final']:.3f} |"
         )
     return "\n".join(lines)
-
-
-def _safe_project_path(path: Path) -> str:
-    try:
-        return path.relative_to(PROJECT_ROOT).as_posix()
-    except ValueError:
-        return str(path)
 
 
 def main() -> None:

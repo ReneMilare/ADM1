@@ -12,6 +12,8 @@ from typing import Any
 
 import streamlit as st
 
+from simulator.paths import _safe_project_path
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -62,7 +64,7 @@ def list_recent_simulations(limit: int = 8) -> list[dict[str, Any]]:
                 "reactor": payload.get("reactor", {}).get("reactor_type"),
                 "backend_used": payload.get("metadata", {}).get("backend_used"),
                 "created_at": payload.get("created_at"),
-                "path": str(path),
+                "path": _safe_project_path(path),
             }
         )
     return entries
@@ -79,13 +81,13 @@ def load_latest_report(root: Path, filename: str) -> dict[str, Any] | None:
             payload = json.loads(report_path.read_text(encoding="utf-8"))
         except Exception as exc:
             return {
-                "path": str(report_path),
+                "path": _safe_project_path(report_path),
                 "available": False,
-                "error": str(exc),
+                "error": f"{type(exc).__name__}: unable to read report",
                 "data": None,
             }
         return {
-            "path": str(report_path),
+            "path": _safe_project_path(report_path),
             "available": True,
             "error": None,
             "data": payload,
@@ -135,7 +137,7 @@ def _check_dependencies() -> list[dict[str, Any]]:
             "name": "OpenModelica CLI",
             "required": False,
             "status": "ok" if omc_path else "warning",
-            "detail": omc_path or "Executable not found on PATH.",
+            "detail": "Executable available on PATH." if omc_path else "Executable not found on PATH.",
         }
     )
     return results

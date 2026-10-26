@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+import math
 import os
 import re
 import shutil
@@ -15,6 +16,7 @@ import pandas as pd
 
 from simulator.core.defaults import make_default_feed, make_default_initial_state, make_default_kinetics
 from simulator.core.models import FeedDefinition, InitialState, KineticParameters, OperatingConditions, SimulationConfig
+from simulator.paths import _safe_project_path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 VENDOR_PYADM1_SRC = PROJECT_ROOT / "vendor" / "PyADM1" / "src"
@@ -33,6 +35,12 @@ RUNTIME_SLOT_GLOB = "slot_*"
 RUNTIME_SLOT_COUNT = 8
 RUNTIME_SLOT_WAIT_SECONDS = 5.0
 RUNTIME_SLOT_POLL_INTERVAL_SECONDS = 0.1
+PYADM1_TIMEOUT_SECONDS = 600.0
+
+
+class _PyADM1TimeoutError(RuntimeError):
+    pass
+
 
 INFLUENT_COLUMNS = [
     "time",
@@ -288,6 +296,8 @@ def _execute_pyadm1_case(
             "profiles": profiles,
             "metadata": metadata,
         }
+    except _PyADM1TimeoutError:
+        raise
     except Exception as exc:
         raise RuntimeError(f"PyADM1 execution failed; runtime preserved in {_safe_project_path(runtime_dir)}") from exc
     finally:
@@ -307,13 +317,6 @@ def _coerce_frame(*, frame: pd.DataFrame, columns: list[str], frame_name: str) -
     return coerced
 
 
-def _safe_project_path(path: Path) -> str:
-    try:
-        return path.relative_to(PROJECT_ROOT).as_posix()
-    except ValueError:
-        return str(path)
-
-
 def _prepare_runtime_dir() -> Path:
     PYADM1_RUNTIME_ROOT.mkdir(parents=True, exist_ok=True)
     _ensure_runtime_slots()
@@ -328,7 +331,7 @@ def _prepare_runtime_dir() -> Path:
                 return slot_dir
         if time.monotonic() >= deadline:
             raise RuntimeError(
-                f"No PyADM1 runtime slots are available in {PYADM1_RUNTIME_ROOT}; all {len(slot_dirs)} slots are currently in use."
+                f"No PyADM1 runtime slots are available in {_safe_project_path(PYADM1_RUNTIME_ROOT)}; all {len(slot_dirs)} slots are currently in use."
             )
         time.sleep(RUNTIME_SLOT_POLL_INTERVAL_SECONDS)
 
@@ -610,14 +613,24 @@ def _replace_regex(source: str, *, pattern: str, replacement: str, label: str) -
 def _run_pyadm1(*, script_path: Path, runtime_dir: Path) -> None:
     env = os.environ.copy()
     env["MPLBACKEND"] = "Agg"
-    completed = subprocess.run(
-        [sys.executable, str(script_path.name)],
-        cwd=str(runtime_dir),
-        env=env,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        timeout = float(env.get("ADM1_PYADM1_TIMEOUT_S", PYADM1_TIMEOUT_SECONDS))
+    except ValueError as exc:
+        raise RuntimeError("ADM1_PYADM1_TIMEOUT_S must be a positive finite number") from exc
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise RuntimeError("ADM1_PYADM1_TIMEOUT_S must be a positive finite number")
+    try:
+        completed = subprocess.run(
+            [sys.executable, str(script_path.name)],
+            cwd=str(runtime_dir),
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise _PyADM1TimeoutError(f"PyADM1 subprocess timed out after {timeout:g} seconds") from exc
     if completed.returncode != 0:
         stderr = completed.stderr.strip()
         stdout = completed.stdout.strip()

@@ -6,6 +6,7 @@ from typing import Any
 
 import pandas as pd
 
+from simulator.paths import _safe_project_path
 from simulator.literature_validation import run_literature_validation
 from simulator.validation import detect_openmodelica_environment, run_phase3_validation
 from webapp.services.health import load_latest_report
@@ -25,9 +26,9 @@ def run_phase3_workflow(*, include_openmodelica: bool) -> dict[str, Any]:
     md_path = output_dir / "phase3_validation.md"
     return {
         "report": report,
-        "output_dir": str(output_dir),
-        "json_path": str(json_path),
-        "markdown_path": str(md_path),
+        "output_dir": _safe_project_path(output_dir),
+        "json_path": _safe_project_path(json_path),
+        "markdown_path": _safe_project_path(md_path),
     }
 
 
@@ -37,9 +38,9 @@ def run_literature_workflow() -> dict[str, Any]:
     md_path = output_dir / "literature_validation.md"
     return {
         "report": report,
-        "output_dir": str(output_dir),
-        "json_path": str(json_path),
-        "markdown_path": str(md_path),
+        "output_dir": _safe_project_path(output_dir),
+        "json_path": _safe_project_path(json_path),
+        "markdown_path": _safe_project_path(md_path),
     }
 
 
@@ -119,6 +120,8 @@ def artifact_bytes(path: str | Path | None) -> bytes | None:
     if path is None:
         return None
     candidate = Path(path)
+    if not candidate.is_absolute():
+        candidate = PROJECT_ROOT / candidate
     if not candidate.exists():
         return None
     return candidate.read_bytes()
@@ -128,6 +131,8 @@ def markdown_artifact_text(path: str | Path | None) -> str | None:
     if path is None:
         return None
     candidate = Path(path)
+    if not candidate.is_absolute():
+        candidate = PROJECT_ROOT / candidate
     if not candidate.exists():
         return None
     return candidate.read_text(encoding="utf-8")
@@ -144,14 +149,14 @@ def _bundle_from_latest(latest: dict[str, Any] | None, *, markdown_name: str) ->
             "markdown_path": None,
             "error": latest.get("error"),
         }
-    json_path = Path(str(latest["path"]))
+    json_path = PROJECT_ROOT / str(latest["path"])
     output_dir = json_path.parent
     markdown_path = output_dir / markdown_name
     bundle = {
         "report": latest.get("data"),
-        "output_dir": str(output_dir),
-        "json_path": str(json_path),
-        "markdown_path": str(markdown_path) if markdown_path.exists() else None,
+        "output_dir": _safe_project_path(output_dir),
+        "json_path": _safe_project_path(json_path),
+        "markdown_path": _safe_project_path(markdown_path) if markdown_path.exists() else None,
         "error": None,
     }
     return bundle
