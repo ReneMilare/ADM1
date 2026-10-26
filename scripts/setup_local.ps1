@@ -31,6 +31,13 @@ if (-not (Test-Path $venvPython)) {
     Write-Note "Ambiente virtual ja existe em .venv"
 }
 
+Write-Section "Baixando submodulo vendor/PyADM1"
+if ((Get-Command git -ErrorAction SilentlyContinue) -and (Test-Path (Join-Path $projectRoot ".git"))) {
+    & git -C $projectRoot submodule update --init --recursive
+} else {
+    Write-Note "git indisponivel ou fora de um clone; confira se vendor/PyADM1 esta preenchido."
+}
+
 Write-Section "Instalando dependencias Python"
 & $venvPython -m pip install --upgrade pip
 & $venvPython -m pip install -r $requirementsPath

@@ -1,8 +1,13 @@
 ﻿from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from simulator.core.models import SimulationResult
+
+# Ids become file names. Rejecting both "/" and backslash keeps traversal
+# protection identical on Windows and POSIX, where backslash is a valid name char.
+_SIMULATION_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
 class ScenarioStore:
@@ -13,6 +18,8 @@ class ScenarioStore:
         self.root.mkdir(parents=True, exist_ok=True)
 
     def path_for(self, simulation_id: str) -> Path:
+        if not _SIMULATION_ID_PATTERN.fullmatch(simulation_id):
+            raise ValueError(f"Invalid simulation_id: {simulation_id}")
         resolved_root = self.root.resolve()
         candidate = (resolved_root / f"{simulation_id}.json").resolve()
         if not candidate.is_relative_to(resolved_root):

@@ -66,29 +66,59 @@ git submodule update --init --recursive
 
 ### 2. Crie o ambiente e instale dependências
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\activate
-pip install -r requirements.txt
-```
+Os scripts de `scripts/` existem em duas versões: `.ps1` (Windows PowerShell) e `.sh` (Linux e macOS).
+O script de setup também inicializa o submódulo `vendor/PyADM1`.
 
-Ou use o script de setup:
+**Windows (PowerShell):**
 
 ```powershell
 .\scripts\setup_local.ps1
 ```
 
+**Linux / macOS (Bash):**
+
+```bash
+./scripts/setup_local.sh                        # usa python, depois python3
+./scripts/setup_local.sh --python-exe python3.12  # escolhe o interpretador
+```
+
+Ou manualmente:
+
+```powershell
+# Windows
+python -m venv .venv
+.\.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+```bash
+# Linux / macOS
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
 ### 3. Verifique o ambiente
 
 ```powershell
-.\scripts\check_env.ps1
+.\scripts\check_env.ps1     # Windows
+```
+
+```bash
+./scripts/check_env.sh        # Linux / macOS
 ```
 
 ### 4. Inicie a interface web
 
 ```powershell
-streamlit run webapp/app.py
+.\scripts\run_webapp.ps1    # Windows
 ```
+
+```bash
+./scripts/run_webapp.sh       # Linux / macOS (aceita --port e --headless)
+```
+
+Ou diretamente, com o ambiente ativado: `streamlit run webapp/app.py`.
 
 Acesse em: **http://localhost:8501**
 
@@ -142,7 +172,7 @@ O backend `pyadm1` está vendorizado em `vendor/PyADM1/` como submódulo Git.
 
 ## Uso Via CLI
 
-```powershell
+```bash
 # Benchmark local
 python -m simulator.benchmark
 
@@ -160,7 +190,7 @@ python simulator/mcp_server.py
 
 ## Testes
 
-```powershell
+```bash
 # Suíte principal
 python -m pytest simulator/tests -q
 
@@ -188,7 +218,7 @@ ADM1/
 │   ├── pages/              # páginas numeradas da interface
 │   ├── services/           # serviços consumidos pela UI
 │   └── testing/            # testes de suporte do webapp
-├── scripts/                # automações PowerShell
+├── scripts/                # automações PowerShell (.ps1) e Bash (.sh)
 ├── vendor/PyADM1/          # submódulo PyADM1
 ├── requirements.txt
 └── pyproject.toml
@@ -202,7 +232,7 @@ Diretórios gerados localmente (não versionados): `simulator/runs/`, `simulator
 
 - **Python 3.11+**
 - **Git** com suporte a submódulos
-- **Windows PowerShell** (para os scripts em `scripts/`)
+- **Windows PowerShell** ou **Bash** (para os scripts em `scripts/`)
 - **OpenModelica** — opcional; necessário apenas para validações cruzadas específicas
 
 ---

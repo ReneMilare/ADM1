@@ -1,5 +1,5 @@
 # Runtime principal: simulacao, MCP do simulador e webapp
-mcp[cli]>=1.0
+mcp[cli]>=1.0,<2
 pydantic>=2,<3
 pyyaml>=6.0
 

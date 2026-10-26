@@ -8,7 +8,7 @@ version = "1.3.0"
 description = "ADM1 simulation workbench with simulator MCP and Streamlit interface."
 requires-python = ">=3.11"
 dependencies = [
-    "mcp[cli]>=1.0",
+    "mcp[cli]>=1.0,<2",
     "matplotlib>=3.8",
     "numpy>=1.26,<3",
     "pandas>=2.0",
@@ -22,7 +22,7 @@ dependencies = [
 [project.optional-dependencies]
 # Required only for OpenModelica validation (run_phase3_validation with include_openmodelica=True).
 openmodelica = ["OMPython"]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "playwright"]
 
 [project.scripts]
 adm1-simulate = "simulator.mcp_server:mcp.run"
