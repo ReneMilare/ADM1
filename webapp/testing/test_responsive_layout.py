@@ -24,14 +24,23 @@ PAGE_PATHS = [""] + sorted(
 )
 
 # Elements that overflow the viewport or still clip their text with an ellipsis.
-LAYOUT_PROBE = """
+LAYOUT_PROBE = r"""
 () => {
   const vw = document.documentElement.clientWidth;
+  // Content inside a horizontal scroller that itself fits (tab bars, wide tables,
+  // code) is reachable by scrolling, so it does not count as overflow.
+  const insideFittingScroller = (el) => {
+    for (let parent = el.parentElement; parent; parent = parent.parentElement) {
+      const overflowX = getComputedStyle(parent).overflowX;
+      if ((overflowX === 'auto' || overflowX === 'scroll') && parent.getBoundingClientRect().right <= vw + 2) return true;
+    }
+    return false;
+  };
   const outside = [];
   for (const el of document.querySelectorAll('[data-testid="stMain"] *')) {
     const rect = el.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) continue;
-    if (el.closest('[data-testid="stDataFrame"], pre, [data-testid="stCode"]')) continue;
+    if (el.closest('[data-testid="stDataFrame"], pre, [data-testid="stCode"]') || insideFittingScroller(el)) continue;
     if (rect.right > vw + 2 && !outside.some((parent) => parent.contains(el))) {
       outside.push(el);
     }
@@ -39,8 +48,25 @@ LAYOUT_PROBE = """
   const clipped = [...document.querySelectorAll(
     '[data-testid="stMetricLabel"] *, [data-testid="stMetricValue"], [data-testid="stMetricValue"] *, [data-testid="stMetricDelta"] *, [data-testid="stCheckbox"] label [data-testid="stMarkdownContainer"] *'
   )].filter((el) => (el.innerText || '').trim() && el.scrollWidth > el.clientWidth + 1);
+  // A token with digits ("1465.87", "5/5") laid out on more than one line was split
+  // mid-number. Long identifiers without digits may still wrap.
+  const splitNumbers = [];
+  for (const el of document.querySelectorAll('[data-testid="stMetricValue"], [data-testid="stMetricDelta"]')) {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      for (const match of node.data.matchAll(/\S+/g)) {
+        if (!/\d/.test(match[0])) continue;
+        const range = document.createRange();
+        range.setStart(node, match.index);
+        range.setEnd(node, match.index + match[0].length);
+        const lineTops = new Set([...range.getClientRects()].filter((r) => r.width > 0).map((r) => Math.round(r.top)));
+        if (lineTops.size > 1) splitNumbers.push(match[0]);
+      }
+    }
+  }
   const label = (el) => `${el.tagName.toLowerCase()} "${(el.innerText || '').trim().slice(0, 50)}"`;
   return {
+    splitNumbers,
     pageScrollWidth: document.documentElement.scrollWidth,
     viewportWidth: vw,
     outside: outside.slice(0, 5).map(label),
@@ -103,15 +129,23 @@ def browser() -> Iterator[object]:
         instance.close()
 
 
-def _load(browser: object, url: str, width: int) -> dict:
+def _wait_for_script_run(page: object, timeout_ms: int = 60_000) -> None:
+    page.wait_for_function("!document.querySelector('[data-testid=\"stStatusWidget\"]')", timeout=timeout_ms)
+    # Let late layout (fonts, Plotly) settle.
+    page.wait_for_timeout(1500)
+
+
+def _load(browser: object, url: str, width: int, *, run_simulation: bool = False) -> dict:
     context = browser.new_context(viewport={"width": width, "height": 900})
     page = context.new_page()
     try:
         page.goto(url, timeout=30_000)
         page.wait_for_selector('[data-testid="stAppViewContainer"]', timeout=30_000)
-        # Wait until the script run finishes, then let late layout settle.
-        page.wait_for_function("!document.querySelector('[data-testid=\"stStatusWidget\"]')", timeout=60_000)
-        page.wait_for_timeout(1500)
+        _wait_for_script_run(page)
+        if run_simulation:
+            page.get_by_role("button", name="Executar simulação").click()
+            page.get_by_text("Resultado da simulação").first.wait_for(timeout=180_000)
+            _wait_for_script_run(page, timeout_ms=180_000)
         return page.evaluate(LAYOUT_PROBE)
     finally:
         context.close()
@@ -126,8 +160,26 @@ def test_page_renders_and_fits_viewport(base_url: str, browser: object, page_pat
     assert layout["pageScrollWidth"] <= layout["viewportWidth"] + 2, "page scrolls horizontally"
     assert layout["outside"] == [], f"elements overflow the viewport: {layout['outside']}"
     assert layout["clipped"] == [], f"text clipped with ellipsis: {layout['clipped']}"
+    assert layout["splitNumbers"] == [], f"KPI numbers split across lines: {layout['splitNumbers']}"
     if width < 768:
         assert not layout["sidebarExpanded"], "sidebar covers the content on small screens"
+
+
+@pytest.mark.parametrize("width", VIEWPORT_WIDTHS)
+def test_simulation_result_kpis_fit(base_url: str, browser: object, width: int) -> None:
+    # The result row has 5 narrow KPI cards with long values (e.g. "1465.87 Nm3/d").
+    runs_dir = PROJECT_ROOT / "simulator" / "runs"
+    existing_runs = set(runs_dir.glob("*.json"))
+    try:
+        layout = _load(browser, f"{base_url}/Simular_Reator", width, run_simulation=True)
+    finally:
+        for run_file in set(runs_dir.glob("*.json")) - existing_runs:
+            run_file.unlink()
+
+    assert layout["exceptions"] == [], f"page raised: {layout['exceptions']}"
+    assert layout["outside"] == [], f"elements overflow the viewport: {layout['outside']}"
+    assert layout["clipped"] == [], f"text clipped with ellipsis: {layout['clipped']}"
+    assert layout["splitNumbers"] == [], f"KPI numbers split across lines: {layout['splitNumbers']}"
 
 
 def test_navigation_lists_only_user_pages(base_url: str, browser: object) -> None:
