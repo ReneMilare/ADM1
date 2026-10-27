@@ -13,7 +13,6 @@ from simulator.core.models import SimulationResult
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 USER_DATA_DIR = PROJECT_ROOT / "webapp" / "user_data"
 STATE_PATH = USER_DATA_DIR / "workbench_state.json"
-MAX_RECENT_QUERIES = 12
 MAX_RECENT_SIMULATIONS = 12
 MAX_PRESET_NAME_LENGTH = 80
 PRESET_NAME_RE = re.compile(r"[^\w\s().-]+", flags=re.UNICODE)
@@ -22,16 +21,12 @@ DEFAULT_WORKBENCH_STATE = {
     "preferences": {
         "default_reactor": "cstr",
         "default_backend": "full",
-        "default_top_k": 5,
         "persist_scenarios_by_default": True,
         "show_home_onboarding": True,
-        "auto_expand_top_result": True,
         "ammonia_inhibition_mode_default": "simple",
     },
     "simulation_presets": [],
     "custom_substrates": [],
-    "favorite_queries": [],
-    "recent_queries": [],
     "recent_simulations": [],
 }
 
@@ -102,12 +97,11 @@ def _normalize_state(payload: dict[str, Any] | None) -> dict[str, Any]:
             if key in preferences:
                 state["preferences"][key] = preferences[key]
 
-    for key in ("simulation_presets", "custom_substrates", "favorite_queries", "recent_queries", "recent_simulations"):
+    for key in ("simulation_presets", "custom_substrates", "recent_simulations"):
         value = payload.get(key)
         if isinstance(value, list):
             state[key] = [item for item in value if isinstance(item, dict)]
 
-    state["recent_queries"] = state["recent_queries"][:MAX_RECENT_QUERIES]
     state["recent_simulations"] = state["recent_simulations"][:MAX_RECENT_SIMULATIONS]
     return state
 
@@ -227,57 +221,6 @@ def find_simulation_preset(name: str) -> dict[str, Any] | None:
     return None
 
 
-def list_favorite_queries() -> list[dict[str, Any]]:
-    state = load_workbench_state()
-    return sorted(state["favorite_queries"], key=lambda item: str(item.get("saved_at") or ""), reverse=True)
-
-
-def is_query_favorite(query: str) -> bool:
-    normalized = query.strip().casefold()
-    return any(str(item.get("query", "")).casefold() == normalized for item in list_favorite_queries())
-
-
-def toggle_favorite_query(query: str) -> bool:
-    cleaned_query = query.strip()
-    if not cleaned_query:
-        raise ValueError("Nao ha consulta para favoritar.")
-
-    state = load_workbench_state()
-    favorites = [item for item in state["favorite_queries"] if str(item.get("query", "")).casefold() != cleaned_query.casefold()]
-    removed = len(favorites) != len(state["favorite_queries"])
-    if not removed:
-        favorites.insert(0, {"query": cleaned_query, "saved_at": _now_iso()})
-    state["favorite_queries"] = favorites[:MAX_RECENT_QUERIES]
-    _write_state(state)
-    return not removed
-
-
-def list_recent_queries(limit: int = 8) -> list[dict[str, Any]]:
-    state = load_workbench_state()
-    return state["recent_queries"][:limit]
-
-
-def record_recent_query(query: str, *, result_count: int, source_count: int) -> list[dict[str, Any]]:
-    cleaned_query = query.strip()
-    if not cleaned_query:
-        return list_recent_queries()
-
-    state = load_workbench_state()
-    items = [item for item in state["recent_queries"] if str(item.get("query", "")).casefold() != cleaned_query.casefold()]
-    items.insert(
-        0,
-        {
-            "query": cleaned_query,
-            "used_at": _now_iso(),
-            "result_count": int(result_count),
-            "source_count": int(source_count),
-        },
-    )
-    state["recent_queries"] = items[:MAX_RECENT_QUERIES]
-    _write_state(state)
-    return list_recent_queries()
-
-
 def list_recent_simulations(limit: int = 8) -> list[dict[str, Any]]:
     state = load_workbench_state()
     return state["recent_simulations"][:limit]
@@ -305,7 +248,7 @@ def record_recent_simulation(result: SimulationResult) -> list[dict[str, Any]]:
 
 def clear_saved_items(section: str) -> None:
     state = load_workbench_state()
-    if section not in {"simulation_presets", "custom_substrates", "favorite_queries", "recent_queries", "recent_simulations"}:
+    if section not in {"simulation_presets", "custom_substrates", "recent_simulations"}:
         raise ValueError(f"Unsupported section: {section}")
     state[section] = []
     _write_state(state)

@@ -48,7 +48,7 @@ for error in load_errors:
     st.warning(f"Falha ao carregar cenário salvo: {error}")
 
 if not results:
-    st.info("Nenhum cenário persistido foi encontrado em `simulator/runs/`. Rode pelo menos duas simulações com a opção de persistir cenário habilitada para usar a comparação W3.")
+    st.warning("Nenhum cenário salvo foi encontrado em `simulator/runs/`. Rode simulações com a opção de persistir cenário habilitada para preencher a comparação.")
     st.stop()
 
 filters = filter_values(results)

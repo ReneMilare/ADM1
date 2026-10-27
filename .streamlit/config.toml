@@ -15,3 +15,11 @@ enableXsrfProtection = true
 
 [browser]
 gatherUsageStats = false
+
+[client]
+# Hide the Deploy button and developer menu, and keep tracebacks (with local
+# paths) out of the page.
+toolbarMode = "minimal"
+# The sidebar renders its own labelled page links (status_cards.py).
+showSidebarNavigation = false
+showErrorDetails = "type"
