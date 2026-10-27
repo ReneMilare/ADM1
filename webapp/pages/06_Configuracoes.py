@@ -111,7 +111,7 @@ with st.form("preferences_form"):
     with pref_col3:
         show_home_onboarding = st.checkbox("Mostrar onboarding na home", value=bool(preferences.get("show_home_onboarding", True)))
 
-    submitted = st.form_submit_button("Salvar preferencias", use_container_width=True)
+    submitted = st.form_submit_button("Salvar preferencias", width="stretch")
 
 if submitted:
     save_preferences(
@@ -137,7 +137,7 @@ st.download_button(
     data=export_workbench_state_bytes(),
     file_name="workbench_state.json",
     mime="application/json",
-    use_container_width=False,
+    width="content",
 )
 
 st.subheader("Presets do usuario")
@@ -160,12 +160,12 @@ if presets:
     selected_preset = st.selectbox("Preset para excluir", options=[str(item.get("name")) for item in presets])
     preset_col1, preset_col2 = st.columns(2)
     with preset_col1:
-        if st.button("Excluir preset selecionado", use_container_width=True):
+        if st.button("Excluir preset selecionado", width="stretch"):
             delete_simulation_preset(selected_preset)
             _queue_flash(f"Preset `{selected_preset}` excluido.")
             st.rerun()
     with preset_col2:
-        if st.button("Limpar todos os presets", use_container_width=True):
+        if st.button("Limpar todos os presets", width="stretch"):
             clear_saved_items("simulation_presets")
             _queue_flash("Todos os presets foram removidos.")
             st.rerun()
@@ -188,7 +188,7 @@ if custom_substrates:
         )
     render_frame(substrate_rows)
     selected_substrate = st.selectbox("Substrato para excluir", options=[str(item.get("name")) for item in custom_substrates])
-    if st.button("Excluir substrato selecionado", use_container_width=True):
+    if st.button("Excluir substrato selecionado", width="stretch"):
         delete_custom_substrate(selected_substrate)
         _queue_flash(f"Substrato `{selected_substrate}` excluido.")
         st.rerun()
@@ -201,6 +201,6 @@ if recent_simulations:
     render_frame(recent_simulations)
 else:
     st.caption("As simulacoes mais recentes aparecerao aqui apos as primeiras execucoes com sucesso.")
-if st.button("Limpar historico de simulacoes", use_container_width=True):
+if st.button("Limpar historico de simulacoes", width="stretch"):
     clear_saved_items("recent_simulations")
     st.rerun()

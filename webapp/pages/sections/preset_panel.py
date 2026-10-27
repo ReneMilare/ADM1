@@ -58,7 +58,7 @@ def _render_user_presets() -> None:
 
         preset_col1, preset_col2 = st.columns(2)
         with preset_col1:
-            if st.button("Aplicar preset salvo", use_container_width=True):
+            if st.button("Aplicar preset salvo", width="stretch"):
                 preset_payload = next(
                     item.get("payload")
                     for item in saved_presets
@@ -69,7 +69,7 @@ def _render_user_presets() -> None:
                 st.session_state[_PENDING_PRESET_KEY] = queued_payload
                 st.rerun()
         with preset_col2:
-            if st.button("Excluir preset salvo", use_container_width=True):
+            if st.button("Excluir preset salvo", width="stretch"):
                 delete_simulation_preset(selected_user_preset)
                 st.toast(f"Preset `{selected_user_preset}` excluído.")
                 st.rerun()
@@ -82,7 +82,7 @@ def _render_save_preset() -> None:
             "Salve a configuração atual para reutilizar o mesmo caso sem reconfigurar a tela manualmente."
         )
         preset_name = st.text_input("Nome do preset", key="save_user_preset_name")
-        if st.button("Salvar configuração atual", use_container_width=True):
+        if st.button("Salvar configuração atual", width="stretch"):
             try:
                 payload = build_user_simulation_preset_payload(st.session_state)
                 save_simulation_preset(preset_name, payload)
@@ -119,7 +119,7 @@ def _render_custom_substrates() -> None:
                 options=[item["name"] for item in _saved_custom_list],
                 key="custom_substrate_to_delete",
             )
-            if st.button("Excluir substrato selecionado", use_container_width=True):
+            if st.button("Excluir substrato selecionado", width="stretch"):
                 delete_custom_substrate(_del_name)
                 st.toast(f"Substrato '{_del_name}' excluído.")
                 st.rerun()
@@ -169,7 +169,7 @@ def _render_custom_substrates() -> None:
                 "pH", min_value=5.0, max_value=8.5, value=7.0, step=0.05, key="new_cs_ph"
             )
 
-        if st.button("Salvar substrato personalizado", use_container_width=True):
+        if st.button("Salvar substrato personalizado", width="stretch"):
             try:
                 if not _new_cs_name or not _new_cs_name.strip():
                     st.error("Informe um nome para o substrato personalizado.")

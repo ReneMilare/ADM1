@@ -20,7 +20,7 @@ _PAGE_LINKS = [
 def _safe_page_link(path: str, label: str) -> None:
     if hasattr(st, "page_link"):
         try:
-            st.page_link(path, label=label, use_container_width=True)
+            st.page_link(path, label=label, width="stretch")
             return
         except Exception:
             pass
@@ -83,7 +83,7 @@ def render_dependency_table(snapshot: dict[str, Any]) -> None:
                 "detalhe": item["detail"],
             }
         )
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.dataframe(rows, width="stretch", hide_index=True)
 
 
 def render_service_table(snapshot: dict[str, Any]) -> None:
@@ -96,7 +96,7 @@ def render_service_table(snapshot: dict[str, Any]) -> None:
                 "detalhe": item["detail"],
             }
         )
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.dataframe(rows, width="stretch", hide_index=True)
 
 
 def render_artifact_table(snapshot: dict[str, Any]) -> None:
@@ -107,7 +107,7 @@ def render_artifact_table(snapshot: dict[str, Any]) -> None:
         {"artefato": "Validation runs", "valor": artifacts["validation_run_count"]},
         {"artefato": "Literature validation runs", "valor": artifacts["literature_validation_count"]},
     ]
-    st.dataframe(rows, use_container_width=True, hide_index=True)
+    st.dataframe(rows, width="stretch", hide_index=True)
 
 
 def render_placeholder_block(*, description: str, next_step: str, bullets: list[str]) -> None:

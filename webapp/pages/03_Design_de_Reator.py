@@ -90,7 +90,7 @@ with context_col:
             {"parametro": "Soluble COD", "valor": f"{feed.soluble_cod:.3f} kgCOD/m3"},
             {"parametro": "Influent pH", "valor": f"{feed.ph:.2f}"},
         ],
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 with form_col:
@@ -195,7 +195,7 @@ if report is not None:
         data=design_json_bytes(report),
         file_name="design_study.json",
         mime="application/json",
-        use_container_width=False,
+        width="content",
     )
 else:
     st.subheader("Referencias disponiveis")

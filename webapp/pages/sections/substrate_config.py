@@ -156,7 +156,7 @@ def _render_last_composition_details() -> None:
                 unit = "kgCOD/m³"
             state_rows.append({"Estado ADM1": k, "Valor": f"{v:.4f}", "Unidade": unit})
         if state_rows:
-            st.dataframe(state_rows, use_container_width=True)
+            st.dataframe(state_rows, width="stretch")
 
         for w in st.session_state.get("conv_conversion_warnings", []):
             st.warning(w)
@@ -528,7 +528,7 @@ def _render_asm1_interface() -> None:
                 }
                 for k, v in _influent.items()
             ]
-            st.dataframe(_result_rows, use_container_width=True)
+            st.dataframe(_result_rows, width="stretch")
             _bc1, _bc2 = st.columns(2)
             _bc1.metric("Erro balanço COD", f"{_balance['cod_error_pct']:.3f}%")
             _bc2.metric("Erro balanço N", f"{_balance['n_error_pct']:.1f}%")

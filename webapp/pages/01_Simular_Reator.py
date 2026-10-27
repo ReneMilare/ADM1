@@ -261,7 +261,7 @@ can_run = render_technical_review(review)
 # --- Botao de execucao ---
 
 if can_run:
-    if st.button("Executar simulação", type="primary", use_container_width=True):
+    if st.button("Executar simulação", type="primary", width="stretch"):
         backend_options = get_backend_options()
         _backend_label = backend_options.get(review.backend_predicted, review.backend_predicted.upper())
         with st.spinner(f"Executando a simulação ADM1 com {_backend_label}..."):

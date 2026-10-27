@@ -49,7 +49,7 @@ _PLOTLY_CONFIG = {
 
 
 def _render_figure(figure: go.Figure) -> None:
-    st.plotly_chart(figure, use_container_width=True, config=_PLOTLY_CONFIG)
+    st.plotly_chart(figure, width="stretch", config=_PLOTLY_CONFIG)
 
 
 def _base_layout(title: str, *, height: int = 360) -> dict[str, Any]:
