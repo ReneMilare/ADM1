@@ -46,7 +46,8 @@ def scroll_and_capture(page: Page, path: Path, full_page: bool = True) -> None:
 def capture_home(page: Page) -> None:
     print("Capturando: Home")
     page.goto(BASE_URL, timeout=20000)
-    wait_streamlit(page, extra=2.0)
+    # The sidebar slides in after the first render; wait for the animation.
+    wait_streamlit(page, extra=4.0)
     scroll_and_capture(page, OUT_DIR / "01_home.png")
 
 
@@ -72,15 +73,23 @@ def capture_simular_reator(page: Page) -> None:
                 )
             except Exception:
                 pass
-            time.sleep(3.0)
+            page.wait_for_function(
+                "!document.querySelector('[data-testid=\"stStatusWidget\"]')",
+                timeout=180000,
+            )
+            time.sleep(2.0)
+            # The app scrolls inside its own container, so full_page only shows the
+            # viewport: scroll to the result section before capturing.
+            page.get_by_text("Resultado da simulação").first.evaluate("el => el.scrollIntoView({block: 'start'})")
+            time.sleep(1.0)
             hide_streamlit_toolbar(page)
-            page.screenshot(path=str(OUT_DIR / "03_simular_reator_resultado.png"), full_page=True)
+            page.screenshot(path=str(OUT_DIR / "03_simular_reator_resultado.png"), full_page=False)
             print(f"  Salvo: 03_simular_reator_resultado.png")
 
             # Scroll até gráficos Plotly e captura
-            charts = page.locator('.js-plotly-plot')
+            charts = page.locator('.js-plotly-plot:visible')
             if charts.count() > 0:
-                charts.first.scroll_into_view_if_needed()
+                charts.first.evaluate("el => el.scrollIntoView({block: 'start'})")
                 time.sleep(1.0)
                 page.screenshot(path=str(OUT_DIR / "04_graficos_adm1.png"), full_page=False)
                 print(f"  Salvo: 04_graficos_adm1.png")
@@ -131,7 +140,7 @@ def main() -> int:
     print(f"Salvando screenshots em: {OUT_DIR}\n")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False)  # headless=False para renderizar Plotly corretamente
+        browser = p.chromium.launch()
         context = browser.new_context(viewport=VIEWPORT)
         page = context.new_page()
 

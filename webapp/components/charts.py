@@ -58,7 +58,9 @@ def _base_layout(title: str, *, height: int = 360) -> dict[str, Any]:
         "template": "plotly_white",
         "margin": {"l": 20, "r": 20, "t": 60, "b": 20},
         "height": height,
-        "legend": {"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0.0},
+        # Below the x axis: above the plot, a multi-line legend (long scenario ids)
+        # covers the title. Plotly grows the bottom margin to fit it.
+        "legend": {"orientation": "h", "yanchor": "top", "y": -0.3, "xanchor": "left", "x": 0.0},
         "paper_bgcolor": "rgba(255,255,255,0.85)",
         "plot_bgcolor": "rgba(255,255,255,0.85)",
     }
