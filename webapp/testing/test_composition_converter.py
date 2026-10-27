@@ -409,16 +409,12 @@ def _make_empty_workbench_state():
         "preferences": {
             "default_reactor": "cstr",
             "default_backend": "full",
-            "default_top_k": 5,
             "persist_scenarios_by_default": True,
             "show_home_onboarding": True,
-            "auto_expand_top_result": True,
             "ammonia_inhibition_mode_default": "simple",
         },
         "simulation_presets": [],
         "custom_substrates": [],
-        "favorite_queries": [],
-        "recent_queries": [],
         "recent_simulations": [],
     }
 

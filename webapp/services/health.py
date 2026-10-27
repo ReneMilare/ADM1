@@ -26,7 +26,7 @@ def collect_health_snapshot() -> dict[str, Any]:
         "literature": load_latest_report(PROJECT_ROOT / "simulator" / "literature_validation_runs", "literature_validation.json"),
     }
     artifacts = _collect_artifacts(PROJECT_ROOT)
-    issues = _build_issues(dependencies, services, artifacts)
+    issues = _build_issues(dependencies, services)
     return {
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "python_version": sys.version.split()[0],
@@ -190,7 +190,6 @@ def _collect_artifacts(root: Path) -> dict[str, Any]:
 def _build_issues(
     dependencies: list[dict[str, Any]],
     services: list[dict[str, Any]],
-    artifacts: dict[str, Any],
 ) -> list[dict[str, str]]:
     issues: list[dict[str, str]] = []
     for item in dependencies:
@@ -202,6 +201,4 @@ def _build_issues(
     vendor_path = PROJECT_ROOT / "vendor" / "PyADM1"
     if not vendor_path.exists():
         issues.append({"severity": "error", "message": "The original PyADM1 code was not found in vendor/PyADM1."})
-    if artifacts["saved_scenario_count"] == 0:
-        issues.append({"severity": "warning", "message": "No saved scenarios were found in simulator/runs/. The comparison page will populate after the first simulations."})
     return issues

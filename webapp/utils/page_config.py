@@ -12,7 +12,7 @@ def configure_page(title: str) -> None:
     st.set_page_config(
         page_title=title,
         layout="wide",
-        initial_sidebar_state="expanded",
+        initial_sidebar_state="auto",
     )
     _theme_css = f"<style>\n{_THEME_CSS_PATH.read_text(encoding='utf-8')}\n</style>"
     st.markdown(_theme_css, unsafe_allow_html=True)

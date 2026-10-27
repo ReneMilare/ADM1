@@ -306,3 +306,45 @@ div[data-baseweb="select"] [data-baseweb="tag"] * {
 [data-testid="stMultiSelect"] [data-baseweb="select"] > div:first-child > div:first-child {
   overflow: visible !important;
 }
+
+/* Responsive layout. Streamlit only stacks columns below 640px, so between
+   640px and 1100px rows of 3+ columns (KPI cards) wrap into two per row. */
+[data-testid="stMetricLabel"] *,
+[data-testid="stMetricValue"],
+[data-testid="stMetricValue"] *,
+[data-testid="stMetricDelta"] *,
+[data-testid="stCheckbox"] label [data-testid="stMarkdownContainer"] * {
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  text-overflow: clip !important;
+  overflow: visible !important;
+}
+
+@media (max-width: 1100px) {
+  [data-testid="stHorizontalBlock"] {
+    flex-wrap: wrap;
+  }
+
+  [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+    min-width: calc(50% - 1rem);
+  }
+}
+
+@media (max-width: 640px) {
+  [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+    min-width: 100%;
+  }
+
+  .block-container {
+    padding: 1rem 1rem 1.5rem;
+  }
+
+  .adm1-hero {
+    padding: 1rem;
+  }
+
+  .adm1-hero h1 {
+    font-size: 1.9rem;
+    padding: 0 0 0.5rem;
+  }
+}
