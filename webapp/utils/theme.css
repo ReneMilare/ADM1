@@ -315,9 +315,22 @@ div[data-baseweb="select"] [data-baseweb="tag"] * {
 [data-testid="stMetricDelta"] *,
 [data-testid="stCheckbox"] label [data-testid="stMarkdownContainer"] * {
   white-space: normal !important;
-  overflow-wrap: anywhere;
+  /* break-word only splits a word that cannot fit on its own line, so numbers
+     such as 1465.87 stay whole; anywhere would split them mid-number. */
+  overflow-wrap: break-word;
   text-overflow: clip !important;
   overflow: visible !important;
+}
+
+/* KPI values shrink with their card instead of wrapping inside numbers. */
+[data-testid="stMetric"] {
+  container-type: inline-size;
+}
+
+[data-testid="stMetricValue"],
+[data-testid="stMetricValue"] > div {
+  font-size: clamp(1.3rem, 20cqi, 2.25rem) !important;
+  line-height: 1.15;
 }
 
 @media (max-width: 1100px) {

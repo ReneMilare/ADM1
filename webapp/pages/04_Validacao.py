@@ -51,7 +51,7 @@ controls_col1, controls_col2 = st.columns(2)
 with controls_col1:
     st.subheader("Executar validacao da Fase 3")
     include_openmodelica = st.checkbox("Incluir checagem OpenModelica e export de cenarios", value=False)
-    if st.button("Rodar validacao Fase 3", use_container_width=True):
+    if st.button("Rodar validacao Fase 3", width="stretch"):
         with st.spinner("Executando benchmark local e consolidando a validacao da Fase 3..."):
             try:
                 st.session_state["latest_phase3_validation"] = run_phase3_workflow(include_openmodelica=include_openmodelica)
@@ -60,7 +60,7 @@ with controls_col1:
                 st.session_state["latest_phase3_validation_error"] = str(exc)
 with controls_col2:
     st.subheader("Executar validacao contra literatura")
-    if st.button("Rodar validacao BSM2", use_container_width=True):
+    if st.button("Rodar validacao BSM2", width="stretch"):
         with st.spinner("Executando a validacao contra a literatura BSM2..."):
             try:
                 st.session_state["latest_literature_validation"] = run_literature_workflow()

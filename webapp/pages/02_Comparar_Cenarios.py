@@ -142,7 +142,7 @@ st.download_button(
     data=comparison_csv_bytes(selected, baseline_id=baseline_id),
     file_name="scenario_comparison.csv",
     mime="text/csv",
-    use_container_width=False,
+    width="content",
 )
 
 fallback_info = fallback_rows(selected)
@@ -348,7 +348,7 @@ else:
                 if st.button(
                     "📄 Salvar relatório do cenário A",
                     key=f"rep_report_a_{diff_id_a}",
-                    use_container_width=True,
+                    width="stretch",
                 ):
                     _rpath, _rerr = export_report(_rep_payload)
                     if _rpath:
@@ -361,7 +361,7 @@ else:
                     data=_rep_md.encode("utf-8"),
                     file_name=_rep_filename,
                     mime="text/markdown",
-                    use_container_width=True,
+                    width="stretch",
                     key=f"rep_dl_a_{diff_id_a}",
                 )
 
@@ -371,7 +371,7 @@ st.divider()
 st.subheader("Duplicar cenário")
 dup_col1, dup_col2 = st.columns(2)
 with dup_col1:
-    if st.button(f"Duplicar cenário A ({diff_id_a})", use_container_width=True):
+    if st.button(f"Duplicar cenário A ({diff_id_a})", width="stretch"):
         new_id, dup_err = duplicate_scenario_action(diff_id_a)
         if new_id:
             st.success(f"Cenário duplicado com sucesso. Novo ID: `{new_id}`")
@@ -379,7 +379,7 @@ with dup_col1:
             st.error(dup_err or "Falha ao duplicar o cenário A.")
 with dup_col2:
     if diff_id_a != diff_id_b:
-        if st.button(f"Duplicar cenário B ({diff_id_b})", use_container_width=True):
+        if st.button(f"Duplicar cenário B ({diff_id_b})", width="stretch"):
             new_id, dup_err = duplicate_scenario_action(diff_id_b)
             if new_id:
                 st.success(f"Cenário duplicado com sucesso. Novo ID: `{new_id}`")

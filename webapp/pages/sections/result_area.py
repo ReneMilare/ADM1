@@ -318,7 +318,7 @@ def _render_diagnostics(result: Any, *, show_advanced: bool = False) -> None:
         st.subheader("Comparação de backends neste caso")
         st.caption("Executa o mesmo CSTR com `pyadm1` e `full` para explicitar paridade, fallback e deltas dos KPIs.")
         compare_key = f"backend_compare_{result.simulation_id}"
-        if st.button("Comparar `pyadm1` vs `full`", key=compare_key, use_container_width=False):
+        if st.button("Comparar `pyadm1` vs `full`", key=compare_key, width="content"):
             with st.spinner("Comparando `pyadm1` e `full` para o mesmo caso CSTR..."):
                 report = compare_backends_for_result(result, backends=("pyadm1", "full"))
             st.session_state["latest_backend_comparison"] = {
@@ -371,7 +371,7 @@ def _render_extensions(result: Any) -> None:
                     if _max_abs > 0 and (_max_abs < 1e-3 or _max_abs > 1e4):
                         _fig.update_yaxes(exponentformat="power")
                         _fig.update_traces(hovertemplate="%{x:.2f}d<br>%{y:.3e}<extra></extra>")
-                    _cols[i % 2].plotly_chart(_fig, use_container_width=True)
+                    _cols[i % 2].plotly_chart(_fig, width="stretch")
 
     # Extension KPI metrics
     _render_extension_kpis(result, _ext_requested)
@@ -450,7 +450,7 @@ def _render_export(result: Any, *, show_advanced: bool = False) -> None:
             data=summary_json_bytes(result),
             file_name=f"{result.simulation_id}_summary.json",
             mime="application/json",
-            use_container_width=True,
+            width="stretch",
         )
     with export_col2:
         st.download_button(
@@ -458,7 +458,7 @@ def _render_export(result: Any, *, show_advanced: bool = False) -> None:
             data=summary_csv_bytes(result),
             file_name=f"{result.simulation_id}_summary.csv",
             mime="text/csv",
-            use_container_width=True,
+            width="stretch",
         )
     with export_col3:
         st.download_button(
@@ -466,7 +466,7 @@ def _render_export(result: Any, *, show_advanced: bool = False) -> None:
             data=series_csv_bytes(result),
             file_name=f"{result.simulation_id}_profiles.csv",
             mime="text/csv",
-            use_container_width=True,
+            width="stretch",
         )
 
     # ── Relatório técnico Markdown ────────────────────────────────────────────
@@ -497,7 +497,7 @@ def _render_export(result: Any, *, show_advanced: bool = False) -> None:
         if st.button(
             "📄 Salvar relatório Markdown",
             key=f"export_report_{result.simulation_id}",
-            use_container_width=True,
+            width="stretch",
         ):
             from webapp.features.report_actions import export_report, generate_report, render_markdown
             _payload = generate_report(result, baseline_id=_baseline_id)
@@ -520,6 +520,6 @@ def _render_export(result: Any, *, show_advanced: bool = False) -> None:
             data=_md.encode("utf-8"),
             file_name=_md_filename,
             mime="text/markdown",
-            use_container_width=True,
+            width="stretch",
             key=f"dl_md_{result.simulation_id}",
         )
