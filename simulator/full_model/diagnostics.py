@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from simulator.full_model.gas_transfer import extra_gas_molar_divisors
 from simulator.full_model.model import DEFAULT_FULL_MODEL_ASSEMBLY, FullModelAssembly
 
 
@@ -21,7 +22,11 @@ def translate_full_profiles(
     p_h2 = s_gas_h2 * parameter_values["R"] * parameter_values["T_op"] / 16.0
     p_ch4 = s_gas_ch4 * parameter_values["R"] * parameter_values["T_op"] / 64.0
     p_co2 = s_gas_co2 * parameter_values["R"] * parameter_values["T_op"]
-    p_total = np.maximum(p_h2 + p_ch4 + p_co2 + parameter_values["p_gas_h2o"], 1e-12)
+    extra_pressures = {
+        name: matrix[:, assembly.full_state_index[name]] * parameter_values["R"] * parameter_values["T_op"] / divisor
+        for name, divisor in extra_gas_molar_divisors(assembly).items()
+    }
+    p_total = np.maximum(p_h2 + p_ch4 + p_co2 + sum(extra_pressures.values()) + parameter_values["p_gas_h2o"], 1e-12)
     q_gas_headspace = np.maximum(parameter_values["k_p"] * (p_total - parameter_values["p_atm"]), 0.0)
     gas_normalization = p_total / max(parameter_values["p_atm"], 1e-12)
     biogas = np.maximum(q_gas_headspace * gas_normalization, 0.0)
@@ -75,6 +80,9 @@ def translate_full_profiles(
             "Pgas_bar": p_total.astype(float).tolist(),
         }
     )
+    for gas_name, flow_name in (("S_gas_CO", "co_m3_day"), ("S_gas_H2S", "h2s_m3_day")):
+        if gas_name in extra_pressures:
+            series[flow_name] = (biogas * extra_pressures[gas_name] / p_total).astype(float).tolist()
     for diagnostics_hook in assembly.diagnostics_hooks:
         series.update(diagnostics_hook(matrix, assembly, parameter_values))
     return {name: [float(value) for value in values] for name, values in series.items()}

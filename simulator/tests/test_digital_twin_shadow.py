@@ -31,20 +31,44 @@ def _measured(n: int) -> pd.DataFrame:
     return frame
 
 
+def _observed(n: int, measured: pd.DataFrame | None = None) -> list[InfluentWindow]:
+    return observed_windows(
+        _windows(n), _measured(n) if measured is None else measured, NOMINAL,
+        nominal_flow_m3_day=150.0, nominal_temperature_c=35.0,
+    )
+
+
 def test_observed_windows_hold_last_lab_cod_and_keep_nominal_composition() -> None:
-    observed = observed_windows(_windows(5), _measured(5), NOMINAL)
-    # Before the first COD sample the nominal load is used.
-    assert influent_cod(observed[0].influent_values) == pytest.approx(5.0)
-    # From the sample day on, COD is held and the nominal fractions are kept.
-    for window in observed[2:]:
+    observed = _observed(6)
+    # The day-2 sample (mean of [2, 3)) is only known from day 3 on.
+    for window in observed[:3]:
+        assert influent_cod(window.influent_values) == pytest.approx(5.0)
+    for window in observed[3:]:
         assert influent_cod(window.influent_values) == pytest.approx(10.0)
         assert window.influent_values["S_su"] / window.influent_values["X_ch"] == pytest.approx(0.25)
     # Non-COD states are not rescaled and the true influent is never used.
     assert all(w.influent_values["S_IN"] == pytest.approx(0.1) for w in observed)
-    # Missing flow sample falls back to the last online value.
-    assert observed[3].flow_m3_day == pytest.approx(120.0)
-    assert all(w.temperature_c == pytest.approx(33.0) for w in observed)
+    # Before any online sample the twin uses the nominal flow/temperature, not the true one.
+    assert observed[0].flow_m3_day == pytest.approx(150.0)
+    assert observed[0].temperature_c == pytest.approx(35.0)
+    # Day 4 sees row 3 (missing flow) and holds row 2.
+    assert observed[4].flow_m3_day == pytest.approx(120.0)
+    assert all(w.temperature_c == pytest.approx(33.0) for w in observed[1:])
     assert set(COD_STATES) >= {"S_su", "X_ch"}
+
+
+def test_observed_windows_never_see_the_current_day() -> None:
+    measured = _measured(4)
+    measured["q_in_m3_d"] = [100.0, 200.0, 300.0, 400.0]
+    observed = _observed(4, measured)
+    # Window starting at day d may only use rows labelled <= d - 1.
+    assert [w.flow_m3_day for w in observed] == pytest.approx([150.0, 100.0, 200.0, 300.0])
+
+
+def test_observed_windows_reject_delay_below_one_day() -> None:
+    with pytest.raises(ValueError):
+        observed_windows(_windows(2), _measured(2), NOMINAL, nominal_flow_m3_day=1.0,
+                         nominal_temperature_c=35.0, report_delay_days=0.5)
 
 
 @pytest.mark.parametrize("mode", ["oracle", "observed"])

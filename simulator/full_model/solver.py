@@ -161,9 +161,37 @@ def simulate_with_full_inputs(
     full_state_matrix = np.asarray([ev.full_state.vector for ev in evaluations], dtype=float)
     profiles = translate_backend_profiles(
         full_state_matrix=full_state_matrix,
-        parameter_values=inputs.parameter_values,
+        parameter_values=_eval_rhs.params,
         assembly=inputs.assembly,
     )
+    if segment_count > 1:
+        segment_rhs = (
+            [system._rhs] * segment_count
+            if isinstance(system, FullPlugFlowRhs)
+            else [system._rhs1, system._rhs2]
+        )
+        gas_flow_names = (
+            "biogas_m3_day", "methane_m3_day", "co2_m3_day", "h2_m3_day",
+            "q_gas_headspace_m3_day", "co_m3_day", "h2s_m3_day",
+        )
+        gas_totals = {name: np.asarray(profiles[name], dtype=float) for name in gas_flow_names if name in profiles}
+        for segment, rhs in enumerate(segment_rhs[:-1]):
+            rows = solution.y[segment * m : (segment + 1) * m, :].T
+            segment_evaluations = [
+                rhs.evaluate(dynamic_values=dynamic_state_dict(row, assembly=inputs.assembly), use_cache=False)
+                for row in rows
+            ]
+            segment_profiles = translate_backend_profiles(
+                full_state_matrix=np.asarray([ev.full_state.vector for ev in segment_evaluations]),
+                parameter_values=rhs.params,
+                assembly=inputs.assembly,
+            )
+            for name in gas_totals:
+                gas_totals[name] += np.asarray(segment_profiles[name], dtype=float)
+        profiles.update({name: values.tolist() for name, values in gas_totals.items()})
+        profiles["ch4_fraction"] = np.clip(
+            gas_totals["methane_m3_day"] / np.maximum(gas_totals["biogas_m3_day"], 1e-12), 0.0, 1.0,
+        ).tolist()
     metadata = {
         "segment_count": segment_count,
         "reactor_type": reactor_type,
@@ -188,9 +216,12 @@ def simulate_with_full_inputs(
         "full_model_effective_ode_dimension": effective_ode_dimension,
         # Diagnóstico do solver scipy
         "full_model_runtime_seconds": round(runtime_seconds, 4),
-        "full_model_solver_method": str(simulation.solver),
-        "full_model_solver_rtol": float(simulation.rtol),
-        "full_model_solver_atol": float(simulation.atol),
+        "full_model_solver_method": str(solver_method),
+        "full_model_solver_rtol": float(rtol),
+        "full_model_solver_atol": float(atol),
+        "full_model_solver_method_requested": str(simulation.solver),
+        "full_model_solver_rtol_requested": float(simulation.rtol),
+        "full_model_solver_atol_requested": float(simulation.atol),
         "full_model_time_grid_points": int(simulation.evaluation_points),
         # Estatísticas de chamadas do solver (disponíveis na maioria dos métodos scipy)
         "full_model_solver_nfev": int(getattr(solution, "nfev", 0) or 0),

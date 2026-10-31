@@ -80,7 +80,13 @@ def run_scenario(
 
     # The twin knows neither the hidden parameters nor the plant's true state.
     if twin_influent == "observed":
-        twin_windows = observed_windows(windows, measured, base_influent_values())
+        twin_windows = observed_windows(
+            windows,
+            measured,
+            base_influent_values(),
+            nominal_flow_m3_day=scenario.base_flow_m3_day,
+            nominal_temperature_c=scenario.base_temperature_c,
+        )
     elif twin_influent == "oracle":
         twin_windows = list(windows)
     else:

@@ -7,9 +7,9 @@ from typing import Mapping
 import numpy as np
 
 from simulator.full_model.acid_base import AcidBaseState, solve_acid_base
-from simulator.full_model.gas_transfer import GasTransferState, compute_gas_transfer
+from simulator.full_model.gas_transfer import CORE_GAS_STATES, GasTransferState, compute_gas_transfer
 from simulator.full_model.kinetics import biochemical_rates
-from simulator.full_model.model import FullModelInputs, FullModelState, assemble_full_state, build_numeric_biochemical_matrix, dynamic_state_dict
+from simulator.full_model.model import FullModelAssembly, FullModelInputs, FullModelState, assemble_full_state, build_numeric_biochemical_matrix, dynamic_state_dict
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,19 +57,10 @@ class FullCSTRRhs:
             -(evaluation.gas_transfer.q_gas / self.params["V_gas"]) * dynamic_values["S_gas_co2"]
             + evaluation.gas_transfer.rho_t10 * self.params["V_liq"] / self.params["V_gas"]
         )
-        # Extension gas states: apply venting and stoichiometric (bio_dynamic) contributions.
-        # bio_dynamic[idx] carries the liquid-to-gas transfer term from the extension
-        # stoichiometry (coefficient V_liq/V_gas already embedded). The venting term
-        # -(q_gas/V_gas)*S_gas removes gas swept out with outflow.
-        _CORE_GAS_STATES = frozenset(("S_gas_h2", "S_gas_ch4", "S_gas_co2"))
-        for _ext_gas_name in self.assembly.dynamic_gas_state_names:
-            if _ext_gas_name in _CORE_GAS_STATES:
-                continue
-            _idx = self.assembly.dynamic_state_index[_ext_gas_name]
-            derivatives[_idx] = (
-                bio_dynamic[_idx]
-                - (evaluation.gas_transfer.q_gas / self.params["V_gas"]) * dynamic_values[_ext_gas_name]
-            )
+        apply_extension_gas_derivatives(
+            derivatives, 0, dynamic_values, bio_dynamic, evaluation.gas_transfer.q_gas,
+            self.params, self.assembly,
+        )
         return derivatives
 
     def evaluate(self, *, dynamic_values: Mapping[str, float], use_cache: bool) -> FullStateEvaluation:
@@ -98,7 +89,7 @@ class FullCSTRRhs:
             assembly=self.assembly,
         )
         rates, inhibitions = biochemical_rates(full_state.values, self.params, assembly=self.assembly)
-        gas_transfer = compute_gas_transfer(full_state.values, self.params)
+        gas_transfer = compute_gas_transfer(full_state.values, self.params, self.assembly)
         if use_cache:
             self._last_h_ion = acid_base.s_h_ion
         return FullStateEvaluation(
@@ -108,3 +99,20 @@ class FullCSTRRhs:
             rates=rates,
             inhibitions=inhibitions,
         )
+
+
+def apply_extension_gas_derivatives(
+    derivatives: np.ndarray,
+    offset: int,
+    dynamic_values: Mapping[str, float],
+    bio_dynamic: np.ndarray,
+    q_gas: float,
+    params: Mapping[str, float],
+    assembly: FullModelAssembly,
+) -> None:
+    # Extension stoichiometry already converts liquid-basis transfer by V_liq/V_gas.
+    for name in assembly.dynamic_gas_state_names:
+        if name in CORE_GAS_STATES:
+            continue
+        idx = assembly.dynamic_state_index[name]
+        derivatives[offset + idx] = bio_dynamic[idx] - q_gas * dynamic_values[name] / params["V_gas"]

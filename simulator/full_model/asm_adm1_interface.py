@@ -18,7 +18,7 @@ Key assumptions:
     S_ND and X_ND remain in the particulate/soluble pools but are not individually
     tracked in ADM1 core).
   - S_NO3 is treated as a conservative anion (S_anion contribution).
-  - Ion charge balance uses typical pH 7 speciation: 90% NH4+, 10% NH3.
+  - Ammonium charge is computed from S_IN by the ADM1 charge balance.
 
 Reference:
     Nopens I, Batstone DJ, Copp JB, Jeppsson U, Volcke E, Alex J, Vanrolleghem PA
@@ -120,9 +120,9 @@ def asm1_to_adm1_influent(
     s_ic = asm1.S_ALK / 1000.0
 
     # --- Charge balance ions (kmol/m³) ---
-    # S_cation: NH4+ represents the dominant cation from ammonia at pH 7.
-    # At pH 7.0, ~90% of S_NH is NH4+ (pKa NH4+/NH3 ≈ 9.25 at 25°C).
-    s_cation = asm1.S_NH / (14.0 * 1000.0) * 0.9
+    # ADM1 accounts for NH4+ through S_IN - S_NH3. At pH 7 and pKa 9.25,
+    # approximately 99.4% of inorganic ammonia is NH4+.
+    s_cation = 0.0
 
     # S_anion: NO3- is a conservative anion in the digester (anaerobic conditions
     # consume it rapidly, but as an influent it contributes to charge balance).

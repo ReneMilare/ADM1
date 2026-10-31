@@ -24,7 +24,7 @@ from typing import Mapping
 import numpy as np
 
 from simulator.full_model.model import FullModelInputs, dynamic_state_dict
-from simulator.full_model.rhs import FullCSTRRhs, FullStateEvaluation
+from simulator.full_model.rhs import FullCSTRRhs, FullStateEvaluation, apply_extension_gas_derivatives
 
 # Arrhenius activation energy / R for temperature correction (Batstone 2002 App B, Table B.2)
 _EA_R_BIOCHEMICAL = 5030.0  # K — for k_m_*, k_dec_* (≈ 41.8 kJ/mol)
@@ -58,8 +58,7 @@ def _scale_params_for_temperature(params: dict[str, float], t_celsius: float) ->
     - K_H_h2 : ΔH/R = −4180/100/R   (Henry, H2)
     - p_gas_h2o: ΔH = 5290 K        (Antoine, water vapor)
 
-    pH inhibition midpoints (K_pH_aa, K_pH_ac, K_pH_h2) are also recomputed from the
-    stored pH_LL/pH_UL limits, which are temperature-independent.
+    pH inhibition midpoints are temperature-independent and retain their resolved values.
     """
     t_k = t_celsius + 273.15
     f_hyd = _arrhenius_factor(t_k, _EA_R_HYDROLYSIS)
@@ -93,11 +92,6 @@ def _scale_params_for_temperature(params: dict[str, float], t_celsius: float) ->
     scaled["K_H_ch4"] = 0.0014 * math.exp((-14240.0 / (100.0 * r)) * dt_inv)
     scaled["K_H_h2"] = 7.8e-4 * math.exp((-4180.0 / (100.0 * r)) * dt_inv)
     scaled["p_gas_h2o"] = 0.0313 * math.exp(5290.0 * dt_inv)
-
-    # pH inhibition midpoints — derived from pH_LL/pH_UL (temperature-independent)
-    scaled["K_pH_aa"] = 10.0 ** (-0.5 * (scaled["pH_LL_aa"] + scaled["pH_UL_aa"]))
-    scaled["K_pH_ac"] = 10.0 ** (-0.5 * (scaled["pH_LL_ac"] + scaled["pH_UL_ac"]))
-    scaled["K_pH_h2"] = 10.0 ** (-0.5 * (scaled["pH_LL_h2"] + scaled["pH_UL_h2"]))
 
     return scaled
 
@@ -141,6 +135,10 @@ class FullBatchRhs(FullCSTRRhs):
             -(evaluation.gas_transfer.q_gas / self.params["V_gas"]) * dynamic_values["S_gas_co2"]
             + evaluation.gas_transfer.rho_t10 * self.params["V_liq"] / self.params["V_gas"]
         )
+        apply_extension_gas_derivatives(
+            derivatives, 0, dynamic_values, bio_dynamic, evaluation.gas_transfer.q_gas,
+            self.params, self.assembly,
+        )
         return derivatives
 
 
@@ -182,7 +180,7 @@ class FullUASBRhs(FullCSTRRhs):
             state_index = self.assembly.dynamic_state_index[state_name]
             q_over_v = q_sol_over_v if state_name in self._solid_state_names else q_liq_over_v
             derivatives[state_index] = (
-                q_over_v * (self.inputs.influent_values.get(state_name, 0.0) - dynamic_values[state_name])
+                q_liq_over_v * self.inputs.influent_values.get(state_name, 0.0) - q_over_v * dynamic_values[state_name]
                 + bio_dynamic[state_index]
             )
 
@@ -201,6 +199,10 @@ class FullUASBRhs(FullCSTRRhs):
         derivatives[self.assembly.dynamic_state_index["S_gas_co2"]] = (
             -(evaluation.gas_transfer.q_gas / self.params["V_gas"]) * dynamic_values["S_gas_co2"]
             + evaluation.gas_transfer.rho_t10 * self.params["V_liq"] / self.params["V_gas"]
+        )
+        apply_extension_gas_derivatives(
+            derivatives, 0, dynamic_values, bio_dynamic, evaluation.gas_transfer.q_gas,
+            self.params, self.assembly,
         )
         return derivatives
 
@@ -318,6 +320,10 @@ class FullPlugFlowRhs:
                 + evaluation.gas_transfer.rho_t10 * v_liq_seg / v_gas_seg
             )
 
+            apply_extension_gas_derivatives(
+                derivatives, offset, dynamic_values, bio_seg, evaluation.gas_transfer.q_gas,
+                self._seg_params, self.assembly,
+            )
         return derivatives
 
     def evaluate_last_segment(self, *, use_cache: bool) -> FullStateEvaluation:
@@ -397,7 +403,7 @@ class FullTwoPhaseRhs:
         dynamic1 = dynamic_state_dict(y1, assembly=self.assembly)
         ev1 = self._rhs1.evaluate(dynamic_values=dynamic1, use_cache=True)
         rv1 = np.asarray([ev1.rates[n] for n in self.assembly.biochemical_process_names], dtype=float)
-        bio1 = self.biochemical_matrix @ rv1
+        bio1 = self._rhs1.biochemical_matrix @ rv1
 
         for state_name in self.assembly.dynamic_liquid_state_names:
             idx = self.assembly.dynamic_state_index[state_name]
@@ -406,12 +412,15 @@ class FullTwoPhaseRhs:
                 + bio1[idx]
             )
         _apply_gas_derivatives(derivatives, 0, dynamic1, ev1, self._params1, self.assembly)
+        apply_extension_gas_derivatives(
+            derivatives, 0, dynamic1, bio1, ev1.gas_transfer.q_gas, self._params1, self.assembly,
+        )
 
         # Phase 2: fed by phase 1 effluent (current phase 1 state)
         dynamic2 = dynamic_state_dict(y2, assembly=self.assembly)
         ev2 = self._rhs2.evaluate(dynamic_values=dynamic2, use_cache=True)
         rv2 = np.asarray([ev2.rates[n] for n in self.assembly.biochemical_process_names], dtype=float)
-        bio2 = self.biochemical_matrix @ rv2
+        bio2 = self._rhs2.biochemical_matrix @ rv2
 
         for state_name in self.assembly.dynamic_liquid_state_names:
             idx = self.assembly.dynamic_state_index[state_name]
@@ -422,6 +431,9 @@ class FullTwoPhaseRhs:
                 + bio2[idx]
             )
         _apply_gas_derivatives(derivatives, m, dynamic2, ev2, self._params2, self.assembly)
+        apply_extension_gas_derivatives(
+            derivatives, m, dynamic2, bio2, ev2.gas_transfer.q_gas, self._params2, self.assembly,
+        )
 
         return derivatives
 

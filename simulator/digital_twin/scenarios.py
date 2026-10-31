@@ -10,7 +10,7 @@ import math
 from typing import Annotated, Literal
 
 import numpy as np
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from simulator.core.defaults import (
     make_default_feed,
@@ -55,6 +55,12 @@ def influent_cod(values: dict[str, float]) -> float:
 class _Event(StrictModel):
     t0_days: float = Field(ge=0.0)
     t1_days: float = Field(gt=0.0)
+
+    @model_validator(mode="after")
+    def _check_interval(self) -> "_Event":
+        if self.t1_days <= self.t0_days:
+            raise ValueError("t1_days must be greater than t0_days")
+        return self
 
     def active(self, t: float) -> bool:
         return self.t0_days <= t < self.t1_days
