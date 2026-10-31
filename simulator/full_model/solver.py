@@ -50,9 +50,18 @@ def simulate_with_full_inputs(
     inputs: FullModelInputs,
     simulation: SimulationConfig,
     reactor_config: ReactorConfig | None = None,
+    initial_dynamic_state: np.ndarray | None = None,
+    t_start_days: float = 0.0,
 ) -> dict[str, object]:
     reactor_type = reactor_config.reactor_type if reactor_config is not None else "cstr"
     system = build_reactor_mode(reactor_type, inputs, reactor_config=reactor_config)
+
+    if initial_dynamic_state is not None:
+        if reactor_type != "cstr" or not isinstance(system, FullCSTRRhs):
+            raise ValueError("initial_dynamic_state requires a single-segment CSTR")
+        initial_dynamic_state = np.asarray(initial_dynamic_state, dtype=float)
+        if initial_dynamic_state.shape != inputs.dynamic_initial.shape or not np.all(np.isfinite(initial_dynamic_state)):
+            raise ValueError("initial_dynamic_state must be a finite vector matching the dynamic state")
 
     # Build initial condition vector.
     # For multi-segment reactors (plug_flow, two_phase, tpad), replicate initial state.
@@ -64,7 +73,7 @@ def simulate_with_full_inputs(
         y0 = np.tile(inputs.dynamic_initial, 2)
         segment_count = 2
     else:
-        y0 = inputs.dynamic_initial.copy()
+        y0 = inputs.dynamic_initial.copy() if initial_dynamic_state is None else initial_dynamic_state.copy()
         segment_count = 1
 
     # Batch inoculum dilution: the reactor starts with f_inoc fraction of inoculum and
@@ -81,7 +90,7 @@ def simulate_with_full_inputs(
         f_inoc = float(reactor_config.batch.inoculum_fraction)
         y0 = f_inoc * y0 + (1.0 - f_inoc) * inputs.dynamic_influent
 
-    time_grid = np.linspace(0.0, simulation.duration_days, simulation.evaluation_points)
+    time_grid = np.linspace(t_start_days, t_start_days + simulation.duration_days, simulation.evaluation_points)
     # Multi-segment reactors (plug_flow) create very large ODE systems that are
     # extremely stiff.  Radau (implicit Runge-Kutta) handles the Jacobian better
     # than BDF for these systems and avoids numerical overflow in the finite-diff
@@ -108,7 +117,7 @@ def simulate_with_full_inputs(
     t_start = time.perf_counter()
     solution = solve_ivp(
         system,
-        t_span=(0.0, simulation.duration_days),
+        t_span=(t_start_days, t_start_days + simulation.duration_days),
         y0=y0,
         method=solver_method,
         t_eval=time_grid,
