@@ -3,6 +3,7 @@
 import math
 
 import numpy as np
+from scipy.optimize import brentq
 
 from simulator.core.models import KineticParameters, STATE_NAMES
 
@@ -63,8 +64,7 @@ def _pka_propionate(temperature_c: float) -> float:
 
 # COD mass-balance splits (Batstone et al., 2002 ADM1 — simplified reduced-model pathways).
 # Each dict maps liquid product → fraction of consumed substrate COD that appears in that
-# product.  The remainder (1 − Σsplits) equals the biomass yield stored in KineticParameters,
-# so splits + yield = 1.00 for every pathway (verified by test_cod_balance_* tests).
+# product at the default biomass yield. Product fractions are scaled for other yields.
 ACIDOGENESIS_SPLITS = {
     "acetate": 0.55,
     "propionate": 0.20,
@@ -95,8 +95,7 @@ def estimate_ph(state: np.ndarray, influent_ph: float, temperature_c: float) -> 
         [Ac⁻]   = S_ac_mol × Ka_ac / ([H⁺] + Ka_ac) (acetate dissociation)
         [Pro⁻]  = S_pro_mol × Ka_pro / ([H⁺] + Ka_pro) (propionate dissociation)
 
-    Solved iteratively by isolating [HCO3⁻] from the charge balance and
-    computing pH from the bicarbonate/CO2 equilibrium.  Converges in ~8 steps.
+    Solved by bracketing the monotonic charge balance and applying Brent's method.
 
     Assumptions
     -----------
@@ -111,7 +110,7 @@ def estimate_ph(state: np.ndarray, influent_ph: float, temperature_c: float) -> 
     Parameters
     ----------
     state : 11-component state vector
-    influent_ph : initial guess for iteration (not used as an anchor bias)
+    influent_ph : retained for API compatibility; does not affect the solution
     temperature_c : reactor temperature [°C]
     """
     s_ac  = float(max(state[STATE_INDEX["acetate"]],   0.0))
@@ -131,24 +130,21 @@ def estimate_ph(state: np.ndarray, influent_ph: float, temperature_c: float) -> 
     # Dissolved CO2 from Henry's law [mol/m³]
     s_co2 = _kh_co2(temperature_c) * _PCO2_ATM
 
-    # Iterative solution: start from influent pH as initial guess.
-    # Convergence is guaranteed by negative feedback:
-    #   pH too high → more VFA dissociation → less HCO3⁻ → pH falls
-    #   pH too low  → less VFA dissociation → more HCO3⁻ → pH rises
-    ph = float(np.clip(influent_ph, 5.0, 8.5))
-    for _ in range(15):
-        h       = 10.0 ** (-ph)
-        ac_ion  = s_ac_mol  * ka_ac  / (h + ka_ac)
-        pro_ion = s_pro_mol * ka_pro / (h + ka_pro)
-        hco3    = max(ta_mol - ac_ion - pro_ion, EPSILON)
-        ph_new  = pka_co2 + math.log10(hco3 / max(s_co2, EPSILON))
-        ph_new  = float(np.clip(ph_new, 4.0, 9.0))
-        if abs(ph_new - ph) < 1e-5:
-            ph = ph_new
-            break
-        ph = 0.7 * ph_new + 0.3 * ph  # damped update for numerical stability
+    def charge_balance(ph: float) -> float:
+        h = 10.0 ** (-ph)
+        return (
+            s_co2 * 10.0 ** (ph - pka_co2)
+            + s_ac_mol * ka_ac / (h + ka_ac)
+            + s_pro_mol * ka_pro / (h + ka_pro)
+            - ta_mol
+        )
 
-    return float(np.clip(ph, 4.0, 9.0))
+    # Bicarbonate alone reaches TA below this upper bound; VFA terms are nonnegative.
+    upper = pka_co2 + math.log10(ta_mol / s_co2) + 1.0
+    lower = upper - 1.0
+    while charge_balance(lower) > 0.0:
+        lower -= 1.0
+    return float(brentq(charge_balance, lower, upper, xtol=1e-12))
 
 
 def _temperature_factor(temperature_c: float, params: KineticParameters) -> float:
@@ -283,18 +279,23 @@ def reaction_vector(
         + params.decay_hydrogenotrophic * hydrogenotrophic
     )
 
+    acidogenesis_product_scale = (1.0 - params.acidogen_yield) / sum(ACIDOGENESIS_SPLITS.values())
+    propionate_product_scale = (1.0 - params.propionate_yield) / sum(PROPIONATE_SPLITS.values())
+
     reaction = np.zeros(len(STATE_NAMES), dtype=float)
     reaction[STATE_INDEX["particulate_cod"]] += total_biomass_decay - hydrolysis
     reaction[STATE_INDEX["soluble_cod"]] += hydrolysis - acidogenesis
     reaction[STATE_INDEX["acetate"]] += (
-        ACIDOGENESIS_SPLITS["acetate"] * acidogenesis
-        + PROPIONATE_SPLITS["acetate"] * propionate_conversion
+        ACIDOGENESIS_SPLITS["acetate"] * acidogenesis_product_scale * acidogenesis
+        + PROPIONATE_SPLITS["acetate"] * propionate_product_scale * propionate_conversion
         - acetate_methanogenesis
     )
-    reaction[STATE_INDEX["propionate"]] += ACIDOGENESIS_SPLITS["propionate"] * acidogenesis - propionate_conversion
+    reaction[STATE_INDEX["propionate"]] += (
+        ACIDOGENESIS_SPLITS["propionate"] * acidogenesis_product_scale * acidogenesis - propionate_conversion
+    )
     reaction[STATE_INDEX["hydrogen"]] += (
-        ACIDOGENESIS_SPLITS["hydrogen"] * acidogenesis
-        + PROPIONATE_SPLITS["hydrogen"] * propionate_conversion
+        ACIDOGENESIS_SPLITS["hydrogen"] * acidogenesis_product_scale * acidogenesis
+        + PROPIONATE_SPLITS["hydrogen"] * propionate_product_scale * propionate_conversion
         - hydrogen_methanogenesis
         - params.gas_stripping_h2 * hydrogen
     )

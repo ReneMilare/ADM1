@@ -64,17 +64,17 @@ _STATES_BY_NAME = {
     "S_cation": _state("S_cation", "Cátions fortes", KMOL_M3, phase="liquid", domain="charge_balance", role="dynamic", cod_role="charge_only", elemental_proxy=None),
     "S_anion": _state("S_anion", "Ânions fortes", KMOL_M3, phase="liquid", domain="charge_balance", role="dynamic", cod_role="charge_only", elemental_proxy=None),
     "S_H_ion": _state("S_H_ion", "Íon hidrogênio", KMOL_M3, phase="liquid", domain="acid_base", role="pseudo_state", cod_role="charge_only", elemental_proxy=None, result_alias="pH", notes="Estado interno resolvido por Newton-Raphson; a interface externa reporta pH."),
-    "S_va_ion": _state("S_va_ion", "Valerato ionizado", KMOL_M3, phase="liquid", domain="acid_base", role="algebraic", cod_role="charge_only", elemental_proxy="C_va"),
-    "S_bu_ion": _state("S_bu_ion", "Butirato ionizado", KMOL_M3, phase="liquid", domain="acid_base", role="algebraic", cod_role="charge_only", elemental_proxy="C_bu"),
-    "S_pro_ion": _state("S_pro_ion", "Propionato ionizado", KMOL_M3, phase="liquid", domain="acid_base", role="algebraic", cod_role="charge_only", elemental_proxy="C_pro"),
-    "S_ac_ion": _state("S_ac_ion", "Acetato ionizado", KMOL_M3, phase="liquid", domain="acid_base", role="algebraic", cod_role="charge_only", elemental_proxy="C_ac"),
+    "S_va_ion": _state("S_va_ion", "Valerato ionizado", KG_COD_M3, phase="liquid", domain="acid_base", role="algebraic", cod_role="charge_only", elemental_proxy="C_va"),
+    "S_bu_ion": _state("S_bu_ion", "Butirato ionizado", KG_COD_M3, phase="liquid", domain="acid_base", role="algebraic", cod_role="charge_only", elemental_proxy="C_bu"),
+    "S_pro_ion": _state("S_pro_ion", "Propionato ionizado", KG_COD_M3, phase="liquid", domain="acid_base", role="algebraic", cod_role="charge_only", elemental_proxy="C_pro"),
+    "S_ac_ion": _state("S_ac_ion", "Acetato ionizado", KG_COD_M3, phase="liquid", domain="acid_base", role="algebraic", cod_role="charge_only", elemental_proxy="C_ac"),
     "S_hco3_ion": _state("S_hco3_ion", "Bicarbonato", KMOL_M3, phase="liquid", domain="acid_base", role="algebraic", cod_role="inorganic_carbon", elemental_proxy="1 mol C/mol"),
     "S_co2": _state("S_co2", "CO2 dissolvido livre", KMOL_M3, phase="liquid", domain="acid_base", role="algebraic", cod_role="inorganic_carbon", elemental_proxy="1 mol C/mol"),
     "S_nh3": _state("S_nh3", "Amônia livre dissolvida", KMOL_M3, phase="liquid", domain="acid_base", role="algebraic", cod_role="nitrogen", elemental_proxy="1 mol N/mol"),
     "S_nh4_ion": _state("S_nh4_ion", "Amônio dissolvido", KMOL_M3, phase="liquid", domain="acid_base", role="algebraic", cod_role="nitrogen", elemental_proxy="1 mol N/mol"),
     "S_gas_h2": _state("S_gas_h2", "Hidrogênio no headspace", KG_COD_M3, phase="gas", domain="gas_phase", role="dynamic", cod_role="cod", elemental_proxy="0"),
     "S_gas_ch4": _state("S_gas_ch4", "Metano no headspace", KG_COD_M3, phase="gas", domain="gas_phase", role="dynamic", cod_role="cod", elemental_proxy="C_ch4"),
-    "S_gas_co2": _state("S_gas_co2", "CO2 no headspace", KG_COD_M3, phase="gas", domain="gas_phase", role="dynamic", cod_role="inorganic_carbon", elemental_proxy="1 mol C/mol"),
+    "S_gas_co2": _state("S_gas_co2", "CO2 no headspace", KMOL_M3, phase="gas", domain="gas_phase", role="dynamic", cod_role="inorganic_carbon", elemental_proxy="1 mol C/mol"),
 }
 
 FULL_STATE_CATALOG = tuple(_STATES_BY_NAME[name] for name in PYADM1_STATE_ORDER)

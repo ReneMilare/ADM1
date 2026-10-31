@@ -172,6 +172,12 @@ def resolve_full_parameter_values(
         }
     )
 
+    for name, value in (extension_parameter_overrides or {}).items():
+        if name not in assembly.parameter_defaults:
+            raise ValueError(f"Parâmetro full desconhecido para override: {name}")
+        values[name] = float(value)
+
+    temperature_k = values["T_op"]
     values["K_w"] = 10 ** -14.0 * math.exp((55900.0 / (100.0 * values["R"])) * (1.0 / values["T_base"] - 1.0 / temperature_k))
     values["K_a_co2"] = 10 ** -6.35 * math.exp((7646.0 / (100.0 * values["R"])) * (1.0 / values["T_base"] - 1.0 / temperature_k))
     values["K_a_IN"] = 10 ** -9.25 * math.exp((51965.0 / (100.0 * values["R"])) * (1.0 / values["T_base"] - 1.0 / temperature_k))
@@ -189,10 +195,10 @@ def resolve_full_parameter_values(
     values["ph_solver_tol"] = 1e-12
     values["max_newton_iterations"] = 1000.0
 
-    for name, value in (extension_parameter_overrides or {}).items():
-        if name not in assembly.parameter_defaults:
-            raise ValueError(f"Parâmetro full desconhecido para override: {name}")
-        values[name] = float(value)
+    values.update({name: float(value) for name, value in (extension_parameter_overrides or {}).items()})
+    for fraction, extension in (("f_lac_su", "lactate"), ("f_et_su", "ethanol")):
+        if values[fraction] > 0.0 and extension not in assembly.active_extensions:
+            raise ValueError(f"{fraction} > 0 requer a extensão {extension} ativa para conservar DQO e carbono.")
     return values
 
 

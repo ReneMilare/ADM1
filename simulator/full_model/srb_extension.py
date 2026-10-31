@@ -585,6 +585,7 @@ class _SRBExtension:
             },
             "rho_E4_H2S_transfer": {
                 "S_H2S": "-1",
+                "S_gas_H2S": "V_liq / V_gas",
             },
         }
 
@@ -701,7 +702,7 @@ class _SRBExtension:
             I_H2S = max(0.0, 1.0 - S_H2S / K_I_H2S)
         When S_H2S >= K_I_H2S, complete inhibition (I_H2S = 0).
         Applied to rho_11 (acetate → CH4), rho_12 (H2 → CH4),
-        rho_9 (propionate degradation), and rho_8 (butyrate degradation).
+        rho_8/rho_9 (valerate/butyrate) and rho_10 (propionate) degradation.
         """
         s_h2s = max(float(state.get("S_H2S", 0.0)), 0.0)
         k_i_h2s = float(params.get("K_I_H2S", 6.72e-3))
@@ -709,8 +710,9 @@ class _SRBExtension:
         return {
             "rho_11_uptake_acetate": i_h2s,
             "rho_12_uptake_hydrogen": i_h2s,
-            "rho_9_uptake_propionate": i_h2s,
-            "rho_8_uptake_c4": i_h2s,
+            "rho_8_uptake_valerate": i_h2s,
+            "rho_9_uptake_butyrate": i_h2s,
+            "rho_10_uptake_propionate": i_h2s,
         }
 
     def _diagnostics(

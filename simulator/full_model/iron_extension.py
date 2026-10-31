@@ -18,7 +18,8 @@ DEPENDENCIES:
 States added:
   S_Fe2:  Fe(II) dissolved     (kmolFe/m³)
   X_FeS:  FeS precipitate      (kmolFe/m³)
-  X_VIV:  vivianite precipitate (kmolFe/m³) — Fe₃(PO₄)₂
+  X_VIV:  vivianite precipitate (kmol mineral/m³) — Fe₃(PO₄)₂
+  X_S0:   elemental sulfur (kmolS/m³)
 
 Note: S_Fe3 (Fe(III)) is treated as a fixed feed parameter (not an ODE state)
 because Fe(III) is rapidly consumed and typically supplied via external dosing
@@ -101,7 +102,7 @@ class _IronExtension:
             StateDefinition(
                 name="X_VIV",
                 description="Vivianita precipitada (Fe₃(PO₄)₂·8H₂O).",
-                unit=_KMOL_FE_M3,
+                unit="kmolVIV/m3",
                 phase="solid",
                 domain="precipitate",
                 role="dynamic",
@@ -109,9 +110,21 @@ class _IronExtension:
                 elemental_proxy=None,
                 source=_SRC,
                 notes=(
-                    "Tracked in kmolFe/m³. 1 mol vivianita = 3 mol Fe²⁺ + 2 mol PO4³⁻. "
+                    "Tracked in kmol vivianite/m³. 1 mol vivianita = 3 mol Fe²⁺ + 2 mol PO4³⁻. "
                     "Ksp_VIV = 1e-36 (kmol/m³)⁵."
                 ),
+            ),
+            StateDefinition(
+                name="X_S0",
+                description="Enxofre elementar particulado inerte (S⁰).",
+                unit=_KMOL_S_M3,
+                phase="solid",
+                domain="precipitate",
+                role="dynamic",
+                cod_role="non_cod",
+                elemental_proxy=None,
+                source=_SRC,
+                notes="Formed by Fe(III) reduction with sulfide.",
             ),
         )
 
@@ -133,7 +146,7 @@ class _IronExtension:
                 family="biochemical",
                 description="Redução abiótica de Fe(III) via H₂S: 2Fe³⁺ + H₂S → 2Fe²⁺ + S⁰ + 2H⁺.",
                 rate_expression="computed_by_extension",
-                affected_states=("S_Fe2", "S_H2S"),
+                affected_states=("S_Fe2", "S_H2S", "X_S0"),
                 parameters=("k_Fe3_red_h2s", "S_Fe3_feed"),
                 inhibitions=(),
                 source=_SRC,
@@ -190,7 +203,7 @@ class _IronExtension:
             ParameterDefinition(
                 name="k_Fe3_red_h2",
                 value=5.0,
-                unit="m3/(kmolFe·d)",
+                unit=DAY_INV,
                 group="biochemical",
                 classification="provisional",
                 description="Constante cinética de redução de Fe(III) por H₂.",
@@ -293,6 +306,7 @@ class _IronExtension:
             "rho_E8_Fe3_red_h2s": {
                 "S_Fe2": "1",    # 1 kmolFe²⁺ produced
                 "S_H2S": "-0.5", # 0.5 kmolS consumed per kmolFe (2Fe per mol H2S)
+                "X_S0": "0.5",
             },
             "rho_E8_FeS_precip": {
                 "S_Fe2": "-1",   # 1 kmolFe²⁺ consumed
@@ -306,8 +320,8 @@ class _IronExtension:
             },
             "rho_E8_VIV_precip": {
                 "S_Fe2": "-1",      # 1 kmolFe²⁺ consumed per unit rate
-                "S_IP": "-0.6667",  # 2/3 kmolP consumed (2 PO4 per 3 Fe)
-                "X_VIV": "0.3333",  # 1/3 kmol vivianita produced per kmolFe
+                "S_IP": "-2/3",  # 2/3 kmolP consumed (2 PO4 per 3 Fe)
+                "X_VIV": "1/3",  # 1/3 kmol vivianita produced per kmolFe
             },
         }
 
@@ -348,7 +362,7 @@ class _IronExtension:
         rho_fe3_h2s = float(params["k_Fe3_red_h2s"]) * s_fe3 * s_h2s
 
         # --- FeS precipitation/dissolution ---
-        ip_fes = (s_fe2 * s_h2s) / max(float(params["Ksp_FeS"]), 1e-30)
+        ip_fes = (s_fe2 * s_h2s) / max(float(params["Ksp_FeS"]), np.nextafter(0.0, 1.0))
         rho_fes_p = float(params["k_precip_FeS"]) * max(ip_fes - 1.0, 0.0) * s_fe2
         rho_fes_d = float(params["k_dissolv_FeS"]) * max(1.0 - ip_fes, 0.0) * x_fes
 
@@ -360,7 +374,7 @@ class _IronExtension:
         denom_p = s_h_ion * s_h_ion + ka2 * s_h_ion + ka2 * ka3
         s_po4 = s_ip * ka2 * ka3 / max(denom_p, 1e-30)
 
-        ip_viv = (s_fe2 ** 3 * s_po4 ** 2) / max(float(params["Ksp_VIV"]), 1e-30)
+        ip_viv = (s_fe2 ** 3 * s_po4 ** 2) / max(float(params["Ksp_VIV"]), np.nextafter(0.0, 1.0))
         rho_viv_p = float(params["k_precip_VIV"]) * max(ip_viv - 1.0, 0.0) * s_fe2
 
         return {
@@ -391,7 +405,7 @@ class _IronExtension:
         # Note: S_H2S in ADM1 is total dissolved sulfide (H2S + HS- + S²-)
         # For Ksp_FeS we use total H2S as a proxy (conservative approximation)
         ksp_fes = float(params["Ksp_FeS"])
-        ip_fes = (s_fe2 * s_h2s) / max(ksp_fes, 1e-30)
+        ip_fes = (s_fe2 * s_h2s) / max(ksp_fes, np.nextafter(0.0, 1.0))
 
         # --- Vivianite saturation index IP_VIV = [Fe²⁺]³[PO₄³⁻]² / Ksp_VIV ---
         ka2 = float(params.get("Ka_H2PO4", 6.31e-8))
@@ -400,7 +414,7 @@ class _IronExtension:
         s_po4 = s_ip * ka2 * ka3 / np.maximum(denom_p, 1e-30)
 
         ksp_viv = float(params["Ksp_VIV"])
-        ip_viv = (s_fe2 ** 3 * s_po4 ** 2) / max(ksp_viv, 1e-30)
+        ip_viv = (s_fe2 ** 3 * s_po4 ** 2) / max(ksp_viv, np.nextafter(0.0, 1.0))
 
         # Simple rate proxy: cumulative FeS formed (proxy for H2S removed)
         h2s_removed_by_fes = np.maximum(np.diff(x_fes, prepend=x_fes[0]), 0.0)

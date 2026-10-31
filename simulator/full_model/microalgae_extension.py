@@ -248,8 +248,8 @@ class _MicroalgaeExtension:
                 "X_li": "f_li_alg",
                 "X_I": "f_xI_alg",
                 "S_I": "f_sI_alg",
-                "S_IN": "i_N_alg - f_pr_alg * N_aa - (f_xI_alg + f_sI_alg) * N_I",
-                "S_IC": "-(C_xc - f_ch_alg * C_ch - f_pr_alg * C_pr - f_li_alg * C_li - (f_xI_alg + f_sI_alg) * C_xI)",
+                "S_IN": "i_N_alg / 14 - f_pr_alg * N_aa - (f_xI_alg + f_sI_alg) * N_I",
+                "S_IC": "C_xc - f_ch_alg * C_ch - f_pr_alg * C_pr - f_li_alg * C_li - (f_xI_alg + f_sI_alg) * C_xI",
             },
         }
 

@@ -31,7 +31,9 @@ class ReactorBase(ABC):
 
     def gas_capture_efficiency(self, segment_index: int) -> float:
         del segment_index
-        return self.config.gas_capture_efficiency or self.default_gas_capture_efficiency
+        if self.config.gas_capture_efficiency is None:
+            return self.default_gas_capture_efficiency
+        return self.config.gas_capture_efficiency
 
     def hydrolysis_multiplier(self, segment_index: int) -> float:
         del segment_index
@@ -101,8 +103,9 @@ class ReactorBase(ABC):
             dilution_rate = self.segment_dilution_rate(segment_index, operating_conditions)
             transport = dilution_rate * (upstream_state - segment_state)
             washout_factor = self.biomass_washout_factor(segment_index)
+            upstream_washout_factor = 1.0 if segment_index == 0 else self.biomass_washout_factor(segment_index - 1)
             transport[biomass_indices] = dilution_rate * (
-                upstream_state[biomass_indices] - washout_factor * segment_state[biomass_indices]
+                upstream_washout_factor * upstream_state[biomass_indices] - washout_factor * segment_state[biomass_indices]
             )
             derivatives[start:end] = transport + reaction
         return derivatives

@@ -516,10 +516,10 @@ class _TraceElementsExtension:
         s_co_free = self._free_fraction(s_co, float(params.get("K_c_Co", 0.0)), s_dom)
         s_co3 = self._carbonate_concentration(s_ic, s_h_ion, float(params.get("K_a_co2", 4.47e-7)))
 
-        ip_nis = (s_ni_free * s_h2s) / max(float(params["Ksp_NiS"]), 1e-30)
-        ip_cos = (s_co_free * s_h2s) / max(float(params["Ksp_CoS"]), 1e-30)
-        ip_fes = (s_fe2 * s_h2s) / max(float(params["Ksp_FeS_te"]), 1e-30)
-        ip_feco3 = (s_fe2 * s_co3) / max(float(params["Ksp_FeCO3"]), 1e-30)
+        ip_nis = (s_ni_free * s_h2s) / max(float(params["Ksp_NiS"]), np.nextafter(0.0, 1.0))
+        ip_cos = (s_co_free * s_h2s) / max(float(params["Ksp_CoS"]), np.nextafter(0.0, 1.0))
+        ip_fes = (s_fe2 * s_h2s) / max(float(params["Ksp_FeS_te"]), np.nextafter(0.0, 1.0))
+        ip_feco3 = (s_fe2 * s_co3) / max(float(params["Ksp_FeCO3"]), np.nextafter(0.0, 1.0))
 
         rho_nis_p = float(params["k_precip_NiS"]) * max(ip_nis - 1.0, 0.0) * s_ni_free
         rho_nis_d = float(params["k_dissolv_NiS"]) * max(1.0 - ip_nis, 0.0) * x_nis
@@ -598,10 +598,10 @@ class _TraceElementsExtension:
         s_hco3 = ka_co2 * s_ic / np.maximum(ka_co2 + s_h_ion, 1e-30)
         s_co3 = ka_hco3 * s_hco3 / np.maximum(s_h_ion, 1e-14)
 
-        ip_nis = s_ni_free * s_h2s / max(float(params["Ksp_NiS"]), 1e-30)
-        ip_cos = s_co_free * s_h2s / max(float(params["Ksp_CoS"]), 1e-30)
-        ip_fes = s_fe2 * s_h2s / max(float(params["Ksp_FeS_te"]), 1e-30)
-        ip_feco3 = s_fe2 * s_co3 / max(float(params["Ksp_FeCO3"]), 1e-30)
+        ip_nis = s_ni_free * s_h2s / max(float(params["Ksp_NiS"]), np.nextafter(0.0, 1.0))
+        ip_cos = s_co_free * s_h2s / max(float(params["Ksp_CoS"]), np.nextafter(0.0, 1.0))
+        ip_fes = s_fe2 * s_h2s / max(float(params["Ksp_FeS_te"]), np.nextafter(0.0, 1.0))
+        ip_feco3 = s_fe2 * s_co3 / max(float(params["Ksp_FeCO3"]), np.nextafter(0.0, 1.0))
 
         def _monod(series: np.ndarray, k_value: float) -> np.ndarray:
             return series / (k_value + series + 1e-30)

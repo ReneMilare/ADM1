@@ -982,10 +982,11 @@ class TestIronExtension:
         # Should not raise
         IRON_EXTENSION._validate(assembly)
 
-    def test_contribute_returns_3_states(self):
+    def test_contribute_returns_4_states(self):
+        # X_S0 keeps sulfur conserved in Fe(III) reduction by sulfide.
         contribution = IRON_EXTENSION.contribute()
         state_names = {s.name for s in contribution.states}
-        assert {"S_Fe2", "X_FeS", "X_VIV"} == state_names
+        assert {"S_Fe2", "X_FeS", "X_VIV", "X_S0"} == state_names
 
     def test_contribute_returns_5_processes(self):
         contribution = IRON_EXTENSION.contribute()

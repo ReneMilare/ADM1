@@ -253,3 +253,10 @@ def test_tracking_report_alignment():
     assert rep["ph"]["n"] == 1 and rep["ph"]["bias"] == pytest.approx(-0.4)
     assert rep["biogas_m3_d"]["rmse"] == pytest.approx(math.sqrt((1 + 4) / 2))
     assert set(rep["ph"]) == {"n", "rmse", "mae", "mape", "bias"}
+
+
+def test_events_reject_empty_interval():
+    from simulator.digital_twin.scenarios import CompositionDrift
+
+    with pytest.raises(ValueError):
+        CompositionDrift(t0_days=1.0, t1_days=1.0, max_shift_fraction=0.2)

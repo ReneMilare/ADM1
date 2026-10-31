@@ -88,7 +88,7 @@ def solve_acid_base(
 ) -> AcidBaseState:
     tol = float(params["ph_solver_tol"])
     max_iterations = int(params["max_newton_iterations"])
-    s_h_ion = max(float(initial_guess or 1e-7), tol)
+    s_h_ion = max(float(initial_guess or 1e-7), 1e-14)
     converged = False
     iterations = 0
 
@@ -123,20 +123,17 @@ def solve_acid_base(
             dr_p, dg_p = _phosphate_charge_contribution(s_ip, params, s_h_ion)
             residual += dr_p
             gradient += dg_p
-        if abs(residual) <= tol:
+        if abs(residual) < tol:
             converged = True
             break
         if abs(gradient) <= 1e-24:
             break
         next_value = s_h_ion - residual / gradient
         if not (next_value > 0.0):
-            next_value = max(s_h_ion * 0.5, tol)
-        if abs(next_value - s_h_ion) <= tol * max(1.0, s_h_ion):
-            s_h_ion = next_value
-            values = _species(total_state, params, s_h_ion)
-            converged = True
-            break
-        s_h_ion = max(next_value, tol)
+            next_value = max(s_h_ion * 0.5, 1e-14)
+        # BSM2 (Rosén & Jeppsson 2006, §4.2.1): convergence requires charge balance,
+        # even when a Newton step is tiny in absolute [H+] units.
+        s_h_ion = max(next_value, 1e-14)
     else:
         values = _species(total_state, params, s_h_ion)
 
