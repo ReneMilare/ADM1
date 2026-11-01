@@ -159,6 +159,7 @@ def session_state_to_draft(state: dict[str, Any]) -> SimulationDraft:
         evaluation_points=_coerce_int(state.get("evaluation_points"), 181),
         solver=str(state.get("solver_choice", "BDF")),
         persist=bool(state.get("persist_case", True)),
+        temperature_kinetics=str(state.get("temperature_kinetics", "off")),
         ammonia_inhibition_mode=str(state.get("ammonia_inhibition_mode", "simple")),
         variant_config=state.get("variant_config"),
         codigestion_fractions=codigestion_fractions,
@@ -205,6 +206,7 @@ def draft_to_session_state(draft: SimulationDraft) -> dict[str, Any]:
         "solver_choice": draft.solver,
         "persist_case": draft.persist,
         # Inibição e variante
+        "temperature_kinetics": draft.temperature_kinetics,
         "ammonia_inhibition_mode": draft.ammonia_inhibition_mode,
         "variant_config": draft.variant_config,
         # Feed manual
@@ -317,6 +319,7 @@ def preset_payload_to_draft(payload: dict[str, Any]) -> SimulationDraft:
         evaluation_points=_coerce_int(simulation.get("evaluation_points"), 181),
         solver=str(simulation.get("solver", "BDF")),
         persist=bool(simulation.get("persist", True)),
+        temperature_kinetics=str(payload.get("temperature_kinetics", "off")),
         ammonia_inhibition_mode=str(payload.get("ammonia_inhibition_mode", "simple")),
         variant_config=payload.get("variant_config"),
         origin="preset_user",
@@ -353,6 +356,7 @@ def draft_to_preset_payload(draft: SimulationDraft) -> dict[str, Any]:
         "preset_id": draft.preset_id,
         "custom_substrate_name": draft.custom_substrate_name,
         "backend_choice": draft.backend_requested,   # compatibilidade com apply_user_simulation_preset
+        "temperature_kinetics": draft.temperature_kinetics,
         "ammonia_inhibition_mode": draft.ammonia_inhibition_mode,
         "variant_config": draft.variant_config,
         "operating": operating,

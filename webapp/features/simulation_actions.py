@@ -359,6 +359,7 @@ def execute_simulation(
             backend=backend_choice,
             persist=draft.persist,
             ammonia_inhibition_mode=ammonia_inhibition_mode,
+            temperature_kinetics=draft.temperature_kinetics,
             variant_config=variant_config,
             blend=codigestion_blend,
             full_extensions=active_extensions or None,
