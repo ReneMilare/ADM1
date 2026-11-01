@@ -352,6 +352,7 @@ def build_user_simulation_preset_payload(session_values: Mapping[str, Any]) -> d
         "preset_id": session_values.get("sim_preset_id"),
         "custom_substrate_name": session_values.get("sim_custom_substrate_name"),
         "backend_choice": str(session_values.get("sim_backend_choice", "full")),
+        "temperature_kinetics": str(session_values.get("temperature_kinetics", "off")),
         "ammonia_inhibition_mode": str(session_values.get("ammonia_inhibition_mode", "simple")),
         "codigestion_preset": session_values.get("codigestion_preset"),
         "variant_config": session_values.get("variant_config"),
@@ -393,6 +394,7 @@ def apply_user_simulation_preset(session_state: Any, payload: Mapping[str, Any])
     session_state["sim_custom_substrate_name"] = payload.get("custom_substrate_name", None)
     session_state["sim_backend_choice"] = str(payload.get("backend_choice", "full"))
     # New extension fields — backward compatible: default to safe values if absent
+    session_state["temperature_kinetics"] = str(payload.get("temperature_kinetics", "off"))
     session_state["ammonia_inhibition_mode"] = str(payload.get("ammonia_inhibition_mode", "simple"))
     session_state["codigestion_preset"] = payload.get("codigestion_preset", None)
     session_state["variant_config"] = payload.get("variant_config", None)
@@ -494,6 +496,7 @@ def run_simulation(
     backend: str,
     persist: bool,
     ammonia_inhibition_mode: str = "simple",
+    temperature_kinetics: str = "off",
     variant_config: dict[str, Any] | None = None,
     blend: CoDigestionBlend | None = None,
     full_extensions: list[str] | None = None,
@@ -537,7 +540,7 @@ def run_simulation(
         full_extension_parameter_overrides=full_extension_parameter_overrides,
     )
     reactor_config = _build_reactor_config(reactor_type, variant_config)
-    kinetics = KineticParameters(ammonia_inhibition_mode=ammonia_inhibition_mode)  # type: ignore[arg-type]
+    kinetics = KineticParameters(ammonia_inhibition_mode=ammonia_inhibition_mode, temperature_kinetics=temperature_kinetics)  # type: ignore[arg-type]
 
     service = ADM1SimulationService()
 
