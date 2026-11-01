@@ -378,18 +378,22 @@ class _PhenolicsExtension:
         x_phen = max(float(state.get("X_phen", 0.0)), 0.0)
         x_ben = max(float(state.get("X_ben", 0.0)), 0.0)
         s_h_ion = max(float(state.get("S_H_ion", 1e-7)), 1e-14)
-        s_in = max(float(state.get("S_IN", 1e-4)), 1e-12)
+        s_in = max(float(state.get("S_IN", 1e-4)), 0.0)
         s_h2 = max(float(state.get("S_h2", 0.0)), 1e-12)
 
         i_ph_aa = (params["K_pH_aa"] ** params["nn_aa"]) / (s_h_ion ** params["nn_aa"] + params["K_pH_aa"] ** params["nn_aa"])
-        i_in_lim = 1.0 / (1.0 + params["K_S_IN"] / s_in)
+        # Batstone 2002 form S_IN/(K_S_IN+S_IN): exactly zero growth without N.
+        i_in_lim = s_in / (float(params["K_S_IN"]) + s_in)
         i_h2_fa = 1.0 / (1.0 + s_h2 / params["K_I_h2_fa"])
-        # Fezzani 2009, Table 2: Haldane phenol uptake without ADM1 factors;
-        # benzoate uptake is Monod times I2 = I_pH * I_IN,lim * I_h2,fa.
+        # Fezzani 2009, Table 2: Haldane phenol uptake has no ADM1 factor, but
+        # both uptakes synthesise biomass with N (S_IN: -Y * N_bac). ADM1
+        # applies I_IN,lim to every such uptake, so phenol uptake gets it too;
+        # otherwise S_IN goes negative. Benzoate is Monod times
+        # I2 = I_pH * I_IN,lim * I_h2,fa.
         k_i_phen = float(params.get("K_I_phen", 50.0))
         haldane = float(params["K_S_phen"]) + s_phen + s_phen**2 / k_i_phen
 
-        rho_phen = float(params["k_m_phen"]) * s_phen / haldane * x_phen
+        rho_phen = float(params["k_m_phen"]) * s_phen / haldane * x_phen * i_in_lim
         rho_ben = float(params["k_m_ben"]) * s_ben / (float(params["K_S_ben"]) + s_ben) * x_ben * i_ph_aa * i_in_lim * i_h2_fa
         rho_dec_phen = float(params["k_dec_X_phen"]) * x_phen
         rho_dec_ben = float(params["k_dec_X_ben"]) * x_ben

@@ -142,9 +142,11 @@ def test_legacy_alkalinity_and_explicit_sic_are_preserved(initial: bool, sic: fl
     expected = requested.alkalinity * 17.0 / 1000.0 if sic is None else sic
     assert row["S_IC"] == pytest.approx(expected)
     if sic is not None:
-        assert row["S_hco3_ion"] == pytest.approx(template["S_hco3_ion"] * sic / template["S_IC"])
-        # Initial CO2 retains the existing closure after explicit S_IC is applied.
-        expected_co2 = max(sic - row["S_hco3_ion"], 1e-9) if initial else template["S_co2"] * sic / template["S_IC"]
+        # Carbonate is speciated at the requested pH (Henderson-Hasselbalch), not by template fractions.
+        k_co2 = 10 ** -6.35 * math.exp((7646.0 / (100.0 * 0.083145)) * (1.0 / 298.15 - 1.0 / 308.15))
+        h = 10 ** -feed.ph
+        assert row["S_hco3_ion"] == pytest.approx(sic * k_co2 / (k_co2 + h))
+        expected_co2 = max(sic - row["S_hco3_ion"], 1e-9) if initial else sic - row["S_hco3_ion"]
         assert row["S_co2"] == pytest.approx(expected_co2)
 
 
@@ -181,9 +183,10 @@ def test_initial_acidogen_distribution_preserves_template_fractions() -> None:
 
 
 @pytest.mark.parametrize("initial", [False, True], ids=["feed", "initial"])
-def test_speciation_preserves_template_fraction_and_gas_hydrogen(initial: bool) -> None:
+def test_speciation_follows_requested_ph_and_keeps_gas_hydrogen(initial: bool) -> None:
     feed = make_default_feed()
     row = _rows(feed, make_default_initial_state(feed), False)[int(initial)]
     template = _load_template_row("digester_initial.csv" if initial else "digester_influent.csv")
-    assert row["S_nh3"] / row["S_IN"] == pytest.approx(template["S_nh3"] / template["S_IN"])
+    k_in = 10 ** -9.25 * math.exp((51965.0 / (100.0 * 0.083145)) * (1.0 / 298.15 - 1.0 / 308.15))
+    assert row["S_nh3"] / row["S_IN"] == pytest.approx(k_in / (k_in + 10 ** -feed.ph))
     assert row["S_gas_h2"] == template["S_gas_h2"]

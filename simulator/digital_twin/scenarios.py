@@ -100,6 +100,14 @@ class AmmoniaSpike(_Event):
         ),
     )
 
+    @model_validator(mode="after")
+    def _chloride_salt_only_adds_ammonium(self) -> "AmmoniaSpike":
+        # A chloride salt can only add NH4+ (with Cl-); removing N would need a
+        # negative S_anion, which the non-negative clip would break.
+        if self.counter_ion == "chloride" and self.factor < 1.0:
+            raise ValueError("AmmoniaSpike with counter_ion='chloride' requires factor >= 1 (an ammonium salt can only add N)")
+        return self
+
 
 class FlowStep(_Event):
     kind: Literal["flow_step"] = "flow_step"
