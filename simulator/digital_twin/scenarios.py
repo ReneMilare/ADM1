@@ -91,6 +91,14 @@ class TemperatureDrop(_Event):
 class AmmoniaSpike(_Event):
     kind: Literal["ammonia_spike"] = "ammonia_spike"
     factor: float = Field(gt=0.0, description="Multiplier on influent total ammoniacal N (S_IN, kmolN/m3); measured NH4+-N is speciated by the engine.")
+    counter_ion: Literal["chloride", "none"] = Field(
+        default="chloride",
+        description=(
+            "'chloride': the extra N enters as an ammonium salt (NH4Cl), so S_anion rises by the same "
+            "kmol/m3 and the charge balance is unchanged. 'none': it enters as free NH3, a base that "
+            "raises the pH."
+        ),
+    )
 
 
 class FlowStep(_Event):
@@ -170,7 +178,11 @@ def build_windows(scenario: SyntheticScenario, base_values: dict[str, float] | N
                     for name in ("X_ch", "X_pr", "X_li", "S_su"):
                         values[name] = values.get(name, 0.0) * ev.factor
                 elif isinstance(ev, AmmoniaSpike):
-                    values["S_IN"] = values.get("S_IN", 0.0) * ev.factor
+                    extra_n = values.get("S_IN", 0.0) * (ev.factor - 1.0)
+                    values["S_IN"] = values.get("S_IN", 0.0) + extra_n
+                    if ev.counter_ion == "chloride":
+                        # NH4+ and Cl- are both 1 kmol charge per kmol.
+                        values["S_anion"] = values.get("S_anion", 0.0) + extra_n
                 elif isinstance(ev, FlowStep):
                     flow *= ev.factor
         for name in LOAD_SCALED_STATES:
