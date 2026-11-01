@@ -4,7 +4,7 @@ The "plant" is the full ADM1 CSTR running with hidden parameters
 (``SyntheticScenario.hidden_parameter_overrides``). Its outputs pass through
 a noisy sensor model. The twin runs open loop with nominal parameters and
 the measured operating inputs only, so the tracking error it shows is the
-gap that Phase 2 (data assimilation) must close.
+gap closed by the optional Phase 2 augmented UKF.
 Plant truth, sensors and twin all use the physical observable bases in
 ``contracts.py`` (dry normal gas, dry CH4, species-sum alkalinity, NH4+-N).
 
@@ -12,12 +12,14 @@ Usage::
 
     python -m simulator.digital_twin.demo --scenario overload_recovery
     python -m simulator.digital_twin.demo --all
+    python -m simulator.digital_twin.demo --all --estimator ukf --identifiability
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import time
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -65,13 +67,18 @@ def run_scenario(
     seed: int = 0,
     warmup_days: float = 200.0,
     twin_influent: str = "observed",
+    estimator: str = "open_loop",
+    assess_identifiability: bool = False,
 ) -> dict[str, object]:
-    """Run plant and open-loop twin.
+    """Run plant and nominal shadow, optionally assimilating observations.
 
     ``twin_influent="observed"`` (default) feeds the twin only measured flow,
     temperature and weekly COD. ``"oracle"`` feeds it the true influent, which
     isolates the effect of the hidden parameters.
     """
+    started = time.perf_counter()
+    if estimator not in ("open_loop", "ukf"):
+        raise ValueError("estimator must be 'open_loop' or 'ukf'")
     windows = build_windows(scenario)
 
     plant = TwinEngine(volume_m3=scenario.volume_m3, parameter_overrides=scenario.hidden_parameter_overrides)
@@ -100,14 +107,41 @@ def run_scenario(
     simulated = to_daily(_frame(twin_time, twin_outputs, twin_inputs))
     truth = to_daily(_frame(time_days, true_outputs, inputs))
 
+    extra = {}
+    if assess_identifiability:
+        from simulator.digital_twin.identifiability import local_information
+
+        extra["identifiability"] = local_information(twin, twin_state, twin_windows, measured)
+    if estimator == "ukf":
+        from simulator.digital_twin.estimator import TwinUKF
+
+        filter_started = time.perf_counter()
+        ukf = TwinUKF(twin, twin_state)
+        estimated = ukf.run(twin_windows, measured)
+        extra.update({
+            "open_loop": simulated,
+            "open_loop_report": tracking_report(measured, simulated[simulated.time_days < scenario.duration_days], columns=list(OUTPUT_COLUMNS)),
+            "open_loop_truth_report": tracking_report(truth, simulated[simulated.time_days < scenario.duration_days], columns=list(OUTPUT_COLUMNS)),
+            "parameter_history": pd.DataFrame(ukf.history),
+            "assimilations": ukf.assimilations,
+            "filter_runtime_seconds": time.perf_counter() - filter_started,
+        })
+        simulated = estimated
+        final_state = ukf.state
+    else:
+        final_state = twin_results[-1].state
     return {
+        **extra,
         "name": name,
+        "estimator": estimator,
+        "runtime_seconds": time.perf_counter() - started,
         "twin_influent": twin_influent,
         "measured": measured,
         "simulated": simulated,
         "truth": truth,
         "report": tracking_report(measured, simulated, columns=list(OUTPUT_COLUMNS)),
-        "final_twin_state": twin_results[-1].state,
+        "truth_report": tracking_report(truth, simulated, columns=list(OUTPUT_COLUMNS)),
+        "final_twin_state": final_state,
     }
 
 
@@ -121,11 +155,22 @@ def _frame(time_days: list[float], outputs: dict[str, list[float]], inputs: dict
 
 def save_outputs(run: dict[str, object], output_dir: Path) -> Path:
     target = output_dir / f"{run['name']}_{run['twin_influent']}"
+    if run.get("estimator") == "ukf":
+        target = target.with_name(target.name + "_ukf")
     target.mkdir(parents=True, exist_ok=True)
     write_measurements(run["measured"], target / "measured.csv")
-    write_measurements(run["simulated"], target / "twin_open_loop.csv")
+    if run.get("estimator") == "ukf":
+        write_measurements(run["open_loop"], target / "twin_open_loop.csv")
+        write_measurements(run["simulated"], target / "twin_ukf_forecast.csv")
+        run["parameter_history"].to_csv(target / "estimated_parameters.csv", index=False)
+        comparison = {key: run[key] for key in ("open_loop_report", "open_loop_truth_report", "truth_report", "runtime_seconds", "filter_runtime_seconds", "assimilations")}
+        (target / "comparison.json").write_text(json.dumps(comparison, indent=2), encoding="utf-8")
+    else:
+        write_measurements(run["simulated"], target / "twin_open_loop.csv")
     write_measurements(run["truth"], target / "plant_truth.csv")
     (target / "tracking_report.json").write_text(json.dumps(run["report"], indent=2), encoding="utf-8")
+    if "identifiability" in run:
+        (target / "identifiability.json").write_text(json.dumps(run["identifiability"], indent=2, allow_nan=False), encoding="utf-8")
     TwinEngine.save_state(run["final_twin_state"], target / "twin_state_final.json")
     _plot(run, target / "shadow.png")
     return target
@@ -146,13 +191,24 @@ def _plot(run: dict[str, object], path: Path) -> None:
         "alkalinity_kmol_m3": "Alcalinidade total [kmol carga/m³]",
         "nh4_kg_n_m3": "NH4+-N [kgN/m³]",
     }
-    fig, axes = plt.subplots(3, 2, figsize=(12, 9), sharex=True)
+    is_ukf = run.get("estimator") == "ukf"
+    fig, axes = plt.subplots(4 if is_ukf else 3, 2, figsize=(12, 12 if is_ukf else 9), sharex=True)
     for ax, column in zip(axes.flat, OUTPUT_COLUMNS):
         ax.plot(truth["time_days"], truth[column], color="0.6", lw=1.2, label="planta (verdade)")
-        ax.plot(simulated["time_days"], simulated[column], color="tab:blue", lw=1.5, label="gêmeo (malha aberta)")
+        ax.plot(simulated["time_days"], simulated[column], color="tab:blue", lw=1.5, label="UKF (previsão)" if is_ukf else "gêmeo (malha aberta)")
         ax.plot(measured["time_days"], measured[column], ".", color="tab:red", ms=4, label="medido")
+        if is_ukf:
+            ax.plot(run["open_loop"]["time_days"], run["open_loop"][column], color="tab:orange", lw=1, label="malha aberta")
         ax.set_ylabel(labels[column])
         ax.grid(alpha=0.3)
+    if is_ukf:
+        history = run["parameter_history"]
+        for ax, name, label in zip(axes[-1], ("k_m_ac", "nitrogen_factor"), ("k_m_ac [d⁻¹]", "Fator N afluente (NH4Cl)"), strict=True):
+            ax.plot(history.time_days, history[name], color="tab:blue")
+            ax.fill_between(history.time_days, history[name + "_lower_2sigma"], history[name + "_upper_2sigma"], alpha=0.2, label="±2σ em log")
+            ax.set_ylabel(label)
+            ax.grid(alpha=0.3)
+            ax.legend(fontsize=8)
     axes[0, 0].legend(fontsize=8)
     for ax in axes[-1]:
         ax.set_xlabel("tempo [d]")
@@ -171,13 +227,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--twin-influent", choices=("observed", "oracle"), default="observed")
+    parser.add_argument("--estimator", choices=("open_loop", "ukf"), default="open_loop")
+    parser.add_argument("--identifiability", action="store_true", help="Assess conditional local information before filtering")
     args = parser.parse_args(argv)
 
     names = sorted(scenarios) if args.all else [args.scenario]
     for name in names:
-        run = run_scenario(name, scenarios[name], seed=args.seed, twin_influent=args.twin_influent)
+        run = run_scenario(name, scenarios[name], seed=args.seed, twin_influent=args.twin_influent, estimator=args.estimator, assess_identifiability=args.identifiability)
         target = save_outputs(run, args.out)
         print(f"\n== {name} -> {target.name}/")
+        if args.estimator == "ukf":
+            last = run["parameter_history"].iloc[-1]
+            print(f"  k_m_ac={last.k_m_ac:.3f} ± {last.k_m_ac_sigma:.3f}; fator N={last.nitrogen_factor:.3f} ± {last.nitrogen_factor_sigma:.3f}; UKF={run['filter_runtime_seconds']:.1f}s")
         for column, stats in run["report"].items():
             print(f"  {column:<20} n={stats['n']:<4.0f} rmse={stats['rmse']:.4g}  mape={stats['mape']:.2f}%  bias={stats['bias']:+.4g}")
     return 0
