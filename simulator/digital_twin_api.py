@@ -18,10 +18,8 @@ class DigitalTwinRequest(StrictModel):
 
 
 def run_digital_twin(request: DigitalTwinRequest) -> dict[str, object]:
-    if request.estimator != "open_loop":
-        raise ValueError("Estimador UKF ainda não disponível.")
     scenario = default_scenarios()[request.scenario]
     if request.duration_days is not None:
         scenario.duration_days = request.duration_days
     scenario.seed = request.seed
-    return run_scenario(request.scenario, scenario, seed=request.seed, twin_influent=request.influent)
+    return run_scenario(request.scenario, scenario, seed=request.seed, twin_influent=request.influent, estimator=request.estimator)
