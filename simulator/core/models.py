@@ -297,6 +297,10 @@ class KineticParameters(StrictModel):
     gas_stripping_h2: float = Field(default=0.06, gt=0.0)
     ph_optimum: float = Field(default=7.05, ge=5.0, le=8.5)
     ph_tolerance: float = Field(default=0.55, gt=0.05)
+    parameter_set: Literal["mesophilic_bsm2", "thermophilic_str"] = Field(
+        default="mesophilic_bsm2",
+        description="Conjunto cinético do backend full. thermophilic_str usa a Tabela 6.2 (55 °C), sem correção cinética de temperatura.",
+    )
     temperature_kinetics: Literal["off", "siegrist2002"] = Field(
         default="off", description="Correção cinética de Siegrist et al. (2002), aplicada ao modelo full."
     )

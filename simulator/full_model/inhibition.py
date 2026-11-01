@@ -6,7 +6,7 @@ from typing import Mapping
 def build_inhibition_factors(state: Mapping[str, float], params: Mapping[str, float]) -> dict[str, float]:
     s_h_ion = max(float(state["S_H_ion"]), 1e-14)
     s_in = max(float(state["S_IN"]), 0.0)
-    s_h2 = max(float(state["S_h2"]), 1e-12)
+    s_h2 = max(float(state["S_h2"]), 0.0)
     s_nh3 = max(float(state["S_nh3"]), 0.0)
 
     i_ph_aa = (params["K_pH_aa"] ** params["nn_aa"]) / (s_h_ion ** params["nn_aa"] + params["K_pH_aa"] ** params["nn_aa"])

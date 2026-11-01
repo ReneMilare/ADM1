@@ -101,6 +101,9 @@ class ADM1SimulationService:
         sim_config = (simulation or make_default_simulation_config()).model_copy(deep=True)
         backend = self._resolve_backend(reactor_config, sim_config)
 
+        if kinetics.parameter_set == "thermophilic_str" and backend.used != "full":
+            raise ValueError("thermophilic_str requer o backend full.")
+
         if backend.used == "pyadm1":
             backend_result = simulate_with_pyadm1(
                 operating_conditions=operating,
@@ -143,7 +146,14 @@ class ADM1SimulationService:
         result_metadata.update(execution_metadata)
         result_metadata["backend_requested"] = backend.requested
         result_metadata["backend_used"] = backend.used
+        result_metadata["parameter_set"] = kinetics.parameter_set
         result_metadata["temperature_kinetics"] = kinetics.temperature_kinetics
+        if kinetics.parameter_set == "thermophilic_str":
+            result_metadata["temperature_kinetics_effective"] = "off"
+            result_metadata["parameter_set_notes"] = (
+                "Cinética fixa da Tabela 6.2 do STR (55 °C), sem θ; "
+                "estequiometria BSM2 mantida. K_I_h2_fa não informado no STR termofílico; usa 5e-6 kgDQO/m³ do BSM2."
+            )
         if kinetics.temperature_kinetics == "siegrist2002" and backend.used != "full":
             result_metadata["temperature_kinetics_warning"] = (
                 "A correção de Siegrist não é aplicada pelo backend " + backend.used + "."
