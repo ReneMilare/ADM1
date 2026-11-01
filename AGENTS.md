@@ -56,7 +56,7 @@ python -m pytest simulator/tests/test_kinetics.py -q
 python -m pytest simulator/tests/test_simulator.py::ADM1SimulationServiceTest::test_simulation_returns_profiles -q
 ```
 
-`mcp` is pinned to `<2`: `simulator/mcp_server.py` uses `FastMCP`, which mcp 2.x renamed. Migrating to mcp 2.x is a separate task. `webapp/testing/test_phase_indicators_removed.py` needs `playwright` (dev extra) and a webapp running on port 8501; it is skipped when playwright is missing. `webapp/testing/test_responsive_layout.py` starts its own server and checks every page at 375/768/1280 px (no exceptions, no horizontal overflow, no clipped KPI text, sidebar closed on phones); it needs `pip install playwright` and `python -m playwright install chromium`, and runs in the CI `ui layout` job. Run it after any change to `webapp/pages/`, `webapp/utils/theme.css` or `.streamlit/config.toml`.
+`webapp/testing/test_phase_indicators_removed.py` needs `playwright` (dev extra) and a webapp running on port 8501; it is skipped when playwright is missing. `webapp/testing/test_responsive_layout.py` starts its own server and checks every page at 375/768/1280 px (no exceptions, no horizontal overflow, no clipped KPI text, sidebar closed on phones); it needs `pip install playwright` and `python -m playwright install chromium`, and runs in the CI `ui layout` job. Run it after any change to `webapp/pages/`, `webapp/utils/theme.css` or `.streamlit/config.toml`.
 
 No linter or formatter is configured. There is no `ruff`, `mypy`, or `black` quality gate in this repository.
 
