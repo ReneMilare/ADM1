@@ -16,6 +16,7 @@ from simulator.core.models import FeedDefinition, KineticParameters, OperatingCo
 from simulator.core.pyadm1_backend import INFLUENT_COLUMNS, INITIAL_COLUMNS, simulate_with_pyadm1_frames
 from simulator.full_model.adapter import build_backend_inputs_from_state_maps
 from simulator.full_model.solver import simulate_with_full_inputs
+from simulator.paths import _safe_project_path
 from simulator.literature_validation import (
     build_reference_influent_frame,
     build_reference_initial_frame,
@@ -30,9 +31,9 @@ DEFAULT_EVALUATION_POINTS = 121
 DEFAULT_SOLVER = "BDF"
 DEFAULT_RTOL = 1e-8
 DEFAULT_ATOL = 1e-10
-NON_BASELINE_TOLERANCE_MULTIPLIER = 1.5
-INTERNAL_STATE_REL_TOL_PCT = 15.0
-INTERNAL_STATE_ABS_FLOOR = 1e-6
+NON_BASELINE_TOLERANCE_MULTIPLIER = 1.0
+INTERNAL_STATE_REL_TOL_PCT = 0.01
+INTERNAL_STATE_ABS_FLOOR = 1e-12
 SUMMARY_FIELDS = (
     "methane_final_m3_day",
     "biogas_final_m3_day",
@@ -80,20 +81,20 @@ COMPARED_INTERNAL_STATE_NAMES = (
     "S_gas_co2",
 )
 SUMMARY_TOLERANCES = {
-    "methane_final_m3_day": {"kind": "relative_pct", "limit": 5.0},
-    "biogas_final_m3_day": {"kind": "relative_pct", "limit": 5.0},
-    "ph_final": {"kind": "absolute", "limit": 0.1},
-    "vfa_final": {"kind": "relative_pct", "limit": 10.0},
-    "effluent_cod_final": {"kind": "relative_pct", "limit": 10.0},
-    "methane_cumulative_m3": {"kind": "relative_pct", "limit": 5.0},
-    "ch4_fraction_final": {"kind": "absolute", "limit": 0.05},
+    "methane_final_m3_day": {"kind": "relative_pct", "limit": 0.01},
+    "biogas_final_m3_day": {"kind": "relative_pct", "limit": 0.01},
+    "ph_final": {"kind": "absolute", "limit": 1e-5},
+    "vfa_final": {"kind": "relative_pct", "limit": 0.01},
+    "effluent_cod_final": {"kind": "relative_pct", "limit": 0.01},
+    "methane_cumulative_m3": {"kind": "relative_pct", "limit": 0.5},
+    "ch4_fraction_final": {"kind": "absolute", "limit": 1e-5},
 }
 SERIES_TOLERANCES = {
-    "methane_m3_day": {"kind": "nrmse_pct", "limit": 5.0},
-    "biogas_m3_day": {"kind": "nrmse_pct", "limit": 5.0},
-    "ph": {"kind": "rmse_abs", "limit": 0.05},
-    "vfa_total": {"kind": "nrmse_pct", "limit": 10.0},
-    "effluent_cod": {"kind": "nrmse_pct", "limit": 10.0},
+    "methane_m3_day": {"kind": "nrmse_pct", "limit": 0.01},
+    "biogas_m3_day": {"kind": "nrmse_pct", "limit": 0.01},
+    "ph": {"kind": "rmse_abs", "limit": 1e-5},
+    "vfa_total": {"kind": "nrmse_pct", "limit": 0.01},
+    "effluent_cod": {"kind": "nrmse_pct", "limit": 0.01},
 }
 COD_STATE_NAMES = (
     "S_su",
@@ -609,7 +610,7 @@ def main() -> None:
     args = parser.parse_args()
     report, output_dir = run_full_parity_benchmark(output_root=args.output_root, scenario_names=args.scenario_names)
     summary = {
-        "output_dir": str(output_dir),
+        "output_dir": _safe_project_path(output_dir),
         "scenario_count": report["scenario_count"],
         "all_gates_pass": report["aggregate"]["all_gates_pass"],
         "max_summary_rel_delta_pct": report["conclusion"]["max_summary_rel_delta_pct"],

@@ -21,7 +21,7 @@ class LiteratureValidationTest(unittest.TestCase):
             self.assertTrue((output_dir / "literature_validation.md").exists())
             self.assertTrue(report["pyadm1"]["validated"])
             self.assertFalse(report["reduced"]["validated"])
-            self.assertLess(report["conclusion"]["pyadm1_max_rel_delta_pct"], 0.2)
+            self.assertLess(report["conclusion"]["pyadm1_max_rel_delta_pct"], 0.1)
             self.assertGreater(report["conclusion"]["reduced_max_rel_delta_pct"], 10.0)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)

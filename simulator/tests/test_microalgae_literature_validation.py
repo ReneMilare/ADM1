@@ -53,7 +53,7 @@ class TestMicroalgaeLiteratureValidation:
         recovered_n = released_sin + float(params["f_pr_alg"]) * float(params["N_aa"]) + (
             float(params["f_xI_alg"]) + float(params["f_sI_alg"])
         ) * float(params["N_I"])
-        assert recovered_n == pytest.approx(float(params["i_N_alg"]), rel=0.05)
+        assert recovered_n == pytest.approx(float(params["i_N_alg"]), rel=1e-12, abs=1e-14)
 
     def test_disintegration_rate_in_range_mairet_2011(self):
         params = _make_params("microalgae")

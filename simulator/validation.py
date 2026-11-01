@@ -235,7 +235,7 @@ def main() -> None:
     args = parser.parse_args()
     report, output_dir = run_phase3_validation(output_root=args.output_root, include_openmodelica=not args.skip_openmodelica)
     summary = {
-        "output_dir": str(output_dir),
+        "output_dir": _safe_project_path(output_dir),
         "openmodelica_status": report["openmodelica"]["status"],
         "prefer_pyadm1_for_cstr_fidelity": report["conclusion"]["prefer_pyadm1_for_cstr_fidelity"],
         "promote_pyadm1_as_global_default": report["conclusion"]["promote_pyadm1_as_global_default"],

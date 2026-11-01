@@ -19,11 +19,12 @@ from simulator.core.pyadm1_backend import (
     simulate_with_pyadm1_frames,
 )
 from simulator.service import ADM1SimulationService
+from simulator.paths import _safe_project_path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUTPUT_ROOT = Path(__file__).resolve().parent / "literature_validation_runs"
-PYADM1_REL_TOL_PCT = 0.2
-PYADM1_ABS_TOL = 1e-5
+PYADM1_REL_TOL_PCT = 0.1
+PYADM1_ABS_TOL = 1e-14
 
 REFERENCE_SOURCE = {
     "title": "Aspects on ADM1 Implementation within the BSM2 Framework",
@@ -337,7 +338,11 @@ def _build_conclusion(pyadm1_case: dict[str, Any], reduced_case: dict[str, Any])
         "pyadm1_max_rel_delta_pct": float(pyadm1_max_rel_delta),
         "reduced_max_rel_delta_pct": float(reduced_max_rel_delta),
         "recommended_backend_for_cstr_reference_work": "pyadm1",
-        "summary": "O backend pyadm1 reproduz o benchmark BSM2 com erro muito baixo quando recebe o influente ADM1 completo. O backend reduced nao e intercambiavel com essa referencia porque agrega estados e simplifica a cinetica.",
+        "summary": (
+            "O backend pyadm1 reproduz o benchmark BSM2 dentro da tolerancia quando recebe o influente ADM1 completo. "
+            if pyadm1_case["validated"] else
+            "O backend pyadm1 ficou fora da tolerancia do benchmark BSM2; investigar os desvios. "
+        ) + "O backend reduced nao e intercambiavel com essa referencia porque agrega estados e simplifica a cinetica.",
     }
 
 
@@ -382,7 +387,7 @@ def main() -> None:
     args = parser.parse_args()
     report, output_dir = run_literature_validation(output_root=args.output_root)
     summary = {
-        "output_dir": str(output_dir),
+        "output_dir": _safe_project_path(output_dir),
         "pyadm1_validated": report["pyadm1"]["validated"],
         "reduced_validated": report["reduced"]["validated"],
         "pyadm1_max_rel_delta_pct": report["conclusion"]["pyadm1_max_rel_delta_pct"],

@@ -71,8 +71,8 @@ def test_full_parity_baseline_passes_gates() -> None:
     assert output_dir.resolve() == WORKSPACE_TMP.resolve()
     assert report["aggregate"]["all_gates_pass"] is True
     assert report["conclusion"]["baseline_passed"] is True
-    assert report["aggregate"]["summary_metrics"]["methane_final_m3_day"]["max_rel_delta_pct"] < 0.1
-    assert report["aggregate"]["series_metrics"]["methane_m3_day"]["max_nrmse_pct"] < 1.0
+    assert report["aggregate"]["summary_metrics"]["methane_final_m3_day"]["max_rel_delta_pct"] < 0.01
+    assert report["aggregate"]["series_metrics"]["methane_m3_day"]["max_nrmse_pct"] < 0.01
 
 
 
