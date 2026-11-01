@@ -52,6 +52,7 @@ from typing import Mapping
 
 import numpy as np
 
+from simulator.full_model.acid_base import KA_H2S, KA_HS, sulfide_ion_concentration
 from simulator.full_model.assembly import FullModelAssembly
 from simulator.full_model.catalog_types import ParameterDefinition, ProcessDefinition, StateDefinition
 from simulator.full_model.extensions import FullModelExtensionContribution
@@ -232,13 +233,13 @@ class _IronExtension:
             ),
             ParameterDefinition(
                 name="Ksp_FeS",
-                value=6.3e-18,
+                value=1.0e-18,
                 unit="(kmol/m3)^2",
                 group="physicochemical",
                 classification="canonical",
-                description="Produto de solubilidade do FeS (mackinawita): [Fe²⁺][S²⁻].",
-                source=_SRC,
-                notes="Ksp for amorphous FeS ≈ 6.3e-18 M². Very insoluble → rapid precipitation.",
+                description="Produto de solubilidade do FeS amorfo: [Fe²⁺][S²⁻].",
+                source="Maharaj et al. (2018), Table 1, doi:10.1016/j.biortech.2018.06.099",
+                notes="pKsp = 18.0 for amorphous FeS on the S²⁻ basis, as in E9. M² = (kmol/m3)².",
             ),
             ParameterDefinition(
                 name="k_precip_FeS",
@@ -362,7 +363,9 @@ class _IronExtension:
         rho_fe3_h2s = float(params["k_Fe3_red_h2s"]) * s_fe3 * s_h2s
 
         # --- FeS precipitation/dissolution ---
-        ip_fes = (s_fe2 * s_h2s) / max(float(params["Ksp_FeS"]), np.nextafter(0.0, 1.0))
+        # Maharaj et al. (2018), Table 1: Ksp = [Fe2+][S2-], not total sulfide.
+        s_sulfide = sulfide_ion_concentration(s_h2s, s_h_ion)
+        ip_fes = (s_fe2 * s_sulfide) / max(float(params["Ksp_FeS"]), np.nextafter(0.0, 1.0))
         rho_fes_p = float(params["k_precip_FeS"]) * max(ip_fes - 1.0, 0.0) * s_fe2
         rho_fes_d = float(params["k_dissolv_FeS"]) * max(1.0 - ip_fes, 0.0) * x_fes
 
@@ -402,10 +405,10 @@ class _IronExtension:
         s_h_ion = np.clip(matrix[:, assembly.full_state_index["S_H_ion"]], 1e-14, None)
 
         # --- FeS saturation index IP_FeS = [Fe²⁺][S²⁻] / Ksp_FeS ---
-        # Note: S_H2S in ADM1 is total dissolved sulfide (H2S + HS- + S²-)
-        # For Ksp_FeS we use total H2S as a proxy (conservative approximation)
+        # Maharaj et al. (2018), Table 1; same S2- basis as the rate function.
+        s_sulfide = KA_HS * KA_H2S * s_h2s / (s_h_ion * (s_h_ion + KA_H2S))
         ksp_fes = float(params["Ksp_FeS"])
-        ip_fes = (s_fe2 * s_h2s) / max(ksp_fes, np.nextafter(0.0, 1.0))
+        ip_fes = (s_fe2 * s_sulfide) / max(ksp_fes, np.nextafter(0.0, 1.0))
 
         # --- Vivianite saturation index IP_VIV = [Fe²⁺]³[PO₄³⁻]² / Ksp_VIV ---
         ka2 = float(params.get("Ka_H2PO4", 6.31e-8))

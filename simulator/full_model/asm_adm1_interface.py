@@ -12,11 +12,7 @@ ADM1 at the primary sludge/WAS feed point.
 Key assumptions:
   - ASM1 state units are g/m³ (gCOD/m³ for organic fractions, gN/m³ for nitrogen).
   - ADM1 output units: kgCOD/m³ for COD fractions, kmol/m³ for inorganic species.
-  - Biomass fractions (X_BH, X_BA, X_P) are lumped into X_xc (composite particulate).
   - Alkalinity S_ALK (mol HCO3-/m³) is used as a proxy for S_IC.
-  - Inorganic nitrogen S_IN is derived from S_NH only (organic N ignored in S_IN;
-    S_ND and X_ND remain in the particulate/soluble pools but are not individually
-    tracked in ADM1 core).
   - S_NO3 is treated as a conservative anion (S_anion contribution).
   - Ammonium charge is computed from S_IN by the ADM1 charge balance.
 
@@ -81,38 +77,50 @@ def asm1_to_adm1_influent(
 
     Args:
         asm1: ASM1 state vector (concentrations in g/m³).
-        fractions: COD fractionation factors. Defaults to BSM2 values.
+        fractions: Optional carbohydrate/lipid ratio for residual X_S COD.
+            Protein and amino acid allocation is determined by available nitrogen.
 
     Returns:
         Dictionary of ADM1 influent state names and values in ADM1 units.
     """
-    if fractions is None:
-        fractions = ASM1ToADM1Fractions()
+    # Nopens et al. (2009), section 4.1: allocate N to amino acids and
+    # proteins before mapping the residual N to soluble inerts and S_IN.
+    n_aa = 0.007
+    n_i = 0.06 / 14.0
+    snd, xnd, nh = (asm1.S_ND / 14000.0, asm1.X_ND / 14000.0, asm1.S_NH / 14000.0)
+    ss, xs = asm1.S_S / 1000.0, asm1.X_S / 1000.0
+    s_aa = min(ss, snd / n_aa)
+    snd -= s_aa * n_aa
+    s_su = ss - s_aa
+    x_pr = min(xs, xnd / n_aa)
+    xnd -= x_pr * n_aa
+    xs_remainder = xs - x_pr
+    lipid_fraction = 0.7
+    if fractions is not None:
+        nonprotein = fractions.f_ch_Xs + fractions.f_li_Xs
+        if nonprotein > 0:
+            lipid_fraction = fractions.f_li_Xs / nonprotein
+    x_li = lipid_fraction * xs_remainder
+    x_ch = (1.0 - lipid_fraction) * xs_remainder
 
-    # --- Soluble COD fractions (g/m³ → kgCOD/m³, divide by 1000) ---
-    s_su = fractions.f_su_Ss * asm1.S_S / 1000.0
-    s_aa = fractions.f_aa_Ss * asm1.S_S / 1000.0
-    s_i_adm1 = asm1.S_I / 1000.0
+    biomass = (asm1.X_BH + asm1.X_BA) / 1000.0
+    inert_biomass = 0.32 * biomass
+    biomass_n = 0.08 / 14.0 * biomass - n_i * inert_biomass
+    degradable = 0.68 * biomass
+    biomass_protein = min(degradable, (biomass_n + xnd) / n_aa)
+    used_xnd = max(0.0, biomass_protein * n_aa - biomass_n)
+    xnd -= used_xnd
+    biomass_n = max(0.0, biomass_n - biomass_protein * n_aa)
+    x_pr += biomass_protein
+    x_ch += 0.6 * (degradable - biomass_protein)
+    x_li += 0.4 * (degradable - biomass_protein)
+    x_i_adm1 = (asm1.X_I + asm1.X_P) / 1000.0 + inert_biomass
+    x_xc = 0.0
 
-    # --- Particulate COD fractions (g/m³ → kgCOD/m³) ---
-    # X_S distributed into carbohydrates, proteins, lipids
-    x_ch = fractions.f_ch_Xs * asm1.X_S / 1000.0
-    x_pr = fractions.f_pr_Xs * asm1.X_S / 1000.0
-    x_li = fractions.f_li_Xs * asm1.X_S / 1000.0
-
-    # Biomass (active + endogenous residue) lumped into composite particulate X_xc.
-    # This is degradable in ADM1 via disintegration (rho_1).
-    x_xc = (asm1.X_BH + asm1.X_BA + asm1.X_P) / 1000.0
-
-    # Particulate inerts pass through as X_I
-    x_i_adm1 = asm1.X_I / 1000.0
-
-    # --- Inorganic nitrogen (gN/m³ → kmolN/m³, divide by 14*1000) ---
-    # ADM1 S_IN = total inorganic nitrogen (NH4+ + NH3).
-    # S_ND and X_ND are organic N embedded in soluble/particulate fractions;
-    # they do not directly contribute to S_IN (they will be released via hydrolysis
-    # in ADM1). This is a known simplification of the BSM2 interface.
-    s_in = asm1.S_NH / (14.0 * 1000.0)
+    available_n = snd + xnd + nh + biomass_n
+    s_i_adm1 = min(asm1.S_I / 1000.0, available_n / n_i)
+    x_ch += asm1.S_I / 1000.0 - s_i_adm1
+    s_in = available_n - s_i_adm1 * n_i
 
     # --- Inorganic carbon (mol HCO3-/m³ → kmolC/m³, divide by 1000) ---
     # Alkalinity ≈ [HCO3-] at typical digester pH range (6-8).
@@ -151,8 +159,7 @@ def verify_asm1_adm1_balance(
     """Verify COD and nitrogen conservation across the ASM1→ADM1 interface.
 
     Returns percentage errors for COD and nitrogen balances.
-    Small errors (< 1%) are expected when f_ch + f_pr + f_li = 1.0 and f_su + f_aa = 1.0.
-    Large nitrogen errors are expected because S_ND and X_ND are not included in S_IN.
+    COD and total Kjeldahl nitrogen include organic ADM1 pools.
 
     Args:
         asm1: Original ASM1 state vector (g/m³).
@@ -171,24 +178,33 @@ def verify_asm1_adm1_balance(
     cod_total_adm1 = (
         adm1_influent.get("S_su", 0.0)
         + adm1_influent.get("S_aa", 0.0)
+        + sum(adm1_influent.get(name, 0.0) for name in
+              ("S_fa", "S_va", "S_bu", "S_pro", "S_ac", "S_h2", "S_ch4"))
         + adm1_influent.get("S_I", 0.0)
         + adm1_influent.get("X_ch", 0.0)
         + adm1_influent.get("X_pr", 0.0)
         + adm1_influent.get("X_li", 0.0)
         + adm1_influent.get("X_xc", 0.0)
         + adm1_influent.get("X_I", 0.0)
+        + sum(adm1_influent.get(name, 0.0) for name in
+              ("X_su", "X_aa", "X_fa", "X_c4", "X_pro", "X_ac", "X_h2"))
     )
 
     cod_error_pct = (
         abs(cod_total_asm1 - cod_total_adm1) / max(cod_total_asm1, 1e-9) * 100.0
     )
 
-    # Total Kjeldahl nitrogen in ASM1 side (gN/m³ → kmolN/m³)
-    # TKN = S_NH + S_ND + X_ND (free ammonia + soluble + particulate organic N)
-    tkn_asm1 = (asm1.S_NH + asm1.S_ND + asm1.X_ND) / (14.0 * 1000.0)
-
-    # ADM1 S_IN = only inorganic N (organic N embedded in COD fractions, not tracked here)
-    n_adm1 = adm1_influent.get("S_IN", 0.0)
+    # Nopens et al. (2009), Table 2: ASM1 inerts use 0.06 kg N/kg COD,
+    # biomass uses 0.08, and soluble inerts contain no N.
+    tkn_asm1 = (asm1.S_NH + asm1.S_ND + asm1.X_ND
+                + 0.08 * (asm1.X_BH + asm1.X_BA)
+                + 0.06 * (asm1.X_I + asm1.X_P)) / 14000.0
+    n_adm1 = (adm1_influent.get("S_IN", 0.0)
+              + 0.007 * (adm1_influent.get("S_aa", 0.0) + adm1_influent.get("X_pr", 0.0))
+              + 0.06 / 14.0 * (adm1_influent.get("S_I", 0.0) + adm1_influent.get("X_I", 0.0))
+              + 0.0376 / 14.0 * adm1_influent.get("X_xc", 0.0)
+              + 0.08 / 14.0 * sum(adm1_influent.get(name, 0.0) for name in
+                                  ("X_su", "X_aa", "X_fa", "X_c4", "X_pro", "X_ac", "X_h2")))
 
     n_error_pct = abs(tkn_asm1 - n_adm1) / max(tkn_asm1, 1e-9) * 100.0
 

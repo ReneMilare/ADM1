@@ -146,8 +146,10 @@ class TestUnitConversions:
         )
         fracs = ASM1ToADM1Fractions(f_su_Ss=0.75, f_aa_Ss=0.25)
         result = asm1_to_adm1_influent(asm1, fracs)
-        assert result["S_su"] == pytest.approx(0.75, rel=1e-9)   # 0.75 * 1000 / 1000
-        assert result["S_aa"] == pytest.approx(0.25, rel=1e-9)
+        # Nopens et al. (2009): amino acids need organic N (S_ND). With
+        # S_ND = 0 all of S_S becomes sugar; 1000 gCOD/m3 -> 1.0 kgCOD/m3.
+        assert result["S_su"] == pytest.approx(1.0, rel=1e-9)
+        assert result["S_aa"] == pytest.approx(0.0, abs=1e-12)
 
     def test_s_in_unit_conversion(self):
         """S_IN = S_NH / (14 * 1000)."""
@@ -188,8 +190,8 @@ class TestVerifyBalance:
         assert balance["cod_error_pct"] >= 0.0
         assert balance["n_error_pct"] >= 0.0
 
-    def test_n_error_high_because_organic_n_not_in_sin(self):
-        """N error should be non-trivial because S_ND and X_ND are not in S_IN."""
+    def test_n_balance_closes_with_organic_n(self):
+        """Organic N (S_ND, X_ND) is counted on both sides, so N closes."""
         asm1 = ASM1State(
             S_S=0.0, S_I=0.0, X_S=0.0, X_I=0.0,
             X_BH=0.0, X_BA=0.0, X_P=0.0,
@@ -201,5 +203,4 @@ class TestVerifyBalance:
         )
         result = asm1_to_adm1_influent(asm1)
         balance = verify_asm1_adm1_balance(asm1, result)
-        # With large organic N fractions, S_IN << TKN → large n_error
-        assert balance["n_error_pct"] > 0.0
+        assert balance["n_error_pct"] == pytest.approx(0.0, abs=1e-6)

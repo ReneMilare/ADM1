@@ -54,7 +54,7 @@ class FeedDefinition(StrictModel):
     def to_state_vector(self) -> list[float]:
         return [
             self.particulate_cod,
-            self.soluble_cod,
+            self.soluble_cod - self.acetate - self.propionate,
             self.acetate,
             self.propionate,
             self.hydrogen,

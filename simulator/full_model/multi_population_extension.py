@@ -17,8 +17,7 @@ States added (replacing X_ac and X_h2 via stoichiometry_patches):
   X_h2_1: oligotrophic hydrogenotrophic methanogens  (kgCOD/m³)
   X_h2_2: copiotrophic hydrogenotrophic methanogens  (kgCOD/m³)
 
-The core ADM1 processes rho_11_uptake_acetate and rho_12_uptake_hydrogen are
-"zeroed out" for X_ac/X_h2 production via stoichiometry_patches, so that only
+The core uptake and decay rates for X_ac and X_h2 are disabled, so that only
 the E12 sub-populations are active for these groups.
 
 Inhibitions applied (consistent with core ADM1):
@@ -409,10 +408,7 @@ class _MultiPopulationExtension:
             },
         }
 
-        # Zero out the core X_ac and X_h2 production from core processes.
-        # The core rho_11 and rho_18 still consume S_ac, produce S_ch4, etc.
-        # but must NOT grow or decay X_ac (the E12 populations replace that).
-        # Similarly for rho_12/rho_19 and X_h2.
+        # Core rates are disabled by the base-rate modifier below.
         stoichiometry_patches = {
             "rho_11_uptake_acetate": {"X_ac": "0"},
             "rho_12_uptake_hydrogen": {"X_h2": "0"},
@@ -428,7 +424,31 @@ class _MultiPopulationExtension:
             stoichiometry_patches=stoichiometry_patches,
             rate_function=self._rates,
             diagnostics_hook=self._diagnostics,
+            base_rate_modifier_hook=self._disable_core_rates,
+            inhibition_hook=self._inhibition,
         )
+
+    def _disable_core_rates(self, state: Mapping[str, float], params: Mapping[str, float]) -> dict[str, float]:
+        return {name: 0.0 for name in (
+            "rho_11_uptake_acetate", "rho_12_uptake_hydrogen",
+            "rho_18_decay_acetate_biomass", "rho_19_decay_hydrogen_biomass",
+        )}
+
+    def _inhibition(self, state: Mapping[str, float], params: Mapping[str, float]) -> dict[str, float]:
+        from simulator.full_model.phenolics_extension import PHENOLICS_EXTENSION
+        from simulator.full_model.srb_extension import SRB_EXTENSION
+        from simulator.full_model.syngas_extension import SYNGAS_EXTENSION
+
+        ac, h2 = 1.0, 1.0
+        for marker, extension in (("K_I_phen", PHENOLICS_EXTENSION),
+                                  ("K_I_CO", SYNGAS_EXTENSION),
+                                  ("K_I_H2S", SRB_EXTENSION)):
+            if marker in params:
+                factors = extension._inhibition(state, params)
+                ac *= factors.get("rho_11_uptake_acetate", 1.0)
+                h2 *= factors.get("rho_12_uptake_hydrogen", 1.0)
+        return {"rho_E12_uptake_ac_1": ac, "rho_E12_uptake_ac_2": ac,
+                "rho_E12_uptake_h2_1": h2, "rho_E12_uptake_h2_2": h2}
 
     def _rates(
         self, state: Mapping[str, float], params: Mapping[str, float]

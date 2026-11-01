@@ -207,7 +207,8 @@ def _build_feed(
     particulate_cod = feed_cod_kg_m3 * particulate_fraction
     acetate = feed_cod_kg_m3 * acetate_fraction
     propionate = feed_cod_kg_m3 * propionate_fraction
-    soluble_cod = max(feed_cod_kg_m3 - particulate_cod - acetate - propionate, 0.2)
+    # soluble_cod is total soluble COD; acetate and propionate are part of it.
+    soluble_cod = max(feed_cod_kg_m3 - particulate_cod, 0.2)
     return FeedDefinition(
         name=substrate,
         particulate_cod=particulate_cod,
