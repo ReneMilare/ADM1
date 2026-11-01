@@ -19,15 +19,15 @@ def test_run_returns_series_metrics_and_memory_csv():
         pd.testing.assert_frame_equal(pd.read_csv(BytesIO(result["csv"][key])), frame, check_dtype=False)
 
 
-def test_input_validation_and_ukf_reservation():
+def test_input_validation():
     with pytest.raises(ValidationError):
         run_scenario("unknown", duration_days=1)
     with pytest.raises(ValidationError):
         run_scenario("steady_noisy", influent="invalid")
     with pytest.raises(ValidationError):
         run_scenario("steady_noisy", duration_days=0)
-    with pytest.raises(ValueError, match="UKF"):
-        run_scenario("steady_noisy", estimator="ukf")
+    with pytest.raises(ValidationError):
+        run_scenario("steady_noisy", estimator="invalid")
 
 
 def test_page_is_in_custom_navigation():
@@ -47,3 +47,28 @@ def test_page_runs_and_shows_results(monkeypatch):
     assert not app.error
     assert len(app.get("plotly_chart")) == 6
     assert len(app.get("download_button")) == 3
+
+
+def test_ukf_returns_parameter_bands_and_csv():
+    result = run_scenario("steady_noisy", "oracle", seed=1, duration_days=10, estimator="ukf")
+    history = result["series"]["parameters"]
+    assert len(history) == 10
+    for name in ("k_m_ac", "nitrogen_factor"):
+        assert (history[name + "_lower_2sigma"] < history[name]).all()
+        assert (history[name] < history[name + "_upper_2sigma"]).all()
+    pd.testing.assert_frame_equal(pd.read_csv(BytesIO(result["csv"]["parameters"])), history, check_dtype=False)
+
+
+def test_page_ukf_shows_parameters_and_download(monkeypatch):
+    from pathlib import Path
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1]))
+    app = AppTest.from_file(Path(__file__).resolve().parents[1] / "pages/07_Gemeo_Digital.py", default_timeout=60).run()
+    app.selectbox[2].select("ukf")
+    app.number_input[0].set_value(2)
+    app.button[0].click().run(timeout=60)
+    assert not app.exception
+    assert not app.error
+    assert len(app.get("plotly_chart")) == 8
+    assert len(app.get("download_button")) == 4

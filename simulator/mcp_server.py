@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import Literal
 
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -69,6 +70,7 @@ class SimulateReactorInput(BaseModel):
     ph: float = Field(default=7.1, ge=5.0, le=8.5)
     segments: int = Field(default=6, ge=2, le=20)
     ammonia_inhibition_mode: str = Field(default="simple", description="One of: simple or fan.")
+    temperature_kinetics: Literal["off", "siegrist2002"] = "off"
     full_extensions: list[str] = Field(default_factory=list, max_length=20, description="Active extensions for the full backend, e.g. ['srb', 'microalgae', 'syngas', 'trace_elements']. Use list_extensions to see available options.")
     full_extension_parameter_overrides: dict[str, float] = Field(default_factory=dict, max_length=200, description="Parameter overrides for extensions, e.g. {'f_hyd_alg': 1.0, 'f_co_to_h2': 0.65, 'S_DOM_TE': 0.5, 'K_c_Ni': 27.54, 'K_c_Co': 23.99}.")
     full_initial_state_overrides: dict[str, float] = Field(default_factory=dict, max_length=200, description="Initial state overrides for extension states, e.g. {'X_alg': 0.5, 'S_CO': 0.01, 'S_gas_CO': 0.5, 'X_met_CO': 0.05, 'S_Ni': 2e-6, 'S_Co': 5e-7, 'S_Fe2_te': 1e-5}.")
@@ -106,6 +108,7 @@ class CompareBackendsInput(BaseModel):
     ph: float = Field(default=7.1, ge=5.0, le=8.5)
     segments: int = Field(default=6, ge=2, le=20)
     ammonia_inhibition_mode: str = Field(default="simple", description="One of: simple or fan.")
+    temperature_kinetics: Literal["off", "siegrist2002"] = "off"
     full_extensions: list[str] = Field(default_factory=list, max_length=20, description="Active extensions for the full backend, e.g. ['srb', 'microalgae', 'syngas', 'trace_elements'].")
     full_extension_parameter_overrides: dict[str, float] = Field(default_factory=dict, max_length=200, description="Parameter overrides for extensions, e.g. {'f_hyd_alg': 1.0, 'f_co_to_h2': 0.65, 'S_DOM_TE': 0.5, 'K_c_Ni': 27.54, 'K_c_Co': 23.99}.")
     full_initial_state_overrides: dict[str, float] = Field(default_factory=dict, max_length=200, description="Initial state overrides for extension states, e.g. {'X_alg': 0.5, 'S_CO': 0.01, 'S_gas_CO': 0.5, 'X_met_CO': 0.05, 'S_Ni': 2e-6, 'S_Co': 5e-7, 'S_Fe2_te': 1e-5}.")
@@ -223,8 +226,8 @@ def _build_feed(
     )
 
 
-def _build_kinetics(ammonia_inhibition_mode: str) -> KineticParameters:
-    return KineticParameters(ammonia_inhibition_mode=ammonia_inhibition_mode)
+def _build_kinetics(ammonia_inhibition_mode: str, temperature_kinetics: Literal["off", "siegrist2002"]) -> KineticParameters:
+    return KineticParameters(ammonia_inhibition_mode=ammonia_inhibition_mode, temperature_kinetics=temperature_kinetics)
 
 
 def _resolve_preset_feed(name: str) -> FeedDefinition:
@@ -306,6 +309,7 @@ async def simulate_reactor(
     ph: float = 7.1,
     segments: int = 6,
     ammonia_inhibition_mode: str = "simple",
+    temperature_kinetics: Literal["off", "siegrist2002"] = "off",
     full_extensions: list[str] | None = None,
     full_extension_parameter_overrides: dict[str, float] | None = None,
     full_initial_state_overrides: dict[str, float] | None = None,
@@ -330,6 +334,7 @@ async def simulate_reactor(
         ph=ph,
         segments=segments,
         ammonia_inhibition_mode=ammonia_inhibition_mode,
+        temperature_kinetics=temperature_kinetics,
         full_extensions=full_extensions or [],
         full_extension_parameter_overrides=full_extension_parameter_overrides or {},
         full_initial_state_overrides=full_initial_state_overrides or {},
@@ -362,7 +367,7 @@ async def simulate_reactor(
         operating_conditions=operating,
         feed=feed,
         simulation=simulation,
-        parameters=_build_kinetics(params.ammonia_inhibition_mode),
+        parameters=_build_kinetics(params.ammonia_inhibition_mode, params.temperature_kinetics),
         metadata={"substrate": params.substrate},
     )
     return json.dumps(_result_payload(result), ensure_ascii=False, indent=2)
@@ -387,6 +392,7 @@ async def simulate_codigestion(
     hrt_days: float = 20.0,
     duration_days: float = 60.0,
     ammonia_inhibition_mode: str = "fan",
+    temperature_kinetics: Literal["off", "siegrist2002"] = "off",
     segments: int = 6,
     full_extensions: list[str] | None = None,
     full_extension_parameter_overrides: dict[str, float] | None = None,
@@ -409,7 +415,7 @@ async def simulate_codigestion(
         operating_conditions=operating,
         blend=blend,
         simulation=simulation,
-        parameters=_build_kinetics(ammonia_inhibition_mode),
+        parameters=_build_kinetics(ammonia_inhibition_mode, temperature_kinetics),
         metadata={"substrate": blend.name},
     )
     return json.dumps(_result_payload(result), ensure_ascii=False, indent=2)
@@ -444,6 +450,7 @@ async def simulate_two_phase(
     phase1_ph_setpoint: float = 5.5,
     phase2_ph_setpoint: float = 7.2,
     ammonia_inhibition_mode: str = "fan",
+    temperature_kinetics: Literal["off", "siegrist2002"] = "off",
     full_extensions: list[str] | None = None,
     full_extension_parameter_overrides: dict[str, float] | None = None,
     full_initial_state_overrides: dict[str, float] | None = None,
@@ -482,7 +489,7 @@ async def simulate_two_phase(
         operating_conditions=operating,
         feed=feed,
         simulation=simulation,
-        parameters=_build_kinetics(ammonia_inhibition_mode),
+        parameters=_build_kinetics(ammonia_inhibition_mode, temperature_kinetics),
         metadata={"substrate": substrate},
     )
     return json.dumps(_result_payload(result), ensure_ascii=False, indent=2)
@@ -517,6 +524,7 @@ async def simulate_tpad(
     meso_temperature_c: float = 35.0,
     meso_hrt_days: float = 15.0,
     ammonia_inhibition_mode: str = "fan",
+    temperature_kinetics: Literal["off", "siegrist2002"] = "off",
     full_extensions: list[str] | None = None,
     full_extension_parameter_overrides: dict[str, float] | None = None,
     full_initial_state_overrides: dict[str, float] | None = None,
@@ -556,7 +564,7 @@ async def simulate_tpad(
         operating_conditions=operating,
         feed=feed,
         simulation=simulation,
-        parameters=_build_kinetics(ammonia_inhibition_mode),
+        parameters=_build_kinetics(ammonia_inhibition_mode, temperature_kinetics),
         metadata={"substrate": substrate},
     )
     return json.dumps(_result_payload(result), ensure_ascii=False, indent=2)
@@ -588,6 +596,7 @@ async def simulate_batch(
     ph: float = 7.1,
     inoculum_fraction: float = 0.3,
     ammonia_inhibition_mode: str = "fan",
+    temperature_kinetics: Literal["off", "siegrist2002"] = "off",
     full_extensions: list[str] | None = None,
     full_extension_parameter_overrides: dict[str, float] | None = None,
     full_initial_state_overrides: dict[str, float] | None = None,
@@ -619,7 +628,7 @@ async def simulate_batch(
         operating_conditions=operating,
         feed=feed,
         simulation=simulation,
-        parameters=_build_kinetics(ammonia_inhibition_mode),
+        parameters=_build_kinetics(ammonia_inhibition_mode, temperature_kinetics),
         metadata={"substrate": substrate},
     )
     return json.dumps(_result_payload(result), ensure_ascii=False, indent=2)
@@ -707,6 +716,7 @@ async def compare_backends(
     ph: float = 7.1,
     segments: int = 6,
     ammonia_inhibition_mode: str = "simple",
+    temperature_kinetics: Literal["off", "siegrist2002"] = "off",
     full_extensions: list[str] | None = None,
     full_extension_parameter_overrides: dict[str, float] | None = None,
     full_initial_state_overrides: dict[str, float] | None = None,
@@ -731,6 +741,7 @@ async def compare_backends(
         ph=ph,
         segments=segments,
         ammonia_inhibition_mode=ammonia_inhibition_mode,
+        temperature_kinetics=temperature_kinetics,
         full_extensions=full_extensions or [],
         full_extension_parameter_overrides=full_extension_parameter_overrides or {},
         full_initial_state_overrides=full_initial_state_overrides or {},
@@ -765,7 +776,7 @@ async def compare_backends(
         operating_conditions=operating,
         feed=feed,
         simulation=simulation,
-        parameters=_build_kinetics(params.ammonia_inhibition_mode),
+        parameters=_build_kinetics(params.ammonia_inhibition_mode, params.temperature_kinetics),
     )
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
@@ -1126,17 +1137,20 @@ async def convert_asm1_to_adm1_influent(params: _ConvertASM1Params) -> str:
                  "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
 )
 async def run_digital_twin_scenario(params: DigitalTwinRequest) -> str:
-    """Run a synthetic plant and open-loop twin; metrics compare the twin with measurements.
+    """Run a synthetic plant with an open-loop or experimental UKF twin; metrics compare the twin with measurements.
 
     Series are daily and limited to 200 points per table; unavailable values are null.
-    UKF is reserved for a future estimator implementation.
+    UKF parameter trajectories include log-space ±2σ bounds and are limited to 200 points.
     """
     import numpy as np
     import pandas as pd
 
     result = run_digital_twin(params)
     series = {}
-    for label, key in (("plant", "truth"), ("twin", "simulated"), ("measurements", "measured")):
+    tables = [("plant", "truth"), ("twin", "simulated"), ("measurements", "measured")]
+    if "parameter_history" in result:
+        tables.append(("parameters", "parameter_history"))
+    for label, key in tables:
         frame = result[key]
         if len(frame) > 200:
             frame = frame.iloc[np.linspace(0, len(frame) - 1, 200, dtype=int)]
