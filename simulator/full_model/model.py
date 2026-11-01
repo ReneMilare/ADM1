@@ -12,6 +12,7 @@ from simulator.core.pyadm1_backend import P_ATM_BAR, V_GAS_RATIO, _build_influen
 from simulator.full_model.assembly import FullModelAssembly
 from simulator.full_model.extension_registry import resolve_full_model_assembly
 from simulator.full_model.state_catalog import FULL_STATE_CATALOG
+from simulator.full_model.parameters import THERMOPHILIC_STR_OVERRIDES
 from simulator.full_model.stoichiometry import CARBON_SIGMA_TERMS
 
 SAFE_EVAL_GLOBALS = {"__builtins__": {}}
@@ -33,6 +34,7 @@ class FullModelInputs:
     parameter_values: dict[str, float]
     assembly: FullModelAssembly
     temperature_kinetics: str = "off"
+    parameter_set: str = "mesophilic_bsm2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +115,7 @@ def build_full_inputs_from_state_maps(
         parameter_values=parameter_values,
         assembly=assembly,
         temperature_kinetics=parameters.temperature_kinetics,
+        parameter_set=parameters.parameter_set,
     )
 
 
@@ -127,6 +130,8 @@ def resolve_full_parameter_values(
     extension_parameter_overrides: Mapping[str, float] | None = None,
 ) -> dict[str, float]:
     values = dict(assembly.parameter_defaults)
+    if parameters.parameter_set == "thermophilic_str":
+        values.update(THERMOPHILIC_STR_OVERRIDES)
     default_kinetics = make_default_kinetics()
     temperature_k = float(operating_conditions.temperature_c) + 273.15
     liquid_volume = float(operating_conditions.volume_m3)
@@ -149,32 +154,32 @@ def resolve_full_parameter_values(
             "V_ad": liquid_volume + gas_volume,
             "q_ad": flow_rate,
             "p_atm": P_ATM_BAR,
-            "k_hyd_ch": 10.0 * _ratio(parameters.k_hyd, default_kinetics.k_hyd),
-            "k_hyd_pr": 10.0 * _ratio(parameters.k_hyd, default_kinetics.k_hyd),
-            "k_hyd_li": 10.0 * _ratio(parameters.k_hyd, default_kinetics.k_hyd),
-            "k_m_su": 30.0 * _ratio(parameters.k_m_su, default_kinetics.k_m_su),
-            "k_m_pro": 13.0 * _ratio(parameters.k_m_pro, default_kinetics.k_m_pro),
-            "k_m_ac": 8.0 * _ratio(parameters.k_m_ac, default_kinetics.k_m_ac),
-            "k_m_h2": 35.0 * _ratio(parameters.k_m_h2, default_kinetics.k_m_h2),
-            "K_S_su": 0.5 * _ratio(parameters.k_s_su, default_kinetics.k_s_su),
-            "K_S_pro": 0.1 * _ratio(parameters.k_s_pro, default_kinetics.k_s_pro),
-            "K_S_ac": 0.15 * _ratio(parameters.k_s_ac, default_kinetics.k_s_ac),
-            "K_S_h2": 7e-6 * _ratio(parameters.k_s_h2, default_kinetics.k_s_h2),
-            "Y_su": 0.1 * _ratio(parameters.acidogen_yield, default_kinetics.acidogen_yield),
-            "Y_aa": 0.08 * _ratio(parameters.acidogen_yield, default_kinetics.acidogen_yield),
-            "Y_fa": 0.06 * _ratio(parameters.acidogen_yield, default_kinetics.acidogen_yield),
-            "Y_c4": 0.06 * _ratio(parameters.acidogen_yield, default_kinetics.acidogen_yield),
-            "Y_pro": 0.04 * _ratio(parameters.propionate_yield, default_kinetics.propionate_yield),
-            "Y_ac": 0.05 * _ratio(parameters.acetoclastic_yield, default_kinetics.acetoclastic_yield),
-            "Y_h2": 0.06 * _ratio(parameters.hydrogenotrophic_yield, default_kinetics.hydrogenotrophic_yield),
-            "k_dec_X_su": 0.02 * _ratio(parameters.decay_acidogens, default_kinetics.decay_acidogens),
-            "k_dec_X_aa": 0.02 * _ratio(parameters.decay_acidogens, default_kinetics.decay_acidogens),
-            "k_dec_X_fa": 0.02 * _ratio(parameters.decay_acidogens, default_kinetics.decay_acidogens),
-            "k_dec_X_c4": 0.02 * _ratio(parameters.decay_acidogens, default_kinetics.decay_acidogens),
-            "k_dec_X_pro": 0.02 * _ratio(parameters.decay_propionate_biomass, default_kinetics.decay_propionate_biomass),
-            "k_dec_X_ac": 0.02 * _ratio(parameters.decay_acetoclastic, default_kinetics.decay_acetoclastic),
-            "k_dec_X_h2": 0.02 * _ratio(parameters.decay_hydrogenotrophic, default_kinetics.decay_hydrogenotrophic),
-            "k_L_a": 200.0 * _ratio(parameters.gas_stripping_h2, default_kinetics.gas_stripping_h2),
+            "k_hyd_ch": values["k_hyd_ch"] * _ratio(parameters.k_hyd, default_kinetics.k_hyd),
+            "k_hyd_pr": values["k_hyd_pr"] * _ratio(parameters.k_hyd, default_kinetics.k_hyd),
+            "k_hyd_li": values["k_hyd_li"] * _ratio(parameters.k_hyd, default_kinetics.k_hyd),
+            "k_m_su": values["k_m_su"] * _ratio(parameters.k_m_su, default_kinetics.k_m_su),
+            "k_m_pro": values["k_m_pro"] * _ratio(parameters.k_m_pro, default_kinetics.k_m_pro),
+            "k_m_ac": values["k_m_ac"] * _ratio(parameters.k_m_ac, default_kinetics.k_m_ac),
+            "k_m_h2": values["k_m_h2"] * _ratio(parameters.k_m_h2, default_kinetics.k_m_h2),
+            "K_S_su": values["K_S_su"] * _ratio(parameters.k_s_su, default_kinetics.k_s_su),
+            "K_S_pro": values["K_S_pro"] * _ratio(parameters.k_s_pro, default_kinetics.k_s_pro),
+            "K_S_ac": values["K_S_ac"] * _ratio(parameters.k_s_ac, default_kinetics.k_s_ac),
+            "K_S_h2": values["K_S_h2"] * _ratio(parameters.k_s_h2, default_kinetics.k_s_h2),
+            "Y_su": values["Y_su"] * _ratio(parameters.acidogen_yield, default_kinetics.acidogen_yield),
+            "Y_aa": values["Y_aa"] * _ratio(parameters.acidogen_yield, default_kinetics.acidogen_yield),
+            "Y_fa": values["Y_fa"] * _ratio(parameters.acidogen_yield, default_kinetics.acidogen_yield),
+            "Y_c4": values["Y_c4"] * _ratio(parameters.acidogen_yield, default_kinetics.acidogen_yield),
+            "Y_pro": values["Y_pro"] * _ratio(parameters.propionate_yield, default_kinetics.propionate_yield),
+            "Y_ac": values["Y_ac"] * _ratio(parameters.acetoclastic_yield, default_kinetics.acetoclastic_yield),
+            "Y_h2": values["Y_h2"] * _ratio(parameters.hydrogenotrophic_yield, default_kinetics.hydrogenotrophic_yield),
+            "k_dec_X_su": values["k_dec_X_su"] * _ratio(parameters.decay_acidogens, default_kinetics.decay_acidogens),
+            "k_dec_X_aa": values["k_dec_X_aa"] * _ratio(parameters.decay_acidogens, default_kinetics.decay_acidogens),
+            "k_dec_X_fa": values["k_dec_X_fa"] * _ratio(parameters.decay_acidogens, default_kinetics.decay_acidogens),
+            "k_dec_X_c4": values["k_dec_X_c4"] * _ratio(parameters.decay_acidogens, default_kinetics.decay_acidogens),
+            "k_dec_X_pro": values["k_dec_X_pro"] * _ratio(parameters.decay_propionate_biomass, default_kinetics.decay_propionate_biomass),
+            "k_dec_X_ac": values["k_dec_X_ac"] * _ratio(parameters.decay_acetoclastic, default_kinetics.decay_acetoclastic),
+            "k_dec_X_h2": values["k_dec_X_h2"] * _ratio(parameters.decay_hydrogenotrophic, default_kinetics.decay_hydrogenotrophic),
+            "k_L_a": values["k_L_a"] * _ratio(parameters.gas_stripping_h2, default_kinetics.gas_stripping_h2),
         }
     )
 
@@ -202,7 +207,7 @@ def resolve_full_parameter_values(
     values["max_newton_iterations"] = 1000.0
 
     values.update({name: float(value) for name, value in (extension_parameter_overrides or {}).items()})
-    if parameters.temperature_kinetics == "siegrist2002":
+    if parameters.temperature_kinetics == "siegrist2002" and parameters.parameter_set == "mesophilic_bsm2":
         values = scale_siegrist_kinetics(values, float(operating_conditions.temperature_c))
     _require_positive_denominators(values)
     for fraction, extension in (("f_lac_su", "lactate"), ("f_et_su", "ethanol")):

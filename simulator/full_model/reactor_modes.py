@@ -480,12 +480,13 @@ class FullTPADRhs(FullTwoPhaseRhs):
             inputs=inputs,
             phase1_volume_fraction=phase1_volume_fraction,
         )
+        mode = "fixed" if inputs.parameter_set == "thermophilic_str" else inputs.temperature_kinetics
         # Override phase 1 parameters with thermophilic temperature-scaled kinetics
-        scaled_params1 = _scale_params_for_temperature(self._params1, thermo_temperature_c, inputs.temperature_kinetics)
+        scaled_params1 = _scale_params_for_temperature(self._params1, thermo_temperature_c, mode)
         self._params1 = scaled_params1
         self._rhs1 = FullCSTRRhs(inputs=_inputs_with_params(inputs, scaled_params1))
         # Override phase 2 parameters with mesophilic temperature-scaled kinetics
-        scaled_params2 = _scale_params_for_temperature(self._params2, meso_temperature_c, inputs.temperature_kinetics)
+        scaled_params2 = _scale_params_for_temperature(self._params2, meso_temperature_c, mode)
         self._params2 = scaled_params2
         self._rhs2 = FullCSTRRhs(inputs=_inputs_with_params(inputs, scaled_params2))
         self.biochemical_matrix = self._rhs1.biochemical_matrix
@@ -535,6 +536,7 @@ def _inputs_with_params(inputs: FullModelInputs, new_params: dict[str, float]) -
         parameter_values=new_params,
         assembly=inputs.assembly,
         temperature_kinetics=inputs.temperature_kinetics,
+        parameter_set=inputs.parameter_set,
     )
 
 

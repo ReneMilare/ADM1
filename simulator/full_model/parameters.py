@@ -25,6 +25,40 @@ T_OP_VALUE = 308.15
 T_AD_VALUE = 308.15
 
 
+BSM2_PARAMETER_NOTES = {
+    "f_xI_xc": "Rosén & Jeppsson (2006), §3.1.1/§6: 0.20 em vez de 0.25 (STR Tabela 6.1); fecha o balanço de N com a fração lipídica revisada.",
+    "f_li_xc": "Rosén & Jeppsson (2006), §3.1.1/§6: 0.30 em vez de 0.25 (STR Tabela 6.1); complementa a fração inerte revisada.",
+    "N_xc": "Rosén & Jeppsson (2006), §3.1.1/§6: 0.0376/14 em vez de 0.002 (STR Tabela 6.1); balanço de N na desintegração.",
+    "N_I": "Rosén & Jeppsson (2006), §3.1.1/§6: 0.06/14 em vez de 0.002 (STR Tabela 6.1); compatibilidade com ASM1.",
+    "N_bac": "Rosén & Jeppsson (2006), §6: 0.08/14 em vez de 0.00625 (STR Tabela 2.6); biomassa com 8% de N na base DQO do benchmark ASM.",
+    "C_xc": "Rosén & Jeppsson (2006), §3.1.1/§6: 0.02786 em vez de 0.03 da implementação original citada pelos autores; STR Tabela 2.6 indica valor variável. Aproxima o carbono dos produtos, evitando excesso de CO2.",
+    "K_H_ch4": "Rosén & Jeppsson (2006), §6: base 0.0014 M/bar, igual ao STR Tabela 4.2 (o 3 sobrescrito é nota de rodapé, não terceiro decimal).",
+    "p_atm": "Rosén & Jeppsson (2006), §6: 1.013 bar no benchmark e PyADM1. Catálogo: 1.01325 bar (1 atm); resolução em runtime substitui por 1.013 bar.",
+}
+for _group in ("aa", "ac", "h2"):
+    for _limit in ("LL", "UL"):
+        BSM2_PARAMETER_NOTES[f"pH_{_limit}_{_group}"] = (
+            "Limite do STR Tabela 6.2 mantido. Rosén & Jeppsson (2006), §3.2.2: "
+            "BSM2 substitui a função exponencial por Hill em [H+], K=10^(-(LL+UL)/2), n=3/(UL-LL)."
+        )
+for _acid in ("va", "bu", "pro", "ac", "co2", "IN"):
+    BSM2_PARAMETER_NOTES[f"k_A_B_{_acid}"] = (
+        "Rosén & Jeppsson (2006), §3.1.2: 1e10 em vez de 1e8 M^-1 d^-1 sugerido pelo STR, Apêndice B. "
+        "Acelera ODE até concordar com DAE; no solver algébrico estes coeficientes não são usados."
+    )
+
+# Batstone et al. (2002), STR No. 13, Table 6.2, thermophilic solids (55 °C).
+# K_I_h2_fa is n/a in the STR: retain BSM2's 5e-6, without claiming a measured thermophilic value.
+THERMOPHILIC_STR_OVERRIDES = {
+    "k_dis": 1.0,
+    "k_m_su": 70.0, "K_S_su": 1.0, "k_m_aa": 70.0,
+    "k_m_fa": 10.0, "k_m_c4": 30.0, "K_S_c4": 0.4, "K_I_h2_c4": 3e-5,
+    "k_m_pro": 20.0, "K_S_pro": 0.3, "Y_pro": 0.05, "K_I_h2_pro": 1e-5,
+    "k_m_ac": 16.0, "K_S_ac": 0.3, "K_I_nh3": 0.011, "K_S_h2": 5e-5,
+    **{f"k_dec_X_{group}": 0.04 for group in ("su", "aa", "fa", "c4", "pro", "ac", "h2")},
+}
+
+
 def _parameter(
     name: str,
     value: float,
@@ -42,7 +76,7 @@ def _parameter(
         classification=classification,  # type: ignore[arg-type]
         description=description,
         source=PARAMETER_SOURCE,
-        notes=notes,
+        notes=" ".join(part for part in (notes, BSM2_PARAMETER_NOTES.get(name, "")) if part),
     )
 
 
