@@ -52,10 +52,13 @@ Models adsorption/desorption of long-chain fatty acids onto biomass surfaces, ad
 
 | Parameter | Default | Unit | Description |
 |-----------|---------|------|-------------|
-| `k_ads_LCFA` | 10.0 | m³/(kgCOD·d) | Adsorption rate |
+| `k_ads_LCFA` | 0.350 | d⁻¹ | Adsorption rate, with S_fa normalized to 1 kgCOD/m³ |
 | `k_des_LCFA` | 0.2 | d⁻¹ | Desorption rate |
+| `q_sat_LCFA` | 0.6794 | kgCOD LCFA/kgCOD biomass | Adsorption capacity, approximate conversion from Zonta et al. (2013) |
 | `k_m_LCFA_ads` | 21.69 | d⁻¹ | Adsorbed LCFA degradation rate |
 | `K_I_LCFA_ads` | 3.35 | kgCOD/m³ | Contact inhibition threshold |
+
+Adsorption uses `k_ads_LCFA * (S_fa / S_ref) * max(q_sat_LCFA * X_active - X_LCFA_ads, 0)`; desorption is separate. The 1 kgCOD/m³ reference reconciles the dimensions of Zonta's equation with the d⁻¹ unit in its supplementary table as an explicit assumption, not a validated conversion. The capacity assumes VSS/TS = 0.85 and 1.42 kgCOD/kgVSS; the paper reports a wide, unrealistic confidence interval. This implementation uses active biomass only as adsorption sites, whereas Zonta also includes inert and slowly biodegradable solids. Both adsorption parameters are provisional.
 
 **Inhibition:** Non-competitive contact inhibition on core LCFA uptake (rho_7):
 `I_LCFA = K_I / (K_I + X_LCFA_ads)`
