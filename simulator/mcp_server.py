@@ -24,6 +24,7 @@ from simulator.core.models import (
     TwoPhaseConfig,
 )
 from simulator.design_pipeline import ADM1DesignPipeline, SUBSTRATE_ALIASES, SUBSTRATE_PRESETS
+from simulator.digital_twin_api import DigitalTwinRequest, run_digital_twin
 from simulator.full_model import list_registered_extensions as _list_registered_extensions
 from simulator.service import ADM1SimulationService
 from simulator.paths import _safe_project_path
@@ -1117,6 +1118,33 @@ async def convert_asm1_to_adm1_influent(params: _ConvertASM1Params) -> str:
         "reference": "Nopens et al. (2009) Water Research 43(7):1913–1923 doi:10.1016/j.watres.2009.01.012",
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+@mcp.tool(
+    name="run_digital_twin_scenario",
+    annotations={"title": "Run digital twin scenario", "readOnlyHint": True,
+                 "destructiveHint": False, "idempotentHint": True, "openWorldHint": False},
+)
+async def run_digital_twin_scenario(params: DigitalTwinRequest) -> str:
+    """Run a synthetic plant and open-loop twin; metrics compare the twin with measurements.
+
+    Series are daily and limited to 200 points per table; unavailable values are null.
+    UKF is reserved for a future estimator implementation.
+    """
+    import numpy as np
+    import pandas as pd
+
+    result = run_digital_twin(params)
+    series = {}
+    for label, key in (("plant", "truth"), ("twin", "simulated"), ("measurements", "measured")):
+        frame = result[key]
+        if len(frame) > 200:
+            frame = frame.iloc[np.linspace(0, len(frame) - 1, 200, dtype=int)]
+        series[label] = frame.astype(object).where(pd.notna(frame), None).to_dict(orient="records")
+    metrics = {name: {key: value if np.isfinite(value) else None for key, value in values.items()}
+               for name, values in result["report"].items()}
+    return json.dumps({"scenario": params.scenario, "influent": params.influent,
+                       "estimator": params.estimator, "metrics": metrics, "series": series}, allow_nan=False)
 
 
 if __name__ == "__main__":

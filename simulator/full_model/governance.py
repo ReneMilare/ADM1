@@ -61,6 +61,8 @@ class GovernanceAuditReport:
     missing_template_files: tuple[str, ...]
     missing_governance_files: tuple[str, ...]
     governance_folder_exists: bool
+    states_without_source: tuple[str, ...]
+    processes_without_source: tuple[str, ...]
     all_checks_pass: bool
 
 
@@ -129,66 +131,35 @@ def _parameter_rows() -> list[TraceabilityRow]:
     ]
 
 
-def build_traceability_rows() -> tuple[TraceabilityRow, ...]:
-    return tuple([*_state_rows(), *_process_rows(), *_parameter_rows()])
+def build_traceability_rows(assembly: object | None = None) -> tuple[TraceabilityRow, ...]:
+    if assembly is None:
+        return tuple([*_state_rows(), *_process_rows(), *_parameter_rows()])
+    import inspect
+    from simulator.full_model.extension_registry import _REGISTERED_EXTENSIONS
+
+    refs = {}
+    for extension_name in assembly.active_extensions:
+        extension = _REGISTERED_EXTENSIONS[extension_name]
+        path = Path(inspect.getfile(type(extension)))
+        contribution = extension.contribute()
+        for item in (*contribution.states, *contribution.processes, *contribution.parameters):
+            refs[(type(item), item.name)] = path
+    rows = []
+    for catalog, kind in ((assembly.state_catalog, "estado"), (assembly.process_catalog, "processo"), (assembly.parameter_catalog, "parametro")):
+        for item in catalog:
+            path = refs.get((type(item), item.name))
+            if path is None:
+                path = {"estado": STATE_CODE_PATH, "processo": PROCESS_CODE_PATH, "parametro": PARAMETER_CODE_PATH}[kind]
+            rows.append(TraceabilityRow(item.name, kind, item.source, _code_ref(path, f'"{item.name}"'), (STATE_TESTS if kind == "estado" else PROCESS_TESTS if kind == "processo" else PARAMETER_TESTS), getattr(item, "classification", "derived" if (type(item), item.name) in refs else "canonical"), item.notes))
+    return tuple(rows)
 
 
 def _missing_files(paths: Iterable[Path]) -> tuple[str, ...]:
     return tuple(_relative(path) for path in paths if not path.exists())
 
 
-def audit_governance() -> GovernanceAuditReport:
-    traceability_rows = build_traceability_rows()
-    classification_counts: dict[str, int] = {}
-    provisional_parameters: list[str] = []
-    missing_source: list[str] = []
-    missing_classification: list[str] = []
-    invalid_classification: list[str] = []
-
-    for parameter in FULL_PARAMETER_CATALOG:
-        classification_counts[parameter.classification] = classification_counts.get(parameter.classification, 0) + 1
-        if parameter.classification == "provisional":
-            provisional_parameters.append(parameter.name)
-        if not str(parameter.source).strip():
-            missing_source.append(parameter.name)
-        if not str(parameter.classification).strip():
-            missing_classification.append(parameter.name)
-        elif parameter.classification not in VALID_PARAMETER_CLASSIFICATIONS:
-            invalid_classification.append(parameter.name)
-
-    missing_reviews = _missing_files(REQUIRED_PHASE_REVIEW_FILES)
-    missing_matrices = _missing_files(REQUIRED_PHASE_MATRIX_FILES)
-    missing_templates = _missing_files(REQUIRED_TEMPLATE_FILES)
-    missing_governance_files = _missing_files(REQUIRED_GOVERNANCE_FILES)
-    governance_folder_exists = True
-
-    all_checks_pass = not any(
-        (
-            provisional_parameters,
-            missing_source,
-            missing_classification,
-            invalid_classification,
-            missing_reviews,
-            missing_matrices,
-            missing_templates,
-            missing_governance_files,
-        )
-    )
-
-    return GovernanceAuditReport(
-        traceability_rows=traceability_rows,
-        parameter_classification_counts=classification_counts,
-        provisional_parameters=tuple(provisional_parameters),
-        parameters_without_source=tuple(missing_source),
-        parameters_without_classification=tuple(missing_classification),
-        parameters_with_invalid_classification=tuple(invalid_classification),
-        missing_review_files=missing_reviews,
-        missing_matrix_files=missing_matrices,
-        missing_template_files=missing_templates,
-        missing_governance_files=missing_governance_files,
-        governance_folder_exists=governance_folder_exists,
-        all_checks_pass=all_checks_pass,
-    )
+def audit_governance(assembly: object | None = None) -> GovernanceAuditReport:
+    return audit_governance_with_assembly(assembly)
 
 
 def audit_governance_with_assembly(assembly: object | None = None) -> GovernanceAuditReport:
@@ -199,7 +170,9 @@ def audit_governance_with_assembly(assembly: object | None = None) -> Governance
     the base ``FULL_PARAMETER_CATALOG``.  This ensures that provisional, missing-source,
     or mis-classified extension parameters are captured by the governance gate.
     """
-    traceability_rows = build_traceability_rows()
+    traceability_rows = build_traceability_rows(assembly)
+    states_without_source = tuple(row.item for row in traceability_rows if row.entity_type == "estado" and not str(row.source_document or "").strip())
+    processes_without_source = tuple(row.item for row in traceability_rows if row.entity_type == "processo" and not str(row.source_document or "").strip())
     classification_counts: dict[str, int] = {}
     provisional_parameters: list[str] = []
     missing_source: list[str] = []
@@ -212,7 +185,7 @@ def audit_governance_with_assembly(assembly: object | None = None) -> Governance
         classification_counts[parameter.classification] = classification_counts.get(parameter.classification, 0) + 1
         if parameter.classification == "provisional":
             provisional_parameters.append(parameter.name)
-        if not str(parameter.source).strip():
+        if not str(parameter.source or "").strip():
             missing_source.append(parameter.name)
         if not str(parameter.classification).strip():
             missing_classification.append(parameter.name)
@@ -228,6 +201,8 @@ def audit_governance_with_assembly(assembly: object | None = None) -> Governance
     all_checks_pass = not any(
         (
             provisional_parameters,
+            states_without_source,
+            processes_without_source,
             missing_source,
             missing_classification,
             invalid_classification,
@@ -250,6 +225,8 @@ def audit_governance_with_assembly(assembly: object | None = None) -> Governance
         missing_template_files=missing_templates,
         missing_governance_files=missing_governance_files,
         governance_folder_exists=governance_folder_exists,
+        states_without_source=states_without_source,
+        processes_without_source=processes_without_source,
         all_checks_pass=all_checks_pass,
     )
 

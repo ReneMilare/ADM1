@@ -2,7 +2,7 @@
 
 Adds lactate (S_lac) as an explicit soluble substrate and a dedicated
 lactate-fermenting acetogen (X_lac) that converts lactate to acetate,
-propionate, and H2.
+propionate, butyrate, and H2.
 
 Two lactate sources are modeled:
   1. Sugar overflow: a fraction f_lac_su of rho_5_uptake_sugars products is
@@ -14,9 +14,9 @@ Two lactate sources are modeled:
 
 Stoichiometry (per kgCOD substrate):
   Lactate catabolism (COD-conserving):
-      S_lac → (1-Y)*f_ac*S_ac + (1-Y)*f_pro*S_pro + (1-Y)*f_h2*S_h2 + Y*X_lac
-      f_ac_lac = 0.4667, f_pro_lac = 0.20, f_h2_lac = 0.3333
-      (Satpathy 2016 Part I: lactate degrades to acetate, propionate, and H2.
+      S_lac → (1-Y)*(f_ac*S_ac + f_pro*S_pro + f_bu*S_bu + f_h2*S_h2) + Y*X_lac
+      f_ac_lac = 0.40/0.97, f_pro_lac = 0.18/0.97, f_bu_lac = 0.01/0.97, f_h2_lac = 0.38/0.97
+      (Satpathy 2016 Part I: lactate degrades to acetate, propionate, butyrate, and H2.
        Propionate is a secondary product absorbing ~20% of catabolized COD.)
 
 Kinetic parameters (Satpathy 2016 Parts I/II):
@@ -89,10 +89,10 @@ class _LactateExtension:
                 name="rho_E6_uptake_lactate",
                 vendor_symbol="Rho_E6_1",
                 family="biochemical",
-                description="Consumo de lactato por X_lac → acetato + H2.",
+                description="Consumo de lactato por X_lac → acetato, propionato, butirato e H2.",
                 rate_expression="computed_by_extension",
-                affected_states=("S_lac", "S_ac", "S_pro", "S_h2", "S_IC", "S_IN", "X_lac"),
-                parameters=("k_m_lac", "K_S_lac", "Y_lac"),
+                affected_states=("S_lac", "S_ac", "S_pro", "S_bu", "S_h2", "S_IC", "S_IN", "X_lac"),
+                parameters=("k_m_lac", "K_S_lac", "Y_lac", "f_ac_lac", "f_pro_lac", "f_bu_lac", "f_h2_lac"),
                 inhibitions=("I_pH_aa", "I_IN_lim", "I_h2_c4"),
                 source=_SRC,
             ),
@@ -168,45 +168,56 @@ class _LactateExtension:
             ),
             ParameterDefinition(
                 name="f_ac_lac",
-                value=0.4667,
+                value=0.40 / 0.97,
                 unit=DIMENSIONLESS,
                 group="stoichiometric",
                 classification="calibrated",
                 description="Fração COD catabolisado do lactato → acetato.",
                 source=_SRC,
-                notes="Satpathy 2016: f_ac_lac + f_pro_lac + f_h2_lac = 1.0. Acetate is the dominant product "
-                      "but propionate route absorbs ~20%% of catabolized COD.",
+                notes="Satpathy 2016 Table 3: 0.40, normalized by 0.97. "
+                      "The four reported COD fractions sum to 0.97.",
             ),
             ParameterDefinition(
                 name="f_pro_lac",
-                value=0.20,
+                value=0.18 / 0.97,
                 unit=DIMENSIONLESS,
                 group="stoichiometric",
                 classification="calibrated",
                 description="Fração COD catabolisado do lactato → propionato.",
                 source=_SRC,
-                notes="Satpathy 2016 Part I: ~20% of lactate catabolism products go to propionate. "
-                      "Derived from BES-arrested batch experiments showing propionate as secondary product.",
+                notes="Satpathy 2016 Table 3: 0.18, normalized by 0.97. "
+                      "The four reported COD fractions sum to 0.97.",
+            ),
+            ParameterDefinition(
+                name="f_bu_lac",
+                value=0.01 / 0.97,
+                unit=DIMENSIONLESS,
+                group="stoichiometric",
+                classification="calibrated",
+                description="Fração de DQO do lactato para butirato.",
+                source=_SRC,
+                notes="Satpathy et al. (2016), tabela 3: 0,01; frações normalizadas por 0,97 para fechar DQO.",
             ),
             ParameterDefinition(
                 name="f_h2_lac",
-                value=0.3333,
+                value=0.38 / 0.97,
                 unit=DIMENSIONLESS,
                 group="stoichiometric",
                 classification="canonical",
-                description="Fração COD catabolisado do lactato → H2 (32/96 ≈ 0.3333).",
+                description="Fração COD catabolisado do lactato → H2 (0.38/0.97).",
                 source=_SRC,
             ),
         )
 
-        # S_IC for uptake = C_lac - (1-Y)*(f_ac_lac*C_ac + f_pro_lac*C_pro) - Y*C_bac
+        # Carbon closure follows Satpathy et al. (2016), Table 1.
         biochemical_stoichiometry_rows = {
             "rho_E6_uptake_lactate": {
                 "S_lac": "-1",
                 "S_ac": "(1.0 - Y_lac) * f_ac_lac",
                 "S_pro": "(1.0 - Y_lac) * f_pro_lac",
+                "S_bu": "(1.0 - Y_lac) * f_bu_lac",
                 "S_h2": "(1.0 - Y_lac) * f_h2_lac",
-                "S_IC": "C_lac - (1.0 - Y_lac) * (f_ac_lac * C_ac + f_pro_lac * C_pro) - Y_lac * C_bac",
+                "S_IC": "C_lac - (1.0 - Y_lac) * (f_ac_lac * C_ac + f_pro_lac * C_pro + f_bu_lac * C_bu) - Y_lac * C_bac",
                 "S_IN": "-Y_lac * N_bac",
                 "X_lac": "Y_lac",
             },

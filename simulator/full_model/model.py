@@ -32,6 +32,7 @@ class FullModelInputs:
     dynamic_initial: np.ndarray
     parameter_values: dict[str, float]
     assembly: FullModelAssembly
+    temperature_kinetics: str = "off"
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +110,7 @@ def build_full_inputs_from_state_maps(
         dynamic_initial=np.asarray([normalized_initial[name] for name in assembly.dynamic_state_names], dtype=float),
         parameter_values=parameter_values,
         assembly=assembly,
+        temperature_kinetics=parameters.temperature_kinetics,
     )
 
 
@@ -198,11 +200,36 @@ def resolve_full_parameter_values(
     values["max_newton_iterations"] = 1000.0
 
     values.update({name: float(value) for name, value in (extension_parameter_overrides or {}).items()})
+    if parameters.temperature_kinetics == "siegrist2002":
+        values = scale_siegrist_kinetics(values, float(operating_conditions.temperature_c))
     for fraction, extension in (("f_lac_su", "lactate"), ("f_et_su", "ethanol")):
         if values[fraction] > 0.0 and extension not in assembly.active_extensions:
             raise ValueError(f"{fraction} > 0 requer a extensão {extension} ativa para conservar DQO e carbono.")
     return values
 
+
+
+# Siegrist et al. (2002), Table 3, doi:10.1021/es010139p. C4 has no
+# separate group: use anaerobic oxidation for rates and propionate for K_S.
+_SIEGRIST_THETA = {
+    **dict.fromkeys(("k_hyd_ch", "k_hyd_pr", "k_hyd_li"), 0.024),
+    **dict.fromkeys(("k_m_su", "k_m_aa", "k_m_ac", "k_m_h2",
+                     "k_dec_X_su", "k_dec_X_aa", "k_dec_X_ac", "k_dec_X_h2",
+                     "K_S_su", "K_S_aa"), 0.069),
+    **dict.fromkeys(("k_m_fa", "k_m_c4", "k_m_pro", "k_dec_X_fa",
+                     "k_dec_X_c4", "k_dec_X_pro"), 0.055),
+    "K_S_fa": 0.035,
+    **dict.fromkeys(("K_S_c4", "K_S_pro", "K_S_ac"), 0.10),
+    **dict.fromkeys(("K_S_h2", "K_I_h2_fa", "K_I_h2_c4", "K_I_h2_pro"), 0.08),
+    "K_I_nh3": 0.086,
+}
+
+def scale_siegrist_kinetics(values: Mapping[str, float], temperature_c: float, reference_c: float = 35.0) -> dict[str, float]:
+    """Scale base ADM1 kinetics between temperatures; extension parameters stay unchanged."""
+    scaled = dict(values)
+    for name, theta in _SIEGRIST_THETA.items():
+        scaled[name] *= math.exp(theta * (temperature_c - reference_c))
+    return scaled
 
 
 _MULTI_POPULATION_SEEDS = (("X_ac", ("X_ac_1", "X_ac_2")), ("X_h2", ("X_h2_1", "X_h2_2")))

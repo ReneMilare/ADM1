@@ -216,3 +216,9 @@ if __name__ == "__main__":
     print(f"\n{passed}/{len(tests)} tests passed")
     if passed < len(tests):
         raise SystemExit(1)
+
+
+def test_temperature_kinetics_round_trip():
+    draft = session_state_to_draft(_base_state(temperature_kinetics="siegrist2002"))
+    assert draft.temperature_kinetics == "siegrist2002"
+    assert draft_to_session_state(draft)["temperature_kinetics"] == "siegrist2002"

@@ -143,6 +143,11 @@ class ADM1SimulationService:
         result_metadata.update(execution_metadata)
         result_metadata["backend_requested"] = backend.requested
         result_metadata["backend_used"] = backend.used
+        result_metadata["temperature_kinetics"] = kinetics.temperature_kinetics
+        if kinetics.temperature_kinetics == "siegrist2002" and backend.used != "full":
+            result_metadata["temperature_kinetics_warning"] = (
+                "A correção de Siegrist não é aplicada pelo backend " + backend.used + "."
+            )
         result_metadata["model_fidelity"] = "exploratory" if backend.used == "reduced" else "reference"
         if backend.used == "reduced":
             result_metadata["known_limitations"] = [
