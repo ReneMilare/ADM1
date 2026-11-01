@@ -260,3 +260,14 @@ def test_events_reject_empty_interval():
 
     with pytest.raises(ValueError):
         CompositionDrift(t0_days=1.0, t1_days=1.0, max_shift_fraction=0.2)
+
+
+def test_ammonia_spike_counter_ion():
+    salt = _win(_scn(events=[AmmoniaSpike(t0_days=5, t1_days=8, factor=5.0)]))
+    extra = 4 * BASE["S_IN"]
+    # NH4Cl: the anion rises with the N, so the charge balance is unchanged.
+    assert salt[6].influent_values["S_anion"] == pytest.approx(BASE.get("S_anion", 0.0) + extra)
+    assert salt[9].influent_values["S_anion"] == pytest.approx(BASE.get("S_anion", 0.0))
+    free = _win(_scn(events=[AmmoniaSpike(t0_days=5, t1_days=8, factor=5.0, counter_ion="none")]))
+    assert free[6].influent_values["S_IN"] == pytest.approx(5 * BASE["S_IN"])
+    assert free[6].influent_values.get("S_anion", 0.0) == pytest.approx(BASE.get("S_anion", 0.0))
