@@ -4,9 +4,9 @@ Adds a surface-adsorbed LCFA intermediate (X_LCFA_ads) to capture the kinetic
 lag between free LCFA (S_fa) and actual biodegradation. This is important in
 systems treating lipid-rich wastes (grease trap, DAF sludge, OFMSW).
 
-Mechanism (Palatsi 2010):
+Mechanism (Zonta et al. 2013, equation 1):
   Free LCFA (S_fa) first adsorbs onto the active biomass surface:
-      S_fa + X_total_active → X_LCFA_ads  (k_ads, first-order in X_total_active)
+      rho_ads = k_ads * (S_fa / S_ref) * max(q_sat * X_total_active - X_LCFA_ads, 0)
 
   Adsorbed LCFA desorbs back to free LCFA:
       X_LCFA_ads → S_fa  (k_des, first-order in X_LCFA_ads)
@@ -49,6 +49,7 @@ from simulator.full_model.extensions import FullModelExtensionContribution
 from simulator.full_model.units import DAY_INV, DIMENSIONLESS, KG_COD_M3
 
 _SRC = "Palatsi et al. (2010) doi:10.1016/j.biortech.2009.11.069; Zonta et al. (2013) doi:10.1016/j.watres.2012.12.007"
+_S_FA_REFERENCE_KG_COD_M3 = 1.0
 
 # Core active biomass groups used to estimate X_total_active for adsorption
 _ACTIVE_BIOMASS = ("X_su", "X_aa", "X_fa", "X_c4", "X_pro", "X_ac", "X_h2")
@@ -83,7 +84,7 @@ class _LCFAExtension:
                 description="Adsorção de LCFA livre na superfície da biomassa ativa.",
                 rate_expression="computed_by_extension",
                 affected_states=("S_fa", "X_LCFA_ads"),
-                parameters=("k_ads_LCFA",),
+                parameters=("k_ads_LCFA", "q_sat_LCFA"),
                 inhibitions=(),
                 source=_SRC,
             ),
@@ -115,15 +116,32 @@ class _LCFAExtension:
         parameters = (
             ParameterDefinition(
                 name="k_ads_LCFA",
-                value=10.0,
-                unit="m3/kgCOD/d",
+                value=0.350,
+                unit=DAY_INV,
                 group="biochemical",
-                classification="calibrated",
-                description="Constante de adsorção de LCFA (k_ads × X_total_active).",
+                classification="provisional",
+                description="Constante de adsorção de LCFA com concentração de referência.",
                 source=_SRC,
-                notes="Zonta et al. (2013) Table 3: k_ads in range 5-50 m³/(kgCOD·d) for thermophilic systems. "
-                      "Value of 10.0 is a conservative midpoint estimate for mesophilic operation. "
-                      "Approach A2 (Palatsi 2010) adapted with explicit adsorption layer.",
+                notes="Zonta et al. (2013), supplementary Table B: 0.350 d^-1. "
+                      "Equation 1 multiplies two concentrations, so its coefficient requires "
+                      "m3/(kgCOD d), inconsistent with the table. Assumed reference concentration "
+                      "1 kgCOD/m3 to normalize S_fa; the numerical value is provisional and requires calibration.",
+            ),
+            ParameterDefinition(
+                name="q_sat_LCFA",
+                value=0.82 / (0.85 * 1.42),
+                unit="kgCOD_LCFA/kgCOD_biomass",
+                group="biochemical",
+                classification="provisional",
+                description="Capacidade de adsorção por DQO de biomassa ativa.",
+                source="Zonta et al. (2013) doi:10.1016/j.watres.2012.12.007; "
+                       "https://theses.lib.polyu.edu.hk/bitstream/200/3897/1/b15354325.pdf; "
+                       "Rao (2018), The operational viability of implementing anaerobic digestion technology",
+                notes="Supplementary Table B: 0.82 kgCOD/kgTS, CI-95% ±1.107 labelled wide and unrealistic. "
+                      "Assume TS equals TSS, VSS/TSS=0.85 (Ng 1999, section 4.2), and "
+                      "1.42 kgCOD/kgVSS (Rao 2018, section 2.5): 0.82/(0.85*1.42). "
+                      "Approximate all VSS as active biomass; unlike Zonta, inert and slowly biodegradable "
+                      "solids are excluded from adsorption sites. These assumptions require local validation.",
             ),
             ParameterDefinition(
                 name="k_des_LCFA",
@@ -133,9 +151,7 @@ class _LCFAExtension:
                 classification="calibrated",
                 description="Constante de primeira ordem para dessorção de LCFA.",
                 source=_SRC,
-                notes="Zonta et al. (2013): desorption rate for surface-bound LCFA. "
-                      "Estimated at 0.2 d⁻¹ based on Approach A2 mass balance closure. "
-                      "Valid range: 0.05-0.5 d⁻¹.",
+                notes="Zonta et al. (2013), supplementary Table B: k_dis,bio = 0.2 d^-1, CI-95% ±0.174.",
             ),
             ParameterDefinition(
                 name="k_m_LCFA_ads",
@@ -236,14 +252,15 @@ class _LCFAExtension:
         s_in = max(float(state.get("S_IN", 1e-4)), 1e-12)
         s_h2 = max(float(state.get("S_h2", 0.0)), 1e-12)
 
-        # Total active biomass concentration (m³-denominator for second-order adsorption)
         x_total_active = sum(max(float(state.get(xi, 0.0)), 0.0) for xi in _ACTIVE_BIOMASS)
 
         i_ph_aa = (params["K_pH_aa"] ** params["nn_aa"]) / (s_h_ion ** params["nn_aa"] + params["K_pH_aa"] ** params["nn_aa"])
         i_in_lim = 1.0 / (1.0 + params["K_S_IN"] / s_in)
         i_h2_fa = 1.0 / (1.0 + s_h2 / params["K_I_h2_fa"])
 
-        rho_ads = float(params["k_ads_LCFA"]) * s_fa * x_total_active
+        # Zonta et al. (2013), Eq. 1: normalize S_fa by the assumed 1 kgCOD/m3 reference.
+        available_capacity = max(float(params["q_sat_LCFA"]) * x_total_active - x_lcfa_ads, 0.0)
+        rho_ads = float(params["k_ads_LCFA"]) * (s_fa / _S_FA_REFERENCE_KG_COD_M3) * available_capacity
         rho_des = float(params["k_des_LCFA"]) * x_lcfa_ads
         k_s_lcfa_ads = float(params["K_S_LCFA_ads"])
         rho_deg = float(params["k_m_LCFA_ads"]) * x_lcfa_ads / (k_s_lcfa_ads + x_lcfa_ads) * x_fa * i_ph_aa * i_in_lim * i_h2_fa
