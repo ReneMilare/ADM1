@@ -323,9 +323,9 @@ class _SyngasExtension:
                 description="Constante de inibição de CO sobre metanogênese acetoclástica rho_11 (kgCOD/m³).",
                 source=_SRC,
                 notes=(
-                    "Sun et al. (2021) Eq. 14 define Icoac = 1 / (1 + S_CO / K_I,COac). "
-                    "O paper local não deixa o valor calibrado legível no texto extraído; o default atual preserva a ordem de grandeza "
-                    "de alta sensibilidade acetoclástica e mantém K_I_CO < K_I_CO_h2."
+                    "Sun et al. (2021) Eq. 14: Icoac = 1 / (1 + S_CO / K_I,COac). "
+                    "The calibrated value is in the online supplementary Table A1, not in the article; "
+                    "this default is a placeholder that keeps K_I_CO < K_I_CO_h2."
                 ),
             ),
             ParameterDefinition(
@@ -337,9 +337,9 @@ class _SyngasExtension:
                 description="Constante de inibição de CO sobre metanogênese hidrogenotrófica rho_12 (kgCOD/m³).",
                 source=_SRC,
                 notes=(
-                    "Sun et al. (2021) Eq. 15 define IcoH2 = 1 / (1 + S_CO / K_I,COH2). "
-                    "O default mantém os hidrogenotróficos menos sensíveis ao CO do que os acetoclásticos, "
-                    "em linha com a formulação e discussão do paper-base."
+                    "Sun et al. (2021) Eq. 15: IcoH2 = 1 / (1 + S_CO / K_I,COH2), applied to H2, butyrate "
+                    "and propionate uptake (Table 3). The calibrated value is in the online supplementary "
+                    "Table A1; this default is a placeholder."
                 ),
             ),
             ParameterDefinition(
@@ -464,11 +464,15 @@ class _SyngasExtension:
         }
 
     def _inhibition(self, state: Mapping[str, float], params: Mapping[str, float]) -> dict[str, float]:
-        """CO competitive inhibition of acetoclastic (rho_11) and hydrogenotrophic (rho_12) methanogenesis.
+        """Noncompetitive CO inhibition (Sun et al. 2021, §2.3.3, Eqs. 14-15, Table 3).
 
-        Sun et al. (2021) Eq. 14-15 competitive inhibition form:
-            I_CO_ac  = K_I_CO    / (K_I_CO    + S_CO)  [acetoclastic, more sensitive]
-            I_CO_h2  = K_I_CO_h2 / (K_I_CO_h2 + S_CO)  [hydrogenotrophic, less sensitive]
+            I_CO_ac = 1 / (1 + S_CO / K_I,COac)   -> acetate uptake (rho_11)
+            I_CO_h2 = 1 / (1 + S_CO / K_I,COH2)   -> H2 uptake (rho_12) and, per
+                                                     Table 3, butyrate and
+                                                     propionate uptake.
+        Sun's glucose model has no valerate; ADM1 valerate uptake uses the same
+        X_c4 as butyrate, so it receives I_CO_h2 too. Sun's Table 3 also adds
+        H2 inhibition to acetate uptake (K_I,H2ac); it is not applied here.
 
         At typical dissolved CO concentrations (< 0.01 kgCOD/m³) both factors are > 0.99 —
         inhibition is negligible. At high CO partial pressures (> 0.3 bar) inhibition becomes significant.
@@ -480,6 +484,9 @@ class _SyngasExtension:
         i_co_ac = k_i_co_ac / (k_i_co_ac + s_co)
         i_co_h2 = k_i_co_h2 / (k_i_co_h2 + s_co)
         return {
+            "rho_8_uptake_valerate": i_co_h2,
+            "rho_9_uptake_butyrate": i_co_h2,
+            "rho_10_uptake_propionate": i_co_h2,
             "rho_11_uptake_acetate": i_co_ac,
             "rho_12_uptake_hydrogen": i_co_h2,
         }

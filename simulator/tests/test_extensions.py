@@ -1246,14 +1246,19 @@ class TestSyngasExtension:
         assert rates["rho_E15_CO_uptake"] / rho_total == pytest.approx(0.35)
         assert rates["rho_E15_CO_acetate"] / rho_total == pytest.approx(0.65)
 
-    def test_inhibition_hook_targets_acetate_and_hydrogen_uptake(self):
+    def test_inhibition_hook_targets_sun_table3_processes(self):
         assembly = resolve_full_model_assembly(["syngas"])
         state = {name: 0.0 for name in assembly.full_state_names}
         state["S_CO"] = 0.01
         params = _make_params("syngas")
         factors = SYNGAS_EXTENSION._inhibition(state, params)
-        assert set(factors) == {"rho_11_uptake_acetate", "rho_12_uptake_hydrogen"}
+        # Sun et al. 2021, Table 3: I_CO,H2 also on butyrate/propionate (and valerate, same X_c4).
+        assert set(factors) == {"rho_8_uptake_valerate", "rho_9_uptake_butyrate", "rho_10_uptake_propionate",
+                                "rho_11_uptake_acetate", "rho_12_uptake_hydrogen"}
+        assert set(factors) <= set(assembly.biochemical_process_names)
         assert factors["rho_11_uptake_acetate"] < factors["rho_12_uptake_hydrogen"]
+        for name in ("rho_8_uptake_valerate", "rho_9_uptake_butyrate", "rho_10_uptake_propionate"):
+            assert factors[name] == pytest.approx(factors["rho_12_uptake_hydrogen"])
 
     def test_co_uptake_zero_without_biomass(self):
         assembly = resolve_full_model_assembly(["syngas"])

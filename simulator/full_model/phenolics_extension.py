@@ -23,14 +23,28 @@ Stoichiometry (per kgCOD substrate):
       C6H5COO⁻: 7 C, COD = 240 gO2/mol (15/2 O2 per mol benzoate)
       C_ben = 7/240 = 0.02917 kmolC/kgCOD
 
-  Inhibition (Fezzani 2009, §2.1.4):
-      Phenol and total VFA inhibit acetoclastic methanogenesis (rho_11) using
-      noncompetitive factors. Phenol uptake also has noncompetitive inhibition.
+  Kinetics (Fezzani & Ben Cheikh 2009, Table 2):
+      rho_7a = k_m,ph * S_ph / (K_S,ph + S_ph + S_ph^2 / K_I,ph) * X_Bph
+      rho_7b = k_m,bnz * S_bnz / (K_S,bnz + S_bnz) * X_B,bnz * I2
+      The printed rho_7a omits "+ S_ph" and writes S_bnz in the squared term;
+      both are read as typos (K_I,ph is "inhibition constant for phenol
+      uptake", Table 6). The paper text swaps the labels (Monod for phenol,
+      Haldane for benzoate); the table is followed. rho_7a has no ADM1
+      inhibition factor; I2 = I_pH * I_IN,lim * I_h2,fa (Batstone 2002).
+
+  Inhibition (Fezzani & Ben Cheikh 2009, §2.1.4, Eq. 15):
+      I5 = I_pH,ac * I_IN,lim * I_NH3 * I_TVFA * I_phenol, both new factors
+      noncompetitive. The paper gives k_I,TVFA = 47.5 kgCOD/m3 and no separate
+      constant for I_phenol, so K_I,ph is reused. Its k_I,NH3 = 2.4e-3 kmol/m3
+      (OMW calibration) is not applied: the core BSM2 value stays.
+
+  Charge balance (Eq. 11) uses 220 and 210 gCOD/mol for phenolate and
+  benzoate; acid_base.py uses the stoichiometric 224 and 240 instead.
 
 Reference:
-    Fezzani & Ben Cheikh (2008). "Two-phase anaerobic co-digestion of olive mill
-    wastes in semi-continuous digesters." Bioresource Technology 99(15):6996-7003.
-    doi:10.1016/j.biortech.2008.01.004
+    Fezzani & Ben Cheikh (2010). "Two-phase anaerobic co-digestion of olive mill
+    wastes in semi-continuous digesters at mesophilic temperature."
+    Bioresource Technology 101(6):1628-1634. doi:10.1016/j.biortech.2009.09.067
     Fezzani & Ben Cheikh (2009). "Extension of the anaerobic digestion model No. 1
     (ADM1) to include phenol compounds biodegradation for anaerobic co-digestion of
     olive mill wastes at mesophilic temperature." Journal of Hazardous Materials
@@ -54,7 +68,7 @@ from simulator.full_model.catalog_types import ParameterDefinition, ProcessDefin
 from simulator.full_model.extensions import FullModelExtensionContribution
 from simulator.full_model.units import DAY_INV, DIMENSIONLESS, KG_COD_M3, KMOL_C_PER_KG_COD
 
-_SRC = "Fezzani & Ben Cheikh (2008) doi:10.1016/j.biortech.2008.01.004; (2009) doi:10.1016/j.jhazmat.2009.08.017"
+_SRC = "Fezzani & Ben Cheikh (2009) doi:10.1016/j.jhazmat.2009.08.017; (2010) doi:10.1016/j.biortech.2009.09.067"
 
 
 class _PhenolicsExtension:
@@ -208,9 +222,9 @@ class _PhenolicsExtension:
                 unit=KG_COD_M3,
                 group="biochemical",
                 classification="calibrated",
-                description="Constante de inibição de fenólicos sobre metanogênese e acetogens.",
+                description="Constante de inibição por fenol: Haldane no consumo de fenol e I_phenol no consumo de acetato.",
                 source=_SRC,
-                notes="Fezzani 2009, Table 6: phenol uptake inhibition constant; applied as noncompetitive inhibition.",
+                notes="Fezzani 2009, Table 6: K_I,ph = 50 (phenol uptake, Haldane term of Table 2). Eq. 15 gives no separate constant for I_phenol, so it is reused there.",
             ),
             ParameterDefinition(
                 name="C_phen",
@@ -369,13 +383,13 @@ class _PhenolicsExtension:
 
         i_ph_aa = (params["K_pH_aa"] ** params["nn_aa"]) / (s_h_ion ** params["nn_aa"] + params["K_pH_aa"] ** params["nn_aa"])
         i_in_lim = 1.0 / (1.0 + params["K_S_IN"] / s_in)
-        i_h2_pro = 1.0 / (1.0 + s_h2 / params["K_I_h2_pro"])
         i_h2_fa = 1.0 / (1.0 + s_h2 / params["K_I_h2_fa"])
-        # Fezzani 2009, Table 6: noncompetitive phenol uptake inhibition.
+        # Fezzani 2009, Table 2: Haldane phenol uptake without ADM1 factors;
+        # benzoate uptake is Monod times I2 = I_pH * I_IN,lim * I_h2,fa.
         k_i_phen = float(params.get("K_I_phen", 50.0))
-        i_phen = 1.0 / (1.0 + s_phen / k_i_phen)
+        haldane = float(params["K_S_phen"]) + s_phen + s_phen**2 / k_i_phen
 
-        rho_phen = float(params["k_m_phen"]) * s_phen / (float(params["K_S_phen"]) + s_phen) * x_phen * i_ph_aa * i_in_lim * i_h2_pro * i_phen
+        rho_phen = float(params["k_m_phen"]) * s_phen / haldane * x_phen
         rho_ben = float(params["k_m_ben"]) * s_ben / (float(params["K_S_ben"]) + s_ben) * x_ben * i_ph_aa * i_in_lim * i_h2_fa
         rho_dec_phen = float(params["k_dec_X_phen"]) * x_phen
         rho_dec_ben = float(params["k_dec_X_ben"]) * x_ben
@@ -388,8 +402,8 @@ class _PhenolicsExtension:
         }
 
     def _inhibition(self, state: Mapping[str, float], params: Mapping[str, float]) -> dict[str, float]:
-        # Fezzani 2009, §2.1.4: the converted text does not decode the equations;
-        # use the ADM1 noncompetitive form for phenol and total VFA inhibition.
+        # Fezzani 2009, §2.1.4, Eq. 15: I5 gains noncompetitive I_TVFA and
+        # I_phenol (k_I,TVFA = 47.5, Table 6; K_I,ph reused for phenol).
         s_phen = max(float(state.get("S_phen", 0.0)), 0.0)
         tvfa = sum(max(float(state.get(name, 0.0)), 0.0) for name in ("S_va", "S_bu", "S_pro", "S_ac"))
         i_phen = 1.0 / (1.0 + s_phen / float(params.get("K_I_phen", 50.0)))
