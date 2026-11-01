@@ -14,6 +14,47 @@ from simulator.full_model.rhs import FullCSTRRhs
 
 
 
+def _clipping_diagnostics(solution_y, assembly, segment_params):
+    """Report the positive mass correction made when negative outputs are set to zero."""
+    states = {state.name: state for state in assembly.state_catalog}
+    names = assembly.dynamic_state_names
+    n = len(names)
+    raw = np.asarray(solution_y, dtype=float).reshape(len(segment_params), n, -1)
+    deficits = np.maximum(-raw, 0.0)
+    minima = {name: float(raw[:, i, :].min()) for i, name in enumerate(names) if raw[:, i, :].min() < 0}
+    cod = np.zeros(raw.shape[2])
+    nitrogen = np.zeros(raw.shape[2])
+    unknown_n = set()
+    for seg, params in enumerate(segment_params):
+        for i, name in enumerate(names):
+            state = states[name]
+            volume = params["V_gas"] if state.phase == "gas" else params["V_liq"]
+            mass = deficits[seg, i] * volume
+            if state.cod_role == "cod":
+                cod += mass
+            if name == "S_IN":
+                nitrogen += mass * 14.0
+            elif state.elemental_proxy == "C_bac":
+                nitrogen += mass * params["N_bac"] * 14.0
+            elif name in ("S_aa", "X_pr"):
+                nitrogen += mass * params["N_aa"] * 14.0
+            elif name == "X_xc":
+                nitrogen += mass * params["N_xc"] * 14.0
+            elif name in ("S_I", "X_I"):
+                nitrogen += mass * params["N_I"] * 14.0
+            elif name == "X_alg":
+                nitrogen += mass * params["i_N_alg"]
+            elif state.cod_role == "cod" and state.elemental_proxy not in {"C_su", "C_fa", "C_va", "C_bu", "C_pro", "C_ac", "0", "C_ch4", "C_ch", "C_li"} and np.any(mass):
+                unknown_n.add(name)
+    return {
+        "minimum_negative_by_state": minima,
+        "cod_kg_final": float(cod[-1]), "cod_kg_max": float(cod.max()),
+        "nitrogen_kg_final": float(nitrogen[-1]), "nitrogen_kg_max": float(nitrogen.max()),
+        "nitrogen_unclassified_states": sorted(unknown_n),
+        "meaning": "positive mass added by clipping negative sampled concentrations to zero",
+    }
+
+
 def simulate_with_full(
     *,
     operating_conditions: OperatingConditions,
@@ -192,7 +233,15 @@ def simulate_with_full_inputs(
         profiles["ch4_fraction"] = np.clip(
             gas_totals["methane_m3_day"] / np.maximum(gas_totals["biogas_m3_day"], 1e-12), 0.0, 1.0,
         ).tolist()
+    if isinstance(system, FullPlugFlowRhs):
+        segment_params = [system._seg_params] * segment_count
+    elif isinstance(system, FullTwoPhaseRhs):
+        segment_params = [system._params1, system._params2]
+    else:
+        segment_params = [system.params]
+    clipping = _clipping_diagnostics(solution.y, inputs.assembly, segment_params)
     metadata = {
+        "full_model_clipping": clipping,
         "segment_count": segment_count,
         "reactor_type": reactor_type,
         "solver_status": solution.message,
