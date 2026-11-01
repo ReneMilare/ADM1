@@ -435,20 +435,29 @@ class _MultiPopulationExtension:
         )}
 
     def _inhibition(self, state: Mapping[str, float], params: Mapping[str, float]) -> dict[str, float]:
+        # The core methanogenesis processes are disabled, so every other
+        # extension's factor on them must be forwarded to the replacement
+        # sub-populations (one common core -> replacement mapping).
         from simulator.full_model.phenolics_extension import PHENOLICS_EXTENSION
         from simulator.full_model.srb_extension import SRB_EXTENSION
         from simulator.full_model.syngas_extension import SYNGAS_EXTENSION
+        from simulator.full_model.trace_elements_extension import TRACE_ELEMENTS_EXTENSION
 
-        ac, h2 = 1.0, 1.0
+        replacements = {
+            "rho_11_uptake_acetate": ("rho_E12_uptake_ac_1", "rho_E12_uptake_ac_2"),
+            "rho_12_uptake_hydrogen": ("rho_E12_uptake_h2_1", "rho_E12_uptake_h2_2"),
+        }
+        result = {name: 1.0 for names in replacements.values() for name in names}
         for marker, extension in (("K_I_phen", PHENOLICS_EXTENSION),
                                   ("K_I_CO", SYNGAS_EXTENSION),
-                                  ("K_I_H2S", SRB_EXTENSION)):
+                                  ("K_I_H2S", SRB_EXTENSION),
+                                  ("K_TE_Ni_ac", TRACE_ELEMENTS_EXTENSION)):
             if marker in params:
                 factors = extension._inhibition(state, params)
-                ac *= factors.get("rho_11_uptake_acetate", 1.0)
-                h2 *= factors.get("rho_12_uptake_hydrogen", 1.0)
-        return {"rho_E12_uptake_ac_1": ac, "rho_E12_uptake_ac_2": ac,
-                "rho_E12_uptake_h2_1": h2, "rho_E12_uptake_h2_2": h2}
+                for core_name, targets in replacements.items():
+                    for target in targets:
+                        result[target] *= factors.get(core_name, 1.0)
+        return result
 
     def _rates(
         self, state: Mapping[str, float], params: Mapping[str, float]

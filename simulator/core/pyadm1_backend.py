@@ -168,6 +168,7 @@ RESULT_COLUMNS = [
 ]
 
 R_GAS = 0.083145
+T_BASE_K = 298.15
 P_ATM_BAR = 1.013
 V_GAS_RATIO = 300.0 / 3400.0
 
@@ -216,7 +217,9 @@ def simulate_with_pyadm1(
 ) -> dict[str, Any]:
     time_grid = np.linspace(0.0, simulation.duration_days, simulation.evaluation_points)
     influent = _build_influent_frame(time_grid=time_grid, feed=feed, operating_conditions=operating_conditions)
-    initial = _build_initial_frame(initial_state=initial_state, feed=feed)
+    initial = _build_initial_frame(
+        initial_state=initial_state, feed=feed, temperature_c=operating_conditions.temperature_c
+    )
     return simulate_with_pyadm1_frames(
         operating_conditions=operating_conditions,
         feed=feed,
@@ -403,15 +406,16 @@ def _build_influent_frame(
     )
     row["Q"] = float(feed.flow_rate_m3_day or (operating_conditions.volume_m3 / operating_conditions.hrt_days))
     row["T (C)"] = float(operating_conditions.temperature_c)
-    row["S_H_ion"] = 10 ** (-feed.ph)
-    _apply_template_speciation(row, template_row=template_row)
+    _apply_requested_ph(row, ph=feed.ph, temperature_c=operating_conditions.temperature_c)
     return pd.DataFrame(
         [{**row, "time": float(time_value)} for time_value in time_grid],
         columns=INFLUENT_COLUMNS,
     )
 
 
-def _build_initial_frame(*, initial_state: InitialState, feed: FeedDefinition) -> pd.DataFrame:
+def _build_initial_frame(
+    *, initial_state: InitialState, feed: FeedDefinition, temperature_c: float = 35.0
+) -> pd.DataFrame:
     template_row = _load_template_row("digester_initial.csv")
     baseline_feed = make_default_feed()
     baseline_initial = make_default_initial_state(baseline_feed)
@@ -440,8 +444,7 @@ def _build_initial_frame(*, initial_state: InitialState, feed: FeedDefinition) -
         template_row=template_row,
         sic_kmol_m3=_absolute_sic(initial_state),
     )
-    row["S_H_ion"] = 10 ** (-feed.ph)
-    _apply_template_speciation(row, template_row=template_row)
+    _apply_requested_ph(row, ph=feed.ph, temperature_c=temperature_c)
     row["S_co2"] = max(row["S_IC"] - row["S_hco3_ion"], 1e-9)
     return pd.DataFrame([row], columns=INITIAL_COLUMNS)
 
@@ -453,14 +456,47 @@ def _soluble_remainder(state: FeedDefinition | InitialState) -> float:
     return max(remainder, 0.0)
 
 
-def _apply_template_speciation(row: dict[str, float], *, template_row: dict[str, Any]) -> None:
-    # Ionic species partition their parent totals; retain the template fractions.
-    species_pairs = (("S_IN", "S_nh3"), ("S_va", "S_va_ion"), ("S_bu", "S_bu_ion"), ("S_pro", "S_pro_ion"), ("S_ac", "S_ac_ion"))
-    for total, species in species_pairs:
-        template_total = float(template_row.get(total, 0.0) or 0.0)
-        fraction = float(template_row.get(species, 0.0) or 0.0) / template_total if template_total > 0.0 else 0.0
-        row[species] = row[total] * min(max(fraction, 0.0), 1.0)
-    row["S_nh4_ion"] = row["S_IN"] - row["S_nh3"]
+def _apply_requested_ph(row: dict[str, float], *, ph: float, temperature_c: float) -> None:
+    """Make the frame's charge balance consistent with the requested pH.
+
+    The PyADM1 algebraic projection recomputes S_H+ from electroneutrality, so
+    setting S_H_ion alone is discarded. Speciate every weak acid/base at the
+    requested pH with the PyADM1 constants (Rosen & Jeppsson 2006, BSM2) and
+    put the residual charge on the strong ions: ``S_cation - S_anion =
+    HCO3- + sum(VFA-/COD_per_mol) + OH- - NH4+ - H+``. The net charge goes to
+    S_cation if positive, else to S_anion (the other stays 0).
+    """
+    t_k = float(temperature_c) + 273.15
+
+    def van_t_hoff(dh: float) -> float:
+        return math.exp((dh / (100.0 * R_GAS)) * (1.0 / T_BASE_K - 1.0 / t_k))
+
+    k_w = 1e-14 * van_t_hoff(55900.0)
+    k_a = {
+        "S_IC": 10 ** -6.35 * van_t_hoff(7646.0),
+        "S_IN": 10 ** -9.25 * van_t_hoff(51965.0),
+        "S_va": 10 ** -4.86,
+        "S_bu": 10 ** -4.82,
+        "S_pro": 10 ** -4.88,
+        "S_ac": 10 ** -4.76,
+    }
+    h = 10 ** (-float(ph))
+    row["S_H_ion"] = h
+    ion = {name: k * max(row[name], 0.0) / (k + h) for name, k in k_a.items()}
+    row["S_hco3_ion"] = ion["S_IC"]
+    row["S_co2"] = row["S_IC"] - ion["S_IC"]
+    row["S_nh3"] = ion["S_IN"]
+    row["S_nh4_ion"] = row["S_IN"] - ion["S_IN"]
+    for total, species in (("S_va", "S_va_ion"), ("S_bu", "S_bu_ion"), ("S_pro", "S_pro_ion"), ("S_ac", "S_ac_ion")):
+        row[species] = ion[total]
+    net = (
+        ion["S_IC"]
+        + ion["S_ac"] / 64.0 + ion["S_pro"] / 112.0 + ion["S_bu"] / 160.0 + ion["S_va"] / 208.0
+        + k_w / h
+        - row["S_nh4_ion"] - h
+    )
+    row["S_cation"] = max(net, 0.0)
+    row["S_anion"] = max(-net, 0.0)
 
 
 def _scaled_row(
