@@ -12,6 +12,7 @@ import numpy as np
 
 from simulator.core.models import FeedDefinition, OperatingConditions, SimulationConfig
 from simulator.service import ADM1SimulationService
+from simulator.paths import _safe_project_path
 
 SUMMARY_FIELDS = [
     "methane_final_m3_day",
@@ -338,7 +339,7 @@ def main() -> None:
     args = parser.parse_args()
     report, output_dir = run_benchmark(output_root=args.output_root)
     summary = {
-        "output_dir": str(output_dir),
+        "output_dir": _safe_project_path(output_dir),
         "scenario_count": report["scenario_count"],
         "runtime_mean_seconds": {
             backend: round(stats["mean"], 4) for backend, stats in report["aggregate"]["runtime_seconds"].items()
