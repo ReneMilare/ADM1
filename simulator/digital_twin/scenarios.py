@@ -90,7 +90,7 @@ class TemperatureDrop(_Event):
 
 class AmmoniaSpike(_Event):
     kind: Literal["ammonia_spike"] = "ammonia_spike"
-    factor: float = Field(gt=0.0, description="Multiplier on S_IN.")
+    factor: float = Field(gt=0.0, description="Multiplier on influent total ammoniacal N (S_IN, kmolN/m3); measured NH4+-N is speciated by the engine.")
 
 
 class FlowStep(_Event):

@@ -1,10 +1,10 @@
-﻿from simulator.reactor_models.base import ReactorBase
+from simulator.reactor_models.base import ReactorBase
 
 
 class PlugFlowReactor(ReactorBase):
     reactor_type = "plug_flow"
     default_biomass_washout_factor = 0.75
-    default_gas_capture_efficiency = 1.04
+    default_gas_capture_efficiency = 1.0
     default_hydrolysis_multiplier = 1.12
 
     def hydrolysis_multiplier(self, segment_index: int) -> float:
@@ -19,4 +19,4 @@ class PlugFlowReactor(ReactorBase):
         if self.segment_count == 1:
             return base
         position = segment_index / (self.segment_count - 1)
-        return base * (0.96 + 0.08 * position)
+        return min(base * (0.96 + 0.08 * position), 1.0)

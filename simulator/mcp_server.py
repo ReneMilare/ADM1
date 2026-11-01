@@ -52,7 +52,7 @@ class SimulateReactorInput(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, validate_assignment=True, extra="forbid")
 
     reactor_type: str = Field(..., description="One of: cstr, uasb, plug_flow, two_phase, tpad, batch.")
-    backend: str = Field(default="pyadm1", description="One of: reduced, pyadm1, full or auto.")
+    backend: str = Field(default="pyadm1", description="One of: reduced, pyadm1, full or auto. Reduced is exploratory.")
     substrate: str = Field(default="generic_sludge", description="Label saved with the scenario metadata.")
     volume_m3: float = Field(default=3000.0, gt=0.0)
     temperature_c: float = Field(default=35.0, ge=15.0, le=60.0)
@@ -120,7 +120,7 @@ class OptimizeParameterInput(BaseModel):
     maximum: float = Field(...)
     steps: int = Field(default=7, ge=3, le=21)
     reactor_type: str = Field(default="cstr")
-    backend: str = Field(default="pyadm1", description="One of: reduced, pyadm1, full or auto.")
+    backend: str = Field(default="pyadm1", description="One of: reduced, pyadm1, full or auto. Reduced is exploratory.")
     volume_m3: float = Field(default=3000.0, gt=0.0)
     temperature_c: float = Field(default=35.0, ge=15.0, le=60.0)
     hrt_days: float = Field(default=20.0, gt=0.1)
@@ -139,7 +139,7 @@ class CalibrateModelInput(BaseModel):
     minimum: float = Field(default=0.1)
     maximum: float = Field(default=1.5)
     reactor_type: str = Field(default="cstr")
-    backend: str = Field(default="pyadm1", description="One of: reduced, pyadm1, full or auto.")
+    backend: str = Field(default="pyadm1", description="One of: reduced, pyadm1, full or auto. Reduced is exploratory.")
     volume_m3: float = Field(default=3000.0, gt=0.0)
     temperature_c: float = Field(default=35.0, ge=15.0, le=60.0)
     hrt_days: float = Field(default=20.0, gt=0.1)
@@ -172,7 +172,7 @@ class DesignReactorInput(BaseModel):
 
     substrate: str = Field(..., description="Preset name such as 'Lodo de Esgoto', 'Residuos Alimentares', 'Residuos Agricolas' or a co-digestion preset.")
     design_goal: str = Field(default="balanced", description="One of: balanced, maximize_methane, maximize_stability, minimize_effluent_cod.")
-    backend: str = Field(default="auto", description="One of: reduced, pyadm1, full or auto.")
+    backend: str = Field(default="auto", description="One of: reduced, pyadm1, full or auto. Reduced is exploratory.")
     volume_m3: float | None = Field(default=None, gt=0.0)
     temperature_c: float | None = Field(default=None, ge=15.0, le=60.0)
     hrt_days: float | None = Field(default=None, gt=0.1)
@@ -258,6 +258,8 @@ def _result_payload(result) -> dict[str, object]:
         "reactor_type": result.reactor.reactor_type,
         "backend_requested": result.metadata.get("backend_requested"),
         "backend_used": result.metadata.get("backend_used"),
+        "model_fidelity": result.metadata.get("model_fidelity"),
+        "known_limitations": result.metadata.get("known_limitations", []),
         "fallback_reason": result.metadata.get("backend_fallback_reason"),
         "summary": result.summary.model_dump(),
     }
@@ -307,7 +309,7 @@ async def simulate_reactor(
     full_extension_parameter_overrides: dict[str, float] | None = None,
     full_initial_state_overrides: dict[str, float] | None = None,
 ) -> str:
-    """Run a persisted ADM1-oriented simulation for a configured reactor."""
+    """Run a persisted ADM1-oriented simulation for a configured reactor. The reduced backend is exploratory and unsuitable for design sizing."""
 
     params = SimulateReactorInput(
         reactor_type=reactor_type,
@@ -389,7 +391,7 @@ async def simulate_codigestion(
     full_extension_parameter_overrides: dict[str, float] | None = None,
     full_initial_state_overrides: dict[str, float] | None = None,
 ) -> str:
-    """Simulate weighted co-digestion of multiple substrate presets."""
+    """Simulate weighted co-digestion of multiple substrate presets. The reduced backend is exploratory and unsuitable for design sizing."""
 
     blend = _build_blend_from_json(substrates_json)
     reactor_config = ReactorConfig(reactor_type=reactor_type, segments=segments if reactor_type == "plug_flow" else 1)
@@ -445,7 +447,7 @@ async def simulate_two_phase(
     full_extension_parameter_overrides: dict[str, float] | None = None,
     full_initial_state_overrides: dict[str, float] | None = None,
 ) -> str:
-    """Simulate two-phase anaerobic digestion with acidogenic and methanogenic stages."""
+    """Simulate two-phase anaerobic digestion with acidogenic and methanogenic stages. The reduced backend is exploratory and unsuitable for design sizing."""
 
     feed = _build_feed(
         feed_cod_kg_m3=feed_cod_kg_m3,
@@ -518,7 +520,7 @@ async def simulate_tpad(
     full_extension_parameter_overrides: dict[str, float] | None = None,
     full_initial_state_overrides: dict[str, float] | None = None,
 ) -> str:
-    """Simulate temperature-phased anaerobic digestion."""
+    """Simulate temperature-phased anaerobic digestion. The reduced backend is exploratory and unsuitable for design sizing."""
 
     feed = _build_feed(
         feed_cod_kg_m3=feed_cod_kg_m3,
@@ -589,7 +591,7 @@ async def simulate_batch(
     full_extension_parameter_overrides: dict[str, float] | None = None,
     full_initial_state_overrides: dict[str, float] | None = None,
 ) -> str:
-    """Simulate a batch ADM1 case such as BMP tests."""
+    """Simulate a batch ADM1 case such as BMP tests. The reduced backend is exploratory and unsuitable for design sizing."""
 
     feed = _build_feed(
         feed_cod_kg_m3=feed_cod_kg_m3,
@@ -708,7 +710,7 @@ async def compare_backends(
     full_extension_parameter_overrides: dict[str, float] | None = None,
     full_initial_state_overrides: dict[str, float] | None = None,
 ) -> str:
-    """Compare explicit backend executions for the same ADM1 case."""
+    """Compare explicit backend executions for the same ADM1 case. The reduced backend is exploratory and unsuitable for design sizing."""
 
     params = CompareBackendsInput(
         reactor_type=reactor_type,
@@ -809,7 +811,7 @@ async def optimize_parameter(
     hrt_days: float = 20.0,
     duration_days: float = 60.0,
 ) -> str:
-    """Sweep a single parameter and persist the best scenario according to the chosen objective."""
+    """Sweep a single parameter and persist the best scenario according to the chosen objective. The reduced backend is exploratory and unsuitable for design sizing."""
 
     params = OptimizeParameterInput(
         parameter_path=parameter_path,
@@ -863,7 +865,7 @@ async def calibrate_model(
     hrt_days: float = 20.0,
     duration_days: float = 60.0,
 ) -> str:
-    """Fit a single kinetic parameter to methane observations supplied as JSON."""
+    """Fit a single kinetic parameter to methane observations supplied as JSON. The reduced backend is exploratory and unsuitable for design sizing."""
 
     params = CalibrateModelInput(
         experimental_points_json=experimental_points_json,
@@ -949,7 +951,7 @@ async def design_reactor(
     full_extension_parameter_overrides: dict[str, float] | None = None,
     full_initial_state_overrides: dict[str, float] | None = None,
 ) -> str:
-    """Run the design workflow for a substrate preset and recommend a reactor configuration."""
+    """Run the design workflow for a substrate preset and recommend a reactor configuration. The reduced backend is exploratory and unsuitable for design sizing."""
 
     params = DesignReactorInput(
         substrate=substrate,

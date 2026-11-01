@@ -234,6 +234,7 @@ class FullPlugFlowRhs:
         seg_params = dict(inputs.parameter_values)
         seg_params["V_liq"] = v_seg
         seg_params["V_gas"] = v_gas_seg
+        seg_params["k_p"] /= self.n_segments
         self._seg_params: dict[str, float] = seg_params
 
         # Create one FullCSTRRhs per segment for shared biochemical matrix
@@ -461,7 +462,17 @@ class FullTPADRhs(FullTwoPhaseRhs):
         phase1_volume_fraction: float = 0.25,
         thermo_temperature_c: float = 55.0,
         meso_temperature_c: float = 35.0,
+        effective_hrt_days: float | None = None,
     ) -> None:
+        # Phase HRTs are absolute: total volume = Q x (HRT_thermo + HRT_meso).
+        # Without flow (batch) there is no HRT, so the given volume is kept.
+        if effective_hrt_days is not None and inputs.parameter_values["q_ad"] > 0.0:
+            params = dict(inputs.parameter_values)
+            scale = params["q_ad"] * effective_hrt_days / params["V_liq"]
+            params["V_liq"] *= scale
+            params["V_gas"] *= scale
+            params["V_ad"] = params["V_liq"] + params["V_gas"]
+            inputs = _inputs_with_params(inputs, params)
         super().__init__(
             inputs=inputs,
             phase1_volume_fraction=phase1_volume_fraction,
@@ -583,6 +594,7 @@ def build_reactor_mode(
         return FullTPADRhs(
             inputs=inputs,
             phase1_volume_fraction=float(tpad_cfg.thermo_volume_fraction),
+            effective_hrt_days=float(tpad_cfg.thermo_hrt_days + tpad_cfg.meso_hrt_days),
             thermo_temperature_c=float(tpad_cfg.thermo_temperature_c),
             meso_temperature_c=float(tpad_cfg.meso_temperature_c),
         )

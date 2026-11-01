@@ -99,6 +99,7 @@ with st.form("preferences_form"):
             index=list(backend_options).index(str(preferences.get("default_backend", "full"))),
             format_func=lambda value: backend_options[value],
         )
+        st.caption("Modelo reduzido: exploratório, use para tendências, não para dimensionamento.")
         ammonia_mode_options = {"simple": "Simples (sem FAN)", "fan": "Inibicao por amonia livre (FAN)"}
         ammonia_inhibition_mode_default = st.selectbox(
             "Modo de inibicao por amonia padrao",

@@ -73,16 +73,27 @@ def test_constant_window_matches_full_backend(case):
         initial_state_overrides=state.dynamic_state,
         influent_state_overrides=window.influent_values,
     )
-    profiles = full["profiles"]
-    for output, profile in {
-        "biogas_m3_d": "biogas_m3_day",
-        "ch4_fraction": "ch4_fraction",
-        "ph": "ph",
-        "vfa_kg_cod_m3": "vfa_total",
-        "alkalinity_kmol_m3": "S_IC",
-        "nh4_kg_n_m3": "inorganic_nitrogen",
-    }.items():
+    profiles = {name: np.asarray(values) for name, values in full["profiles"].items() if isinstance(values, list)}
+    for output, profile in {"ph": "ph", "vfa_kg_cod_m3": "vfa_total"}.items():
         np.testing.assert_allclose(actual.outputs[output], profiles[profile], rtol=1e-3, atol=1e-7)
+    # Physical outputs (lab basis) recomputed from the full-model state.
+    p = engine_params(conditions)
+    dry = profiles["Pgas_bar"] - p["p_gas_h2o"]
+    expected = {
+        "nh4_kg_n_m3": 14.0 * (profiles["S_IN"] - profiles["S_nh3"]),
+        "ch4_fraction": profiles["S_gas_ch4"] * p["R"] * p["T_op"] / 64.0 / dry,
+        "biogas_m3_d": profiles["q_gas_headspace_m3_day"] * dry / 1.01325 * 273.15 / p["T_op"],
+        "alkalinity_kmol_m3": profiles["S_hco3_ion"] + profiles["S_nh3"] + profiles["S_ac_ion"] / 64.0
+        + profiles["S_pro_ion"] / 112.0 + profiles["S_bu_ion"] / 160.0 + profiles["S_va_ion"] / 208.0,
+    }
+    for output, values in expected.items():
+        np.testing.assert_allclose(actual.outputs[output], values, rtol=1e-3, atol=1e-7)
+
+
+def engine_params(conditions):
+    from simulator.full_model.model import resolve_full_parameter_values
+
+    return resolve_full_parameter_values(operating_conditions=conditions, parameters=make_default_kinetics())
 
 
 def test_flow_step_increases_biogas(case):

@@ -64,7 +64,7 @@ No linter or formatter is configured. There is no `ruff`, `mypy`, or `black` qua
 The simulator has two main backends:
 
 - `pyadm1`: default high-fidelity backend via `vendor/PyADM1/`. It writes temporary CSVs, runs PyADM1 as a subprocess, and parses outputs. It is the preferred backend for CSTR reference fidelity.
-- `reduced`: native Python 11-state simplified model in `simulator/core/kinetics.py`. It is always available, faster, and useful as fallback or exploratory backend.
+- `reduced`: native Python 11-state simplified model in `simulator/core/kinetics.py`. It is always available and faster, but is exploratory only, including when used as a fallback: biomass growth does not consume nitrogen, pH inhibition is Gaussian, and stoichiometry is simplified. Use it for trends, not reactor sizing.
 
 Backend resolution lives in `simulator/service.py`. The `auto` setting currently selects PyADM1 for CSTR-oriented reference work and uses explicit fallback behavior where needed. Every `SimulationResult` records `backend_requested`, `backend_used`, and fallback information in metadata.
 

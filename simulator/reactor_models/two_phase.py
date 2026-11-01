@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from simulator.core.models import FeedDefinition, KineticParameters, OperatingConditions, TwoPhaseConfig
 from simulator.reactor_models.base import ReactorBase
@@ -27,7 +27,7 @@ class TwoPhaseReactor(ReactorBase):
     def gas_capture_efficiency(self, segment_index: int) -> float:
         if self.config.gas_capture_efficiency is not None:
             return self.config.gas_capture_efficiency
-        return 0.9 if segment_index == 0 else 1.12
+        return 0.9 if segment_index == 0 else 1.0
 
     def hydrolysis_multiplier(self, segment_index: int) -> float:
         base = super().hydrolysis_multiplier(segment_index)

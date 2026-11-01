@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from simulator.core.defaults import make_default_feed, make_default_initial_state, make_default_kinetics
+from simulator.core.kinetics import _ALK_TO_MOL
 from simulator.core.models import FeedDefinition, InitialState, KineticParameters, OperatingConditions, SimulationConfig
 from simulator.paths import _safe_project_path
 
@@ -398,7 +399,7 @@ def _build_influent_frame(
     _apply_explicit_sic(
         row,
         template_row=template_row,
-        sic_kmol_m3=feed.sic_kmol_m3,
+        sic_kmol_m3=_absolute_sic(feed),
     )
     row["Q"] = float(feed.flow_rate_m3_day or (operating_conditions.volume_m3 / operating_conditions.hrt_days))
     row["T (C)"] = float(operating_conditions.temperature_c)
@@ -437,7 +438,7 @@ def _build_initial_frame(*, initial_state: InitialState, feed: FeedDefinition) -
     _apply_explicit_sic(
         row,
         template_row=template_row,
-        sic_kmol_m3=initial_state.sic_kmol_m3,
+        sic_kmol_m3=_absolute_sic(initial_state),
     )
     row["S_H_ion"] = 10 ** (-feed.ph)
     _apply_template_speciation(row, template_row=template_row)
@@ -485,6 +486,20 @@ def _scaled_row(
         for column in columns:
             row[column] = target_value * (weights.get(column, 0.0) / weight_total)
     return row
+
+
+def _absolute_sic(state: FeedDefinition | InitialState) -> float:
+    """S_IC [kmol C/m3]: explicit value, else the legacy alkalinity in absolute terms.
+
+    The legacy field uses the reduced-model scale, 17 mol HCO3- per unit
+    (``simulator.core.kinetics._ALK_TO_MOL``). At digester pH bicarbonate
+    dominates S_IC, so S_IC ~= alkalinity * 17 / 1000. Scaling the BSM2
+    template instead gave ~0.008 kmol/m3 for the default feed, about ten
+    times too little buffer (high pH, free-NH3 inhibition, VFA build-up).
+    """
+    if state.sic_kmol_m3 is not None:
+        return float(state.sic_kmol_m3)
+    return float(state.alkalinity) * _ALK_TO_MOL / 1000.0
 
 
 def _apply_explicit_sic(
@@ -543,10 +558,13 @@ def _patched_pyadm1_source(
         old="  r = scipy.integrate.solve_ivp(ADM1_ODE, t_step, state_zero, method= solvermethod)",
         new=(
             "  r = scipy.integrate.solve_ivp("
-            f"ADM1_ODE, t_step, state_zero, method=solvermethod, rtol={simulation.rtol!r}, atol={simulation.atol!r})"
+            f"ADM1_ODE, t_step, state_zero, method=solvermethod, rtol={simulation.rtol!r}, atol={simulation.atol!r})\n"
+            "  if not r.success or r.t[-1] != t_step[-1]:\n"
+            "    raise RuntimeError(f'PyADM1 integration failed at {r.t[-1]} d: {r.message}')"
         ),
         label="solve_ivp tolerances",
     )
+    source = _patch_continuous_algebraic_solution(source)
 
     flow_rate = float(feed.flow_rate_m3_day or (operating_conditions.volume_m3 / operating_conditions.hrt_days))
     temperature_k = operating_conditions.temperature_c + 273.15
@@ -592,6 +610,69 @@ def _patched_pyadm1_source(
     for name, value in replacements.items():
         source = _replace_assignment(source, name=name, value=value)
     return source + f"\n\ngasflow.to_csv('{PYADM1_GASFLOW_FILENAME}', index=False)\n"
+
+
+def _patch_continuous_algebraic_solution(source: str) -> str:
+    # Rosén & Jeppsson 2006, §4.2.1: algebraic states must follow the current
+    # totals. Freezing them between output times permits negative dissolved CO2.
+    start = source.index("def DAESolve():")
+    end = source.index("## time array definition", start)
+    algebraic = source[start:end]
+    state_names = ", ".join(INITIAL_COLUMNS)
+    algebraic = _replace_regex(
+        algebraic,
+        pattern=r"def DAESolve\(\):\n  global [^\n]+",
+        replacement=f"def _solve_algebraic(state):\n  {state_names} = state",
+        label="local algebraic state",
+    )
+    algebraic = _replace_literal(
+        algebraic,
+        old="    S_H_ion = S_H_ion - shdelta / shgradeq\n    if S_H_ion <= 0:\n        S_H_ion = tol",
+        new=(
+            "    if abs(shdelta) <= tol:\n"
+            "        break\n"
+            "    next_h = S_H_ion - shdelta / shgradeq\n"
+            "    S_H_ion = next_h if next_h > 0 else S_H_ion * 0.5"
+        ),
+        label="positive charge-balance Newton steps",
+    )
+    algebraic = _replace_literal(
+        algebraic,
+        old="  # pH calculation\n  pH = - np.log10(S_H_ion)",
+        new=(
+            "  if not np.isfinite(shdelta) or abs(shdelta) > tol:\n"
+            "    raise RuntimeError('PyADM1 charge balance did not converge')\n"
+            "  prevS_H_ion = S_H_ion\n"
+            "  pH = -np.log10(S_H_ion)"
+        ),
+        label="charge convergence and current pH for hydrogen",
+    )
+    algebraic += (
+        "  if not np.isfinite(S_h2delta) or abs(S_h2delta) > tol:\n"
+        "    raise RuntimeError('PyADM1 hydrogen balance did not converge')\n"
+        "  S_nh4_ion = S_IN - S_nh3\n"
+        "  S_co2 = S_IC - S_hco3_ion\n"
+        f"  return [{state_names}]\n\n"
+    )
+    source = source[:start] + algebraic + source[end:]
+    source = _replace_literal(
+        source,
+        old="def ADM1_ODE(t, state_zero):",
+        new="def ADM1_ODE(t, state_zero):\n  state_zero = _solve_algebraic(state_zero)",
+        label="algebraic solution at each RHS evaluation",
+    )
+    source = _replace_literal(
+        source,
+        old="simulate_results = pd.DataFrame([state_zero])",
+        new="state_zero = _solve_algebraic(state_zero)\nsimulate_results = pd.DataFrame([state_zero])",
+        label="consistent initial algebraic state",
+    )
+    return _replace_literal(
+        source,
+        old="  DAESolve()",
+        new=f"  {state_names} = _solve_algebraic([{state_names}])",
+        label="consistent output algebraic state",
+    )
 
 
 def _replace_assignment(source: str, *, name: str, value: Any) -> str:

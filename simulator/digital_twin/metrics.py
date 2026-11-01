@@ -1,4 +1,8 @@
-"""Tracking-error metrics between measured and simulated series (NaN-safe)."""
+"""NaN-safe tracking errors on matching physical bases from contracts.py.
+
+RMSE, MAE and bias retain each column's units (including dry Nm3/d for
+biogas); MAPE is a percentage for every observable.
+"""
 
 from __future__ import annotations
 

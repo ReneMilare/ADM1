@@ -1,6 +1,6 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
-from simulator.core.models import KineticParameters, OperatingConditions, TPADConfig
+from simulator.core.models import FeedDefinition, KineticParameters, OperatingConditions, TPADConfig
 from simulator.reactor_models.base import ReactorBase
 
 
@@ -27,7 +27,7 @@ class TPADReactor(ReactorBase):
     def gas_capture_efficiency(self, segment_index: int) -> float:
         if self.config.gas_capture_efficiency is not None:
             return self.config.gas_capture_efficiency
-        return 0.94 if segment_index == 0 else 1.06
+        return 0.94 if segment_index == 0 else 1.0
 
     def hydrolysis_multiplier(self, segment_index: int) -> float:
         base = super().hydrolysis_multiplier(segment_index)
@@ -40,16 +40,16 @@ class TPADReactor(ReactorBase):
 
     def segment_dilution_rate(self, segment_index: int, operating_conditions: OperatingConditions) -> float:
         cfg = self._cfg()
-        total_cfg_hrt = cfg.thermo_hrt_days + cfg.meso_hrt_days
-        scale = operating_conditions.hrt_days / max(total_cfg_hrt, 1e-9)
-        local_hrt = (cfg.thermo_hrt_days if segment_index == 0 else cfg.meso_hrt_days) * scale
-        return 1.0 / max(local_hrt, 1e-9)
+        local_hrt = cfg.thermo_hrt_days if segment_index == 0 else cfg.meso_hrt_days
+        return 1.0 / local_hrt
 
     def segment_volume(self, segment_index: int, operating_conditions: OperatingConditions) -> float:
-        cfg = self._cfg()
-        f_vol = cfg.thermo_volume_fraction  # derived property: thermo_hrt / total_hrt
-        volume_fraction = f_vol if segment_index == 0 else 1.0 - f_vol
-        return operating_conditions.volume_m3 * volume_fraction
+        flow = operating_conditions.volume_m3 / operating_conditions.hrt_days
+        return flow / self.segment_dilution_rate(segment_index, operating_conditions)
+
+    def segment_volumes(self, feed: FeedDefinition, operating_conditions: OperatingConditions) -> list[float]:
+        flow = feed.flow_rate_m3_day or operating_conditions.volume_m3 / operating_conditions.hrt_days
+        return [flow / self.segment_dilution_rate(i, operating_conditions) for i in range(2)]
 
     def segment_parameters(self, segment_index: int, parameters: KineticParameters) -> KineticParameters:
         if segment_index == 0:

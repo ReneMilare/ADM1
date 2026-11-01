@@ -5,6 +5,8 @@ The "plant" is the full ADM1 CSTR running with hidden parameters
 a noisy sensor model. The twin runs open loop with nominal parameters and
 the measured operating inputs only, so the tracking error it shows is the
 gap that Phase 2 (data assimilation) must close.
+Plant truth, sensors and twin all use the physical observable bases in
+``contracts.py`` (dry normal gas, dry CH4, species-sum alkalinity, NH4+-N).
 
 Usage::
 
@@ -137,12 +139,12 @@ def _plot(run: dict[str, object], path: Path) -> None:
 
     measured, simulated, truth = run["measured"], run["simulated"], run["truth"]
     labels = {
-        "biogas_m3_d": "Biogás [m³/d]",
-        "ch4_fraction": "CH4 [fração]",
+        "biogas_m3_d": "Biogás seco [Nm³/d; 0 °C, 1 atm]",
+        "ch4_fraction": "CH4 [fração seca]",
         "ph": "pH",
         "vfa_kg_cod_m3": "AGV [kgDQO/m³]",
-        "alkalinity_kmol_m3": "S_IC [kmol/m³]",
-        "nh4_kg_n_m3": "S_IN [kgN/m³]",
+        "alkalinity_kmol_m3": "Alcalinidade total [kmol carga/m³]",
+        "nh4_kg_n_m3": "NH4+-N [kgN/m³]",
     }
     fig, axes = plt.subplots(3, 2, figsize=(12, 9), sharex=True)
     for ax, column in zip(axes.flat, OUTPUT_COLUMNS):

@@ -44,7 +44,7 @@ ADM1 Workbench combina um motor numérico ADM1, uma interface web Streamlit e fe
 - **Comparação** — compare cenários salvos com deltas de KPIs e sobreposição de séries temporais
 - **Design assistido** — ranqueie tipos de reator conforme objetivo técnico (metano, estabilidade, etc.)
 - **Validação** — benchmark interno, caso BSM2 e checagem OpenModelica
-- **Dois backends** — `pyadm1` (alta fidelidade) e `reduced` (rápido, sempre disponível)
+- **Backends** — `pyadm1` e `full` (referência) e `reduced` (rápido e exploratório, para tendências, não dimensionamento). O reduzido não consome nitrogênio no crescimento, usa inibição de pH gaussiana e estequiometria simplificada
 - **Servidor MCP** — integração com agentes e automações externas
 
 ---

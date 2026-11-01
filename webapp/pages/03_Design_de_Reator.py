@@ -69,6 +69,8 @@ with selector_col3:
         key="design_backend_strategy",
     )
 
+st.caption("Modelo reduzido: exploratório, use para tendências, não para dimensionamento.")
+
 feed, operating, note_link = get_preset_bundle(substrate_id)
 
 st.info("Para CSTR, `auto` continua em `pyadm1`. Use `full` explicitamente quando quiser forcar o ADM1 nativo do projeto no pipeline de design.")
