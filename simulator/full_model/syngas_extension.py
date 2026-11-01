@@ -324,8 +324,9 @@ class _SyngasExtension:
                 source=_SRC,
                 notes=(
                     "Sun et al. (2021) Eq. 14: Icoac = 1 / (1 + S_CO / K_I,COac). "
-                    "The calibrated value is in the online supplementary Table A1, not in the article; "
-                    "this default is a placeholder that keeps K_I_CO < K_I_CO_h2."
+                    "Sun et al. do not publish the calibrated value: supplementary Table A1 lists K_I,COac as "
+                    "'M-ND' (new parameter, no default) and Table 4 omits it. This default is a placeholder "
+                    "that keeps K_I_CO < K_I_CO_h2."
                 ),
             ),
             ParameterDefinition(
@@ -338,8 +339,8 @@ class _SyngasExtension:
                 source=_SRC,
                 notes=(
                     "Sun et al. (2021) Eq. 15: IcoH2 = 1 / (1 + S_CO / K_I,COH2), applied to H2, butyrate "
-                    "and propionate uptake (Table 3). The calibrated value is in the online supplementary "
-                    "Table A1; this default is a placeholder."
+                    "and propionate uptake (Table 3). Sun et al. do not publish the value (supplementary "
+                    "Table A1: 'M-ND'; absent from Table 4). This default is a placeholder."
                 ),
             ),
             ParameterDefinition(
