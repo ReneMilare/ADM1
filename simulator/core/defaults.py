@@ -1,5 +1,10 @@
 ﻿from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from simulator.digital_twin.estimator import UKFConfig
+
 from simulator.core.models import (
     FeedDefinition,
     InitialState,
@@ -47,3 +52,10 @@ def make_default_reactor_config(reactor_type: str = "cstr") -> ReactorConfig:
 
 def make_default_simulation_config() -> SimulationConfig:
     return SimulationConfig()
+
+
+def make_default_ukf_config() -> UKFConfig:
+    """Digital-twin filter defaults, independent of reactor sizing defaults."""
+    from simulator.digital_twin.estimator import UKFConfig
+
+    return UKFConfig()
