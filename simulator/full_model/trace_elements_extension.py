@@ -4,7 +4,9 @@ This corrective implementation extends the original v1 so that:
 - Ni and Co limitation uses free-metal proxies rather than total dissolved metal.
 - Fe(II) is tracked as a dynamic state ``S_Fe2_te`` within E9.
 - FeS and FeCO3 precipitation/dissolution are represented explicitly.
-- Sulfide consumption is written to stoichiometry only when E4 (srb) is active.
+- Sulfide reactions run only when E4 (srb) supplies dissolved S_H2S. Without
+  that pool, initial sulfide minerals remain inert; metal limitation and FeCO3
+  chemistry still work, preserving standalone E9 use.
 - E8 (iron) remains incompatible to avoid overlapping iron chemistries.
 
 The local literature base is broader than what is implemented here. The full papers model
@@ -126,7 +128,7 @@ class _TraceElementsExtension:
                 domain="precipitate",
                 role="dynamic",
                 cod_role="non_cod",
-                elemental_proxy=None,
+                elemental_proxy="1 mol C/mol",
                 source=_SRC,
                 notes="Representa a rota carbonatada dominante do ferro quando há supersaturação com carbonato.",
             ),
@@ -533,6 +535,11 @@ class _TraceElementsExtension:
         rho_feco3_p = float(params["k_precip_FeCO3"]) * max(ip_feco3 - 1.0, 0.0) * s_fe2
         rho_feco3_d = float(params["k_dissolv_FeCO3"]) * max(1.0 - ip_feco3, 0.0) * x_feco3
 
+        # Maharaj et al. (2018), Table 1: dissolution returns S to dissolved
+        # sulfide. Without this state neither direction has a closed S balance.
+        if "S_H2S" not in state:
+            rho_nis_p = rho_nis_d = rho_cos_p = rho_cos_d = rho_fes_p = rho_fes_d = 0.0
+
         return {
             "rho_E9_NiS_precip": rho_nis_p,
             "rho_E9_NiS_dissolv": rho_nis_d,
@@ -655,7 +662,8 @@ class _TraceElementsExtension:
         if "iron" in set(assembly.active_extensions):
             raise ValueError(
                 "E9 (trace_elements) não pode ser combinado com E8 (iron): ambos introduzem "
-                "química de Fe com precipitação própria. Use E9 para Ni/Co/Fe simplificado ou E8 para o ciclo de ferro dedicado."
+                "reservatórios e processos duplicados de Fe(II)/FeS (S_Fe2/X_FeS e "
+                "S_Fe2_te/X_FeS_te). Use E9 para Ni/Co/Fe simplificado ou E8 para o ciclo de ferro dedicado."
             )
 
 

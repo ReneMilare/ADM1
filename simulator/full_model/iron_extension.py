@@ -25,6 +25,13 @@ Note: S_Fe3 (Fe(III)) is treated as a fixed feed parameter (not an ODE state)
 because Fe(III) is rapidly consumed and typically supplied via external dosing
 or present as a constant feed concentration.
 
+The electron-equivalent COD balance therefore includes Fe(II), not just organic
+COD and reduced sulfur. Relative to Fe(III), Fe(II) stores one electron per mol:
+8 kgO2/kmol Fe in S_Fe2 or X_FeS, and 24 kgO2/kmol X_VIV. Include sulfide
+(64 kgO2/kmol S) and S0 (48 kgO2/kmol S) relative to sulfate as well
+(Lizarralde et al. 2015). The fixed Fe(III) reservoir has zero reducing
+equivalents on this reference basis; total Fe mass is an open-system balance.
+
 Process stoichiometry units: rates are in kmolFe/m³/d unless noted.
 
 Reference:

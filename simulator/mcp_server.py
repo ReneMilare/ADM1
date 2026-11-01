@@ -1038,7 +1038,7 @@ async def list_extensions() -> str:
 
 
 class _ConvertASM1Params(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
     S_S: float = Field(default=100.0, description="Readily biodegradable soluble COD (gCOD/m³)")
     S_I: float = Field(default=30.0, description="Soluble inert COD (gCOD/m³)")
@@ -1052,6 +1052,7 @@ class _ConvertASM1Params(BaseModel):
     S_NH: float = Field(default=20.0, description="Free and saline ammonia (gN/m³)")
     S_NO: float = Field(default=5.0, description="Nitrate and nitrite nitrogen (gN/m³)")
     S_ALK: float = Field(default=4.0, description="Alkalinity (mol HCO3-/m³)")
+    S_O: float = Field(default=0.0, ge=0.0, allow_inf_nan=False, description="Dissolved oxygen removed before ADM1 (gO2/m³)")
     # Optional fractionation overrides (BSM2 defaults used when omitted)
     f_su_Ss: float | None = Field(default=None, description="Fraction of S_S → S_su (default 0.75)")
     f_aa_Ss: float | None = Field(default=None, description="Fraction of S_S → S_aa (default 0.25)")
@@ -1092,7 +1093,7 @@ async def convert_asm1_to_adm1_influent(params: _ConvertASM1Params) -> str:
         S_S=params.S_S, S_I=params.S_I, X_S=params.X_S, X_I=params.X_I,
         X_BH=params.X_BH, X_BA=params.X_BA, X_P=params.X_P,
         S_ND=params.S_ND, X_ND=params.X_ND, S_NH=params.S_NH,
-        S_NO=params.S_NO, S_ALK=params.S_ALK,
+        S_NO=params.S_NO, S_ALK=params.S_ALK, S_O=params.S_O,
     )
 
     fractions_kwargs = {}
@@ -1114,11 +1115,11 @@ async def convert_asm1_to_adm1_influent(params: _ConvertASM1Params) -> str:
     payload = {
         "adm1_influent_values": adm1_influent,
         "balance_check": {
-            "cod_error_pct": balance["cod_error_pct"],
-            "n_error_pct": balance["n_error_pct"],
+            **balance,
             "note": (
-                "COD error should be < 1% when fractions sum to 1. "
-                "N error can be large because organic N (S_ND, X_ND) is not mapped to S_IN."
+                "Balances include oxidized COD and N2-N exported during O2/nitrate removal. "
+                "n2_lost_kmol_n_m3 counts N atoms (twice kmol N2/m³). "
+                "Charge ions use nominal pH 7 at 35 °C; S_IC approximates alkalinity."
             ),
         },
         "fractions_used": {

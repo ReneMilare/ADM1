@@ -1410,15 +1410,18 @@ class TestTraceElementsExtension:
         rates = TRACE_ELEMENTS_EXTENSION._rates(state, params)
         assert rates["rho_E9_FeCO3_precip"] > 0.0
 
-    def test_dissolution_rates_positive_when_precipitates_present(self):
-        assembly = resolve_full_model_assembly(["trace_elements"])
+    @pytest.mark.parametrize("extensions", [["trace_elements"], ["srb", "trace_elements"]])
+    def test_dissolution_rates_follow_available_sulfide_pool(self, extensions):
+        assembly = resolve_full_model_assembly(extensions)
         state = {name: 0.0 for name in assembly.full_state_names}
         state.update({"X_NiS": 1e-5, "X_CoS": 1e-5, "X_FeS_te": 1e-5, "X_FeCO3": 1e-5, "S_H_ion": 1e-7})
-        params = _make_params("trace_elements")
+        params = _make_params(extensions)
         rates = TRACE_ELEMENTS_EXTENSION._rates(state, params)
-        assert rates["rho_E9_NiS_dissolv"] > 0.0
-        assert rates["rho_E9_CoS_dissolv"] > 0.0
-        assert rates["rho_E9_FeS_dissolv"] > 0.0
+        for name in ("rho_E9_NiS_dissolv", "rho_E9_CoS_dissolv", "rho_E9_FeS_dissolv"):
+            if "srb" in extensions:
+                assert rates[name] > 0.0
+            else:
+                assert rates[name] == 0.0
         assert rates["rho_E9_FeCO3_dissolv"] > 0.0
 
     def test_all_rates_nonnegative(self):

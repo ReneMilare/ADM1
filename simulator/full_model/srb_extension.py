@@ -564,10 +564,10 @@ class _SRBExtension:
             },
             "rho_E4_SRB_uptake_pro": {
                 "S_pro": "-1",
-                "S_ac": "(1.0 - Y_SRB_pro) * 0.5714",
+                "S_ac": "(1.0 - Y_SRB_pro) * (4.0 / 7.0)",
                 "S_SO4": "-(1.0 - Y_SRB_pro) * 0.75 / 112.0",
                 "S_H2S": "(1.0 - Y_SRB_pro) * 0.75 / 112.0",
-                "S_IC": "C_pro - (1.0 - Y_SRB_pro) * 0.5714 * C_ac - Y_SRB_pro * C_bac",
+                "S_IC": "C_pro - (1.0 - Y_SRB_pro) * (4.0 / 7.0) * C_ac - Y_SRB_pro * C_bac",
                 "S_IN": "-Y_SRB_pro * N_bac",
                 "X_SRB_pro": "Y_SRB_pro",
             },
@@ -622,13 +622,13 @@ class _SRBExtension:
         x_srb_bu = max(float(state.get("X_SRB_bu", 0.0)), 0.0)
         s_h_ion = max(float(state.get("S_H_ion", 1e-7)), 1e-14)
         s_h2s_free, _ = speciate_sulfide(s_h2s, s_h_ion)
-        s_in = max(float(state.get("S_IN", 1e-4)), 1e-12)
+        s_in = max(float(state.get("S_IN", 0.0)), 0.0)
 
         # pH inhibitions
         i_ph_ac = (params["K_pH_ac"] ** params["n_ac"]) / (s_h_ion ** params["n_ac"] + params["K_pH_ac"] ** params["n_ac"])
         i_ph_h2 = (params["K_pH_h2"] ** params["n_h2"]) / (s_h_ion ** params["n_h2"] + params["K_pH_h2"] ** params["n_h2"])
         i_ph_aa = (params["K_pH_aa"] ** params["nn_aa"]) / (s_h_ion ** params["nn_aa"] + params["K_pH_aa"] ** params["nn_aa"])
-        i_in_lim = 1.0 / (1.0 + params["K_S_IN"] / s_in)
+        i_in_lim = s_in / (float(params["K_S_IN"]) + s_in)
 
         # Sulfate limitation (dual Monod: substrate × SO4)
         k_so4_ac = float(params["K_S_SO4_ac"])

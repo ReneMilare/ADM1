@@ -470,7 +470,7 @@ class _MultiPopulationExtension:
         x_h2_2 = max(float(state.get("X_h2_2", 0.0)), 0.0)
         s_h_ion = max(float(state.get("S_H_ion", 1e-7)), 1e-14)
         s_nh3 = max(float(state.get("S_nh3", 0.0)), 0.0)
-        s_in = max(float(state.get("S_IN", 1e-4)), 1e-12)
+        s_in = max(float(state.get("S_IN", 0.0)), 0.0)
 
         # pH inhibition for acetoclastic methanogens (same Hill function as core I_11)
         k_ph_ac = float(params["K_pH_ac"])
@@ -481,7 +481,7 @@ class _MultiPopulationExtension:
         i_nh3 = float(params["K_I_nh3"]) / (float(params["K_I_nh3"]) + s_nh3)
 
         # Inorganic nitrogen limitation (same as core I_IN_lim)
-        i_in_lim = 1.0 / (1.0 + float(params["K_S_IN"]) / s_in)
+        i_in_lim = s_in / (float(params["K_S_IN"]) + s_in)
 
         # Combined inhibition for acetoclastic populations
         i_11 = i_ph_ac * i_nh3 * i_in_lim
