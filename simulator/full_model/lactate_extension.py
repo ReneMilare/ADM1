@@ -67,9 +67,9 @@ class _LactateExtension:
                 domain="soluble",
                 role="dynamic",
                 cod_role="cod",
-                elemental_proxy="C_su",
+                elemental_proxy="C_lac",
                 source=_SRC,
-                notes="C_lac = C_su = 0.03125 kmolC/kgCOD. Fornecido via alimentação; sem overflow de S_su.",
+                notes="C_lac = 3/96 = 0.03125 kmolC/kgCOD. Fornecido via alimentação; sem overflow de S_su.",
             ),
             StateDefinition(
                 name="X_lac",
@@ -252,11 +252,11 @@ class _LactateExtension:
         s_lac = max(float(state.get("S_lac", 0.0)), 0.0)
         x_lac = max(float(state.get("X_lac", 0.0)), 0.0)
         s_h_ion = max(float(state.get("S_H_ion", 1e-7)), 1e-14)
-        s_in = max(float(state.get("S_IN", 1e-4)), 1e-12)
+        s_in = max(float(state.get("S_IN", 0.0)), 0.0)
         s_h2 = max(float(state.get("S_h2", 0.0)), 1e-12)
 
         i_ph_aa = (params["K_pH_aa"] ** params["nn_aa"]) / (s_h_ion ** params["nn_aa"] + params["K_pH_aa"] ** params["nn_aa"])
-        i_in_lim = 1.0 / (1.0 + params["K_S_IN"] / s_in)
+        i_in_lim = s_in / (float(params["K_S_IN"]) + s_in)
         i_h2_c4 = 1.0 / (1.0 + s_h2 / params["K_I_h2_c4"])
 
         rho_uptake = float(params["k_m_lac"]) * s_lac / (float(params["K_S_lac"]) + s_lac) * x_lac * i_ph_aa * i_in_lim * i_h2_c4

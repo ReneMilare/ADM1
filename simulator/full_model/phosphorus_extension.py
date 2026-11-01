@@ -111,7 +111,7 @@ class _PhosphorusExtension:
                 domain="precipitate",
                 role="dynamic",
                 cod_role="non_cod",
-                elemental_proxy=None,
+                elemental_proxy="1 mol C/mol",
                 source=_SRC,
                 notes="Ksp_CaCO3 = 3.3e-9 (kmol/m³)². Tracked in kmolC/m³.",
             ),

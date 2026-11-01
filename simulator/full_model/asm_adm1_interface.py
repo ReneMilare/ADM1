@@ -13,8 +13,15 @@ Key assumptions:
   - ASM1 state units are g/m³ (gCOD/m³ for organic fractions, gN/m³ for nitrogen).
   - ADM1 output units: kgCOD/m³ for COD fractions, kmol/m³ for inorganic species.
   - Alkalinity S_ALK (mol HCO3-/m³) is used as a proxy for S_IC.
-  - S_NO3 is treated as a conservative anion (S_anion contribution).
-  - Ammonium charge is computed from S_IN by the ADM1 charge balance.
+  - O2 and NO3 are removed before fractionation: 1 gCOD/gO2 and 2.86 gCOD/gN.
+    NOx is represented as nitrate; its N leaves as N2, reported by the verifier.
+  - Denitrification adds one equivalent of alkalinity per mol nitrate-N.
+  - Charge ions close electroneutrality at nominal pH 7 and 35 °C (pure water
+    retains zero strong ions and its natural neutral pH). S_IC retains
+    the alkalinity proxy; ASM1 supplies no independent total-carbon measurement.
+  - Insufficient biodegradable COD raises ValueError: ADM1 has no O2/NO3 pool
+    in which to retain unconsumed acceptors. No growth yield is applied in this
+    instantaneous acceptor-removal step.
 
 Reference:
     Nopens I, Batstone DJ, Copp JB, Jeppsson U, Volcke E, Alex J, Vanrolleghem PA
@@ -27,9 +34,13 @@ Reference:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, fields, replace
 
 from simulator.full_model.mappings.asm1_fractions import ASM1ToADM1Fractions  # re-exported
+from simulator.full_model.parameters import FULL_PARAMETER_CATALOG
+
+_NITRATE_COD_FACTOR = 2.86
 
 
 @dataclass
@@ -40,6 +51,7 @@ class ASM1State:
     COD fractions (S_S, S_I, X_S, X_I, X_BH, X_BA, X_P) are in gCOD/m³.
     Nitrogen fractions (S_ND, X_ND, S_NH, S_NO) are in gN/m³.
     S_ALK is alkalinity in mol HCO3-/m³.
+    Optional S_O is dissolved oxygen in gO2/m³, default zero.
     """
 
     S_S: float    # Readily biodegradable soluble substrate (gCOD/m³)
@@ -54,11 +66,37 @@ class ASM1State:
     S_NH: float   # Free and saline ammonia (gN/m³)
     S_NO: float   # Nitrate and nitrite nitrogen (gN/m³)
     S_ALK: float  # Alkalinity (mol HCO3-/m³)
+    S_O: float = 0.0
 
 
 # ASM1ToADM1Fractions is defined in mappings/asm1_fractions.py and re-exported
 # here to keep the public API stable (importers of asm_adm1_interface still work).
 __all__ = ["ASM1State", "ASM1ToADM1Fractions", "asm1_to_adm1_influent", "verify_asm1_adm1_balance"]
+
+
+def _remove_electron_acceptors(asm1: ASM1State) -> tuple[ASM1State, float]:
+    for field in fields(asm1):
+        value = getattr(asm1, field.name)
+        if not math.isfinite(value) or value < 0.0:
+            raise ValueError(f"{field.name} deve ser finito e não negativo.")
+    # Nopens et al. (2009), §2, step 1: spend donor COD in this order.
+    # Standard engineering factors: O2 = 1 gCOD/g, nitrate-N = 2.86 gCOD/gN.
+    demand = asm1.S_O + _NITRATE_COD_FACTOR * asm1.S_NO
+    remaining = demand
+    donors = {}
+    for name in ("S_S", "X_S", "X_BH", "X_BA"):
+        value = getattr(asm1, name)
+        consumed = min(value, remaining)
+        donors[name] = value - consumed
+        remaining -= consumed
+    if remaining > 1e-10:
+        raise ValueError("DQO biodegradável insuficiente para remover O2 e nitrato antes do ADM1.")
+    # Nopens et al. (2009), Table 2: biomass has 0.08 gN/gCOD. Oxidizing
+    # donors releases their organic N; S_ND/X_ND remain available for mapping.
+    released_n = 0.08 * ((asm1.X_BH - donors["X_BH"]) + (asm1.X_BA - donors["X_BA"]))
+    return replace(asm1, **donors, S_O=0.0, S_NO=0.0,
+                   S_NH=asm1.S_NH + released_n,
+                   S_ALK=asm1.S_ALK + asm1.S_NO / 14.0), demand / 1000.0
 
 
 def asm1_to_adm1_influent(
@@ -83,6 +121,7 @@ def asm1_to_adm1_influent(
     Returns:
         Dictionary of ADM1 influent state names and values in ADM1 units.
     """
+    asm1, _ = _remove_electron_acceptors(asm1)
     # Nopens et al. (2009), section 4.1: allocate N to amino acids and
     # proteins before mapping the residual N to soluble inerts and S_IN.
     n_aa = 0.007
@@ -127,14 +166,18 @@ def asm1_to_adm1_influent(
     # S_IC in ADM1 is total dissolved inorganic carbon; we approximate S_IC ≈ S_ALK.
     s_ic = asm1.S_ALK / 1000.0
 
-    # --- Charge balance ions (kmol/m³) ---
-    # ADM1 accounts for NH4+ through S_IN - S_NH3. At pH 7 and pKa 9.25,
-    # approximately 99.4% of inorganic ammonia is NH4+.
-    s_cation = 0.0
-
-    # S_anion: NO3- is a conservative anion in the digester (anaerobic conditions
-    # consume it rapidly, but as an influent it contributes to charge balance).
-    s_anion = asm1.S_NO / (14.0 * 1000.0)
+    # Nopens et al. (2009), §4.2: nominal pH 7 and one strong-ion pool zero
+    # remove the charge-interface degrees of freedom. Use the ADM1 catalog's
+    # reference-temperature equilibria with the retained S_IC ≈ alkalinity proxy.
+    reference = {p.name: p.value for p in FULL_PARAMETER_CATALOG}
+    h = 1e-7
+    weak_charge = (s_in * h / (reference["K_a_IN"] + h) + h
+                   - s_ic * reference["K_a_co2"] / (reference["K_a_co2"] + h)
+                   - reference["K_w"] / h)
+    if s_in == 0.0 and s_ic == 0.0:
+        weak_charge = 0.0
+    s_cation = max(-weak_charge, 0.0)
+    s_anion = max(weak_charge, 0.0)
 
     return {
         "S_su": s_su,
@@ -158,16 +201,19 @@ def verify_asm1_adm1_balance(
 ) -> dict[str, float]:
     """Verify COD and nitrogen conservation across the ASM1→ADM1 interface.
 
-    Returns percentage errors for COD and nitrogen balances.
-    COD and total Kjeldahl nitrogen include organic ADM1 pools.
+    Returns percentage errors after accounting for oxidized COD and N2-N lost.
+    Nitrogen includes organic ADM1 pools, ASM1 nitrate, and exported N2-N.
 
     Args:
         asm1: Original ASM1 state vector (g/m³).
         adm1_influent: ADM1 influent dict produced by asm1_to_adm1_influent (kgCOD/m³).
 
     Returns:
-        Dictionary with 'cod_error_pct' and 'n_error_pct' (both ≥ 0, in percent).
+        'cod_error_pct', 'n_error_pct' (percent), 'cod_oxidized_kg_m3', and
+        'n2_lost_kmol_n_m3' (kmol N atoms/m³, twice the kmol N2 gas/m³).
     """
+    _, cod_oxidized = _remove_electron_acceptors(asm1)
+    n2_lost = asm1.S_NO / 14000.0
     # Total COD in ASM1 side (gCOD/m³ → kgCOD/m³)
     cod_total_asm1 = (
         asm1.S_S + asm1.S_I + asm1.X_S + asm1.X_I
@@ -191,7 +237,7 @@ def verify_asm1_adm1_balance(
     )
 
     cod_error_pct = (
-        abs(cod_total_asm1 - cod_total_adm1) / max(cod_total_asm1, 1e-9) * 100.0
+        abs(cod_total_asm1 - cod_total_adm1 - cod_oxidized) / max(cod_total_asm1, 1e-9) * 100.0
     )
 
     # Nopens et al. (2009), Table 2: ASM1 inerts use 0.06 kg N/kg COD,
@@ -206,9 +252,12 @@ def verify_asm1_adm1_balance(
               + 0.08 / 14.0 * sum(adm1_influent.get(name, 0.0) for name in
                                   ("X_su", "X_aa", "X_fa", "X_c4", "X_pro", "X_ac", "X_h2")))
 
-    n_error_pct = abs(tkn_asm1 - n_adm1) / max(tkn_asm1, 1e-9) * 100.0
+    total_n_asm1 = tkn_asm1 + n2_lost
+    n_error_pct = abs(total_n_asm1 - n_adm1 - n2_lost) / max(total_n_asm1, 1e-9) * 100.0
 
     return {
         "cod_error_pct": float(cod_error_pct),
         "n_error_pct": float(n_error_pct),
+        "cod_oxidized_kg_m3": float(cod_oxidized),
+        "n2_lost_kmol_n_m3": float(n2_lost),
     }

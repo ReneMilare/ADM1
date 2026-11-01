@@ -67,7 +67,7 @@ import numpy as np
 from simulator.full_model.assembly import FullModelAssembly
 from simulator.full_model.catalog_types import ParameterDefinition, ProcessDefinition, StateDefinition
 from simulator.full_model.extensions import FullModelExtensionContribution
-from simulator.full_model.units import DAY_INV, DIMENSIONLESS, KG_COD_M3
+from simulator.full_model.units import DAY_INV, DIMENSIONLESS, KG_COD_M3, KMOL_C_PER_KG_COD
 
 _SRC = (
     "Sun et al. (2021) Chem Eng J 403:126177 doi:10.1016/j.cej.2020.126177; "
@@ -93,7 +93,7 @@ class _SyngasExtension:
                 domain="soluble",
                 role="dynamic",
                 cod_role="cod",
-                elemental_proxy=None,
+                elemental_proxy="C_CO",
                 source=_SRC,
                 notes=(
                     "kgCOD/m³. 1 mol CO = 28 g, COD = 16 gO2/mol (same as H2). "
@@ -109,7 +109,7 @@ class _SyngasExtension:
                 domain="soluble",
                 role="dynamic",
                 cod_role="cod",
-                elemental_proxy=None,
+                elemental_proxy="C_CO",
                 source=_SRC,
                 notes=(
                     "kgCOD/m³_gas. Drives dissolution into S_CO. "
@@ -201,6 +201,15 @@ class _SyngasExtension:
         )
 
         parameters = (
+            ParameterDefinition(
+                name="C_CO",
+                value=1.0 / 16.0,
+                unit=KMOL_C_PER_KG_COD,
+                group="stoichiometric",
+                classification="canonical",
+                description="Carbono do CO: 1 mol C por 16 gDQO (Sun et al. 2021).",
+                source=_SRC,
+            ),
             ParameterDefinition(
                 name="k_m_met_CO",
                 value=75.0,
@@ -388,7 +397,7 @@ class _SyngasExtension:
                 "S_CO": "-1",
                 "S_h2": "1 - Y_met_CO",
                 # S_IC: C from CO (0.0625 kmolC/kgCOD) catabolism → CO2, minus C to biomass
-                "S_IC": "0.0625 - Y_met_CO * C_bac",
+                "S_IC": "C_CO - Y_met_CO * C_bac",
                 "S_IN": "-Y_met_CO * N_bac",
                 "X_met_CO": "Y_met_CO",
             },
@@ -401,7 +410,7 @@ class _SyngasExtension:
             "rho_E15_CO_acetate": {
                 "S_CO": "-1",
                 "S_ac": "1.0 - Y_met_CO",
-                "S_IC": "0.0625 - (1.0 - Y_met_CO) * C_ac - Y_met_CO * C_bac",
+                "S_IC": "C_CO - (1.0 - Y_met_CO) * C_ac - Y_met_CO * C_bac",
                 "S_IN": "-Y_met_CO * N_bac",
                 "X_met_CO": "Y_met_CO",
             },
@@ -432,12 +441,12 @@ class _SyngasExtension:
         s_gas_co = max(float(state.get("S_gas_CO", 0.0)), 0.0)
         x_met_co = max(float(state.get("X_met_CO", 0.0)), 0.0)
         s_h_ion = max(float(state.get("S_H_ion", 1e-7)), 1e-14)
-        s_in = max(float(state.get("S_IN", 1e-4)), 1e-12)
+        s_in = max(float(state.get("S_IN", 0.0)), 0.0)
 
         # pH inhibition (same shape as hydrogenotrophic methanogens, analogous organisms)
         i_ph_h2 = (params["K_pH_h2"] ** params["n_h2"]) / (s_h_ion ** params["n_h2"] + params["K_pH_h2"] ** params["n_h2"])
         # Nitrogen limitation
-        i_in_lim = 1.0 / (1.0 + params["K_S_IN"] / s_in)
+        i_in_lim = s_in / (float(params["K_S_IN"]) + s_in)
 
         # Total CO uptake rate (both routes share X_met_CO and Monod kinetics)
         rho_co_total = (
