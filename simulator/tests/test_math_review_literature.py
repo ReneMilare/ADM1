@@ -38,11 +38,13 @@ def test_phenol_and_tvfa_inhibit_only_acetate():
 
 
 def test_phenol_uptake_is_haldane_from_fezzani_table2():
-    # rho_7a = k_m * S / (K_S + S + S^2/K_I) * X, with no ADM1 inhibition factor.
+    # rho_7a = k_m * S / (K_S + S + S^2/K_I) * X, with no pH/H2 factor; the
+    # I_IN,lim = S_IN/(K_S_IN+S_IN) factor is added for N mass conservation.
     params = _make_params('phenolics')
     state = {'S_phen': 25, 'X_phen': 1, 'S_IN': 0.01, 'S_H_ion': 1e-7, 'S_h2': 1e-4}
     rate = PHENOLICS_EXTENSION._rates(state, params)['rho_E11_uptake_phenolics']
     expected = params['k_m_phen'] * 25 / (params['K_S_phen'] + 25 + 25**2 / params['K_I_phen'])
+    expected *= 0.01 / (params['K_S_IN'] + 0.01)
     assert rate == pytest.approx(expected)
     acid = PHENOLICS_EXTENSION._rates(dict(state, S_H_ion=1e-5, S_h2=1e-2), params)['rho_E11_uptake_phenolics']
     assert acid == pytest.approx(rate)
@@ -151,12 +153,13 @@ def test_multi_population_seeds_sub_populations_from_core_biomass():
         assert values['X_ac_1'] == pytest.approx(0.4) and values['X_ac_2'] == pytest.approx(0.4)
         assert values['X_h2_1'] == pytest.approx(0.2) and values['X_h2_2'] == pytest.approx(0.2)
 
-    # Explicit sub-populations are kept as given.
+    # Given sub-populations are kept and the core biomass is added on top (COD conserved).
     state.update({'X_ac_1': 0.1})
     inputs = build_backend_inputs_from_state_maps(
         operating_conditions=OperatingConditions(volume_m3=3400, temperature_c=35, hrt_days=20),
         parameters=make_default_kinetics(), influent_values=state, initial_values=state,
         flow_rate_m3_day=170, active_extensions=['multi_population'],
     )
-    assert inputs.initial_values['X_ac_1'] == pytest.approx(0.1)
-    assert inputs.initial_values['X_ac'] == pytest.approx(0.8)
+    assert inputs.initial_values['X_ac_1'] == pytest.approx(0.5)
+    assert inputs.initial_values['X_ac_2'] == pytest.approx(0.4)
+    assert inputs.initial_values['X_ac'] == 0.0

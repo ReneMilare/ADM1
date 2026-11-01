@@ -58,7 +58,9 @@ def build_full_inputs(
         feed=feed,
         operating_conditions=operating_conditions,
     )
-    initial_frame = _build_initial_frame(initial_state=initial_state, feed=feed)
+    initial_frame = _build_initial_frame(
+        initial_state=initial_state, feed=feed, temperature_c=operating_conditions.temperature_c
+    )
     influent_values = {name: float(influent_frame.iloc[0][name]) for name in influent_frame.columns if name != "time"}
     initial_values = {name: float(initial_frame.iloc[0][name]) for name in initial_frame.columns}
     for name, value in (influent_state_overrides or {}).items():
@@ -202,11 +204,26 @@ def resolve_full_parameter_values(
     values.update({name: float(value) for name, value in (extension_parameter_overrides or {}).items()})
     if parameters.temperature_kinetics == "siegrist2002":
         values = scale_siegrist_kinetics(values, float(operating_conditions.temperature_c))
+    _require_positive_denominators(values)
     for fraction, extension in (("f_lac_su", "lactate"), ("f_et_su", "ethanol")):
         if values[fraction] > 0.0 and extension not in assembly.active_extensions:
             raise ValueError(f"{fraction} > 0 requer a extensão {extension} ativa para conservar DQO e carbono.")
     return values
 
+
+
+# Parameter families used as denominators in rate laws (inhibition constants,
+# half-saturations, acid/Henry/trace-element constants) and the reactor volumes.
+_DENOMINATOR_PREFIXES = ("K_I_", "K_S_", "K_TE_", "K_a_", "K_H_", "K_c_", "Ksp_")
+_DENOMINATOR_NAMES = ("K_w", "V_liq", "V_gas", "V_ad")
+
+
+def _require_positive_denominators(values: Mapping[str, float]) -> None:
+    """Reject zero or negative values (after overrides) that would divide rate laws by zero."""
+    for name, value in values.items():
+        if name.startswith(_DENOMINATOR_PREFIXES) or name in _DENOMINATOR_NAMES:
+            if not float(value) > 0.0:
+                raise ValueError(f"Parâmetro {name} deve ser estritamente positivo (recebido {value}).")
 
 
 # Siegrist et al. (2002), Table 3, doi:10.1021/es010139p. C4 has no
@@ -237,16 +254,15 @@ _MULTI_POPULATION_SEEDS = (("X_ac", ("X_ac_1", "X_ac_2")), ("X_h2", ("X_h2_1", "
 
 def _seed_multi_population(values: dict[str, float]) -> None:
     # With the multi-population extension the core X_ac/X_h2 have no active
-    # process. Move their COD into the sub-populations (half each) unless the
-    # caller already set the sub-populations, so COD is conserved.
+    # process (inert biomass that would only wash out). Always move their COD
+    # into the sub-populations, split evenly and added to any given values,
+    # so total biomass COD is conserved and no core biomass remains.
     for core, populations in _MULTI_POPULATION_SEEDS:
         if not all(name in values for name in populations):
             continue
-        if any(values[name] > 0.0 for name in populations):
-            continue
         core_value = max(values.get(core, 0.0), 0.0)
         for name in populations:
-            values[name] = core_value / len(populations)
+            values[name] = max(values[name], 0.0) + core_value / len(populations)
         values[core] = 0.0
 
 
