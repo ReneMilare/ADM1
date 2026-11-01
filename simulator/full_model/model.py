@@ -93,6 +93,8 @@ def build_full_inputs_from_state_maps(
     assembly = resolve_full_model_assembly(active_extensions)
     normalized_influent = _normalize_state_map(influent_values, assembly=assembly)
     normalized_initial = _normalize_state_map(initial_values, assembly=assembly)
+    _seed_multi_population(normalized_influent)
+    _seed_multi_population(normalized_initial)
     parameter_values = resolve_full_parameter_values(
         operating_conditions=operating_conditions,
         parameters=parameters,
@@ -201,6 +203,24 @@ def resolve_full_parameter_values(
             raise ValueError(f"{fraction} > 0 requer a extensão {extension} ativa para conservar DQO e carbono.")
     return values
 
+
+
+_MULTI_POPULATION_SEEDS = (("X_ac", ("X_ac_1", "X_ac_2")), ("X_h2", ("X_h2_1", "X_h2_2")))
+
+
+def _seed_multi_population(values: dict[str, float]) -> None:
+    # With the multi-population extension the core X_ac/X_h2 have no active
+    # process. Move their COD into the sub-populations (half each) unless the
+    # caller already set the sub-populations, so COD is conserved.
+    for core, populations in _MULTI_POPULATION_SEEDS:
+        if not all(name in values for name in populations):
+            continue
+        if any(values[name] > 0.0 for name in populations):
+            continue
+        core_value = max(values.get(core, 0.0), 0.0)
+        for name in populations:
+            values[name] = core_value / len(populations)
+        values[core] = 0.0
 
 
 def _normalize_state_map(values: Mapping[str, float], *, assembly: FullModelAssembly) -> dict[str, float]:

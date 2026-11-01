@@ -192,6 +192,9 @@ class ReactorBase(ABC):
                 + effluent_state[STATE_INDEX["soluble_cod"]]
                 + effluent_state[STATE_INDEX["acetate"]]
                 + effluent_state[STATE_INDEX["propionate"]]
+                + effluent_state[STATE_INDEX["hydrogen"]]
+                + self.biomass_washout_factor(self.segment_count - 1)
+                * sum(effluent_state[index] for index in BIOMASS_INDICES)
             )
             volatile_solids_proxy = float(
                 effluent_state[STATE_INDEX["particulate_cod"]]

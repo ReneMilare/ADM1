@@ -21,6 +21,7 @@ from typing import Mapping
 
 import numpy as np
 
+from simulator.full_model.acid_base import KA_H2S, KA_HS, sulfide_ion_concentration
 from simulator.full_model.assembly import FullModelAssembly
 from simulator.full_model.catalog_types import ParameterDefinition, ProcessDefinition, StateDefinition
 from simulator.full_model.extensions import FullModelExtensionContribution
@@ -291,7 +292,7 @@ class _TraceElementsExtension:
                 classification="canonical",
                 description="Produto de solubilidade do NiS amorfo.",
                 source=_SRC,
-                notes="pKsp ≈ 20.7 no paper local de precipitação/dissolução.",
+                notes="Maharaj et al. (2018), Table 1: pKsp ≈ 20.7; Ksp = [Ni²⁺][S²⁻]. M² = (kmol/m3)².",
             ),
             ParameterDefinition(
                 name="Ksp_CoS",
@@ -301,7 +302,7 @@ class _TraceElementsExtension:
                 classification="canonical",
                 description="Produto de solubilidade do CoS amorfo.",
                 source=_SRC,
-                notes="pKsp ≈ 20.3 no paper local de precipitação/dissolução.",
+                notes="Maharaj et al. (2018), Table 1: pKsp ≈ 20.3; Ksp = [Co²⁺][S²⁻]. M² = (kmol/m3)².",
             ),
             ParameterDefinition(
                 name="Ksp_FeS_te",
@@ -311,7 +312,7 @@ class _TraceElementsExtension:
                 classification="canonical",
                 description="Produto de solubilidade do FeS amorfo usado em E9.",
                 source=_SRC,
-                notes="pKsp ≈ 18.0 no paper local de precipitação/dissolução.",
+                notes="Maharaj et al. (2018), Table 1: pKsp = 18.0; Ksp = [Fe²⁺][S²⁻]. M² = (kmol/m3)².",
             ),
             ParameterDefinition(
                 name="Ksp_FeCO3",
@@ -516,9 +517,11 @@ class _TraceElementsExtension:
         s_co_free = self._free_fraction(s_co, float(params.get("K_c_Co", 0.0)), s_dom)
         s_co3 = self._carbonate_concentration(s_ic, s_h_ion, float(params.get("K_a_co2", 4.47e-7)))
 
-        ip_nis = (s_ni_free * s_h2s) / max(float(params["Ksp_NiS"]), np.nextafter(0.0, 1.0))
-        ip_cos = (s_co_free * s_h2s) / max(float(params["Ksp_CoS"]), np.nextafter(0.0, 1.0))
-        ip_fes = (s_fe2 * s_h2s) / max(float(params["Ksp_FeS_te"]), np.nextafter(0.0, 1.0))
+        # Maharaj et al. (2018), Table 1: all three sulfide Ksp use S2-.
+        s_sulfide = sulfide_ion_concentration(s_h2s, s_h_ion)
+        ip_nis = (s_ni_free * s_sulfide) / max(float(params["Ksp_NiS"]), np.nextafter(0.0, 1.0))
+        ip_cos = (s_co_free * s_sulfide) / max(float(params["Ksp_CoS"]), np.nextafter(0.0, 1.0))
+        ip_fes = (s_fe2 * s_sulfide) / max(float(params["Ksp_FeS_te"]), np.nextafter(0.0, 1.0))
         ip_feco3 = (s_fe2 * s_co3) / max(float(params["Ksp_FeCO3"]), np.nextafter(0.0, 1.0))
 
         rho_nis_p = float(params["k_precip_NiS"]) * max(ip_nis - 1.0, 0.0) * s_ni_free
@@ -598,9 +601,10 @@ class _TraceElementsExtension:
         s_hco3 = ka_co2 * s_ic / np.maximum(ka_co2 + s_h_ion, 1e-30)
         s_co3 = ka_hco3 * s_hco3 / np.maximum(s_h_ion, 1e-14)
 
-        ip_nis = s_ni_free * s_h2s / max(float(params["Ksp_NiS"]), np.nextafter(0.0, 1.0))
-        ip_cos = s_co_free * s_h2s / max(float(params["Ksp_CoS"]), np.nextafter(0.0, 1.0))
-        ip_fes = s_fe2 * s_h2s / max(float(params["Ksp_FeS_te"]), np.nextafter(0.0, 1.0))
+        s_sulfide = KA_HS * KA_H2S * s_h2s / (s_h_ion * (s_h_ion + KA_H2S))
+        ip_nis = s_ni_free * s_sulfide / max(float(params["Ksp_NiS"]), np.nextafter(0.0, 1.0))
+        ip_cos = s_co_free * s_sulfide / max(float(params["Ksp_CoS"]), np.nextafter(0.0, 1.0))
+        ip_fes = s_fe2 * s_sulfide / max(float(params["Ksp_FeS_te"]), np.nextafter(0.0, 1.0))
         ip_feco3 = s_fe2 * s_co3 / max(float(params["Ksp_FeCO3"]), np.nextafter(0.0, 1.0))
 
         def _monod(series: np.ndarray, k_value: float) -> np.ndarray:

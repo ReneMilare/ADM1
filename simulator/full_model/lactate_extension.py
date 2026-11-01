@@ -93,7 +93,7 @@ class _LactateExtension:
                 rate_expression="computed_by_extension",
                 affected_states=("S_lac", "S_ac", "S_pro", "S_h2", "S_IC", "S_IN", "X_lac"),
                 parameters=("k_m_lac", "K_S_lac", "Y_lac"),
-                inhibitions=("I_pH_aa", "I_IN_lim", "I_h2_pro"),
+                inhibitions=("I_pH_aa", "I_IN_lim", "I_h2_c4"),
                 source=_SRC,
             ),
             ProcessDefinition(
@@ -246,9 +246,9 @@ class _LactateExtension:
 
         i_ph_aa = (params["K_pH_aa"] ** params["nn_aa"]) / (s_h_ion ** params["nn_aa"] + params["K_pH_aa"] ** params["nn_aa"])
         i_in_lim = 1.0 / (1.0 + params["K_S_IN"] / s_in)
-        i_h2_pro = 1.0 / (1.0 + s_h2 / params["K_I_h2_pro"])
+        i_h2_c4 = 1.0 / (1.0 + s_h2 / params["K_I_h2_c4"])
 
-        rho_uptake = float(params["k_m_lac"]) * s_lac / (float(params["K_S_lac"]) + s_lac) * x_lac * i_ph_aa * i_in_lim * i_h2_pro
+        rho_uptake = float(params["k_m_lac"]) * s_lac / (float(params["K_S_lac"]) + s_lac) * x_lac * i_ph_aa * i_in_lim * i_h2_c4
         rho_decay = float(params["k_dec_X_lac"]) * x_lac
 
         return {

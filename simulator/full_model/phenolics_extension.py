@@ -23,12 +23,9 @@ Stoichiometry (per kgCOD substrate):
       C6H5COO⁻: 7 C, COD = 240 gO2/mol (15/2 O2 per mol benzoate)
       C_ben = 7/240 = 0.02917 kmolC/kgCOD
 
-  Inhibition (Fezzani 2009, Haldane-type squared form):
-      Phenol inhibits acetoclastic methanogenesis (rho_11) and hydrogenotrophic
-      methanogenesis (rho_12) via Haldane-type (squared) inhibition:
-          I_phen = K_I_phen² / (K_I_phen² + S_phen²)
-      Applied via InhibitionHookType in kinetics.py. Self-inhibition of X_phen
-      is also computed within the extension's own rate_function using the same form.
+  Inhibition (Fezzani 2009, §2.1.4):
+      Phenol and total VFA inhibit acetoclastic methanogenesis (rho_11) using
+      noncompetitive factors. Phenol uptake also has noncompetitive inhibition.
 
 Reference:
     Fezzani & Ben Cheikh (2008). "Two-phase anaerobic co-digestion of olive mill
@@ -213,9 +210,7 @@ class _PhenolicsExtension:
                 classification="calibrated",
                 description="Constante de inibição de fenólicos sobre metanogênese e acetogens.",
                 source=_SRC,
-                notes="Fezzani 2009 Table 6: K_I_phen = 50 kgCOD/m³. Haldane-type squared form: "
-                      "I = K_I²/(K_I² + S_phen²). Applied to rho_11 and rho_12 via InhibitionHookType "
-                      "and also to X_phen self-inhibition within rate_function.",
+                notes="Fezzani 2009, Table 6: phenol uptake inhibition constant; applied as noncompetitive inhibition.",
             ),
             ParameterDefinition(
                 name="C_phen",
@@ -259,33 +254,33 @@ class _PhenolicsExtension:
             ),
             ParameterDefinition(
                 name="k_m_ben",
-                value=12.0,
+                value=8.0,
                 unit=DAY_INV,
                 group="biochemical",
                 classification="calibrated",
                 description="Taxa máxima de consumo de benzoato por X_ben.",
                 source=_SRC,
-                notes="Fezzani 2009: estimated from benzoate degradation kinetics in olive mill wastewater.",
+                notes="Fezzani 2009, Table 6: estimated benzoate uptake rate.",
             ),
             ParameterDefinition(
                 name="K_S_ben",
-                value=25.0,
+                value=15.5,
                 unit=KG_COD_M3,
                 group="biochemical",
                 classification="calibrated",
                 description="Meia-saturação para benzoato (X_ben).",
                 source=_SRC,
-                notes="Fezzani 2009: high value reflects high-concentration olive mill wastewater substrate.",
+                notes="Fezzani 2009, Table 6: Monod retained because no benzoate inhibition constant is reported, although the text mentions Haldane kinetics.",
             ),
             ParameterDefinition(
                 name="Y_ben",
-                value=0.008,
+                value=0.0135,
                 unit=DIMENSIONLESS,
                 group="stoichiometric",
                 classification="calibrated",
                 description="Rendimento de biomassa no consumo de benzoato.",
                 source=_SRC,
-                notes="Fezzani 2009: very low yield for syntrophic benzoate degradation.",
+                notes="Fezzani 2009, Table 6: estimated benzoate yield.",
             ),
             ParameterDefinition(
                 name="k_dec_X_ben",
@@ -295,7 +290,7 @@ class _PhenolicsExtension:
                 classification="calibrated",
                 description="Taxa de decaimento de X_ben.",
                 source=_SRC,
-                notes="Batstone 2002 standard decay rate for acetogens.",
+                notes="Fezzani 2009, Table 6: benzoate biomass decline constant.",
             ),
             ParameterDefinition(
                 name="f_ac_ben",
@@ -376,9 +371,9 @@ class _PhenolicsExtension:
         i_in_lim = 1.0 / (1.0 + params["K_S_IN"] / s_in)
         i_h2_pro = 1.0 / (1.0 + s_h2 / params["K_I_h2_pro"])
         i_h2_fa = 1.0 / (1.0 + s_h2 / params["K_I_h2_fa"])
-        # Haldane-type self-inhibition: I = K_I² / (K_I² + S_phen²) — Fezzani 2009
+        # Fezzani 2009, Table 6: noncompetitive phenol uptake inhibition.
         k_i_phen = float(params.get("K_I_phen", 50.0))
-        i_phen = 1.0 / (1.0 + (s_phen / k_i_phen) ** 2)
+        i_phen = 1.0 / (1.0 + s_phen / k_i_phen)
 
         rho_phen = float(params["k_m_phen"]) * s_phen / (float(params["K_S_phen"]) + s_phen) * x_phen * i_ph_aa * i_in_lim * i_h2_pro * i_phen
         rho_ben = float(params["k_m_ben"]) * s_ben / (float(params["K_S_ben"]) + s_ben) * x_ben * i_ph_aa * i_in_lim * i_h2_fa
@@ -393,19 +388,13 @@ class _PhenolicsExtension:
         }
 
     def _inhibition(self, state: Mapping[str, float], params: Mapping[str, float]) -> dict[str, float]:
-        """Haldane-type inhibition of methanogenesis by phenolic compounds (Fezzani 2009).
-
-        Phenol inhibits methanogens via a squared Haldane form (Fezzani 2009, Eq. 12):
-            I_phen = K_I_phen² / (K_I_phen² + S_phen²)
-        Applied to rho_11 (acetoclastic) and rho_12 (hydrogenotrophic) methanogenesis.
-        """
+        # Fezzani 2009, §2.1.4: the converted text does not decode the equations;
+        # use the ADM1 noncompetitive form for phenol and total VFA inhibition.
         s_phen = max(float(state.get("S_phen", 0.0)), 0.0)
-        k_i = float(params.get("K_I_phen", 50.0))
-        i_phen = 1.0 / (1.0 + (s_phen / k_i) ** 2)
-        return {
-            "rho_11_uptake_acetate": i_phen,
-            "rho_12_uptake_hydrogen": i_phen,
-        }
+        tvfa = sum(max(float(state.get(name, 0.0)), 0.0) for name in ("S_va", "S_bu", "S_pro", "S_ac"))
+        i_phen = 1.0 / (1.0 + s_phen / float(params.get("K_I_phen", 50.0)))
+        i_tvfa = 1.0 / (1.0 + tvfa / 47.5)
+        return {"rho_11_uptake_acetate": i_phen * i_tvfa}
 
     def _diagnostics(
         self, matrix: np.ndarray, assembly: FullModelAssembly, params: Mapping[str, float]

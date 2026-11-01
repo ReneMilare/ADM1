@@ -4,6 +4,61 @@ from dataclasses import dataclass
 from typing import Mapping
 
 
+# Barrera et al. (2015), §2.1/Table 2: H2S/HS- equilibrium; S2- is
+# negligible at digester pH (pKa2 ≈ 14). No dissociation enthalpy is supplied.
+KA_H2S = 1e-7  # pKa1 ≈ 7 at 25 °C; kmol/m3 = mol/L.
+KA_HS = 1e-14
+
+
+def speciate_sulfide(s_total: float, s_h_ion: float) -> tuple[float, float]:
+    """Return free H2S and HS- from S_H2S = H2S + HS- (kmolS/m3)."""
+    total = max(float(s_total), 0.0)
+    h = max(float(s_h_ion), 1e-14)
+    return total * h / (h + KA_H2S), total * KA_H2S / (h + KA_H2S)
+
+
+def sulfide_ion_concentration(s_total: float, s_h_ion: float) -> float:
+    """Trace S2- for mineral Ksp based on [M2+][S2-], in kmolS/m3.
+
+    Maharaj et al. (2018), §2.3/Table 1, includes HS-/S2- dissociation
+    and uses S2- for FeS, NiS and CoS. S_H2S retains its H2S + HS- basis.
+    """
+    _, hs = speciate_sulfide(s_total, s_h_ion)
+    return KA_HS * hs / max(float(s_h_ion), 1e-14)
+
+
+def _extension_charge_contribution(
+    total_state: Mapping[str, float],
+    params: Mapping[str, float],
+    s_h_ion: float,
+) -> tuple[float, float]:
+    """Extension charge (kmol charge/m3) and its analytical H+ derivative."""
+    residual = -2.0 * max(float(total_state.get("S_SO4", 0.0)), 0.0)
+    # E8 and E9 dissolved metals are molar; fixed feed parameters are not states.
+    for name in ("S_Fe2", "S_Fe2_te", "S_Ni", "S_Co"):
+        residual += 2.0 * max(float(total_state.get(name, 0.0)), 0.0)
+
+    total_sulfide = max(float(total_state.get("S_H2S", 0.0)), 0.0)
+    _, hs = speciate_sulfide(total_sulfide, s_h_ion)
+    residual -= hs
+    gradient = total_sulfide * KA_H2S / (s_h_ion + KA_H2S) ** 2
+
+    # Satpathy et al. (2016), model development: pKa(lactate) = 3.86.
+    # COD from complete oxidation of C3H6O3, C7H6O2 and C6H6O:
+    # (C + H/4 - O/2)*32 = 96, 240, 224 kgCOD/kmol, respectively.
+    # Phenol/benzoate acid-base extension: Fezzani & Ben Cheikh (2009), §3.
+    for name, pka, molar_cod in (
+        ("S_lac", 3.86, 96.0),
+        ("S_ben", 4.2, 240.0),
+        ("S_phen", 9.99, 224.0),
+    ):
+        total = max(float(total_state.get(name, 0.0)), 0.0) / molar_cod
+        ka = 10.0 ** -pka
+        residual -= total * ka / (s_h_ion + ka)
+        gradient += total * ka / (s_h_ion + ka) ** 2
+    return residual, gradient
+
+
 def _phosphate_charge_contribution(
     s_ip: float,
     params: Mapping[str, float],
@@ -123,6 +178,9 @@ def solve_acid_base(
             dr_p, dg_p = _phosphate_charge_contribution(s_ip, params, s_h_ion)
             residual += dr_p
             gradient += dg_p
+        dr_ext, dg_ext = _extension_charge_contribution(total_state, params, s_h_ion)
+        residual += dr_ext
+        gradient += dg_ext
         if abs(residual) < tol:
             converged = True
             break

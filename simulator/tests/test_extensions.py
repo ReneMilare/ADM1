@@ -429,8 +429,8 @@ class TestSRBExtension:
         state["S_IN"] = 0.01
         params = _make_params("srb")
         rates = SRB_EXTENSION._rates(state, params)
-        # With S_gas_H2S=0, transfer = k_La_H2S * S_H2S
-        expected = params["k_La_H2S"] * 0.05
+        # Only free H2S strips. At pH 7 = pKa1, half of the total sulfide is H2S.
+        expected = params["k_La_H2S"] * 0.05 * 0.5
         assert rates["rho_E4_H2S_transfer"] == pytest.approx(expected, rel=1e-9)
 
     def test_simulation_runs_without_crash(self):

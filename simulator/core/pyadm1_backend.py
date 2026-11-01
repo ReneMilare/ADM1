@@ -171,25 +171,26 @@ P_ATM_BAR = 1.013
 V_GAS_RATIO = 300.0 / 3400.0
 
 FEED_GROUPS: dict[str, tuple[list[str], dict[str, float]]] = {
+    # Preserve the existing particulate definition: influent biomass is separate.
     "particulate_cod": (["X_xc", "X_ch", "X_pr", "X_li", "X_I"], {}),
-    "soluble_cod": (["S_su", "S_aa", "S_fa", "S_I"], {"S_su": 0.55, "S_aa": 0.2, "S_fa": 0.1, "S_I": 0.15}),
-    "acetate": (["S_ac", "S_ac_ion"], {"S_ac": 1.0}),
-    "propionate": (["S_pro", "S_pro_ion"], {"S_pro": 1.0}),
-    "hydrogen": (["S_h2", "S_gas_h2"], {"S_h2": 1.0}),
-    "inorganic_nitrogen": (["S_IN", "S_nh3", "S_nh4_ion"], {"S_IN": 0.94, "S_nh3": 0.02, "S_nh4_ion": 0.04}),
+    "soluble_cod": (["S_su", "S_aa", "S_fa", "S_va", "S_bu", "S_I"], {"S_su": 0.55, "S_aa": 0.2, "S_fa": 0.1, "S_I": 0.15}),
+    "acetate": (["S_ac"], {"S_ac": 1.0}),
+    "propionate": (["S_pro"], {"S_pro": 1.0}),
+    "hydrogen": (["S_h2"], {"S_h2": 1.0}),
+    "inorganic_nitrogen": (["S_IN"], {"S_IN": 1.0}),
     "alkalinity": (["S_IC", "S_hco3_ion", "S_co2"], {"S_IC": 0.52, "S_hco3_ion": 0.43, "S_co2": 0.05}),
 }
 INITIAL_GROUPS: dict[str, tuple[list[str], dict[str, float]]] = {
     "particulate_cod": (["X_xc", "X_ch", "X_pr", "X_li", "X_I"], {}),
-    "soluble_cod": (["S_su", "S_aa", "S_fa", "S_I"], {"S_su": 0.55, "S_aa": 0.2, "S_fa": 0.1, "S_I": 0.15}),
-    "acetate": (["S_ac", "S_ac_ion"], {"S_ac": 0.98, "S_ac_ion": 0.02}),
-    "propionate": (["S_pro", "S_pro_ion"], {"S_pro": 0.98, "S_pro_ion": 0.02}),
-    "hydrogen": (["S_h2", "S_gas_h2"], {"S_h2": 0.98, "S_gas_h2": 0.02}),
+    "soluble_cod": (["S_su", "S_aa", "S_fa", "S_va", "S_bu", "S_I"], {"S_su": 0.55, "S_aa": 0.2, "S_fa": 0.1, "S_I": 0.15}),
+    "acetate": (["S_ac"], {"S_ac": 1.0}),
+    "propionate": (["S_pro"], {"S_pro": 1.0}),
+    "hydrogen": (["S_h2"], {"S_h2": 1.0}),
     "acidogens": (["X_su", "X_aa", "X_fa", "X_c4"], {"X_su": 0.4118, "X_aa": 0.2353, "X_fa": 0.1176, "X_c4": 0.2353}),
     "propionate_biomass": (["X_pro"], {"X_pro": 1.0}),
     "acetoclastic_biomass": (["X_ac"], {"X_ac": 1.0}),
     "hydrogenotrophic_biomass": (["X_h2"], {"X_h2": 1.0}),
-    "inorganic_nitrogen": (["S_IN", "S_nh3", "S_nh4_ion"], {"S_IN": 0.9, "S_nh3": 0.03, "S_nh4_ion": 0.07}),
+    "inorganic_nitrogen": (["S_IN"], {"S_IN": 1.0}),
     "alkalinity": (["S_IC", "S_hco3_ion", "S_co2"], {"S_IC": 0.52, "S_hco3_ion": 0.43, "S_co2": 0.05}),
 }
 
@@ -382,7 +383,7 @@ def _build_influent_frame(
         template_row=template_row,
         value_map={
             "particulate_cod": feed.particulate_cod,
-            "soluble_cod": feed.soluble_cod,
+            "soluble_cod": _soluble_remainder(feed),
             "acetate": feed.acetate,
             "propionate": feed.propionate,
             "hydrogen": feed.hydrogen,
@@ -390,12 +391,6 @@ def _build_influent_frame(
             "alkalinity": feed.alkalinity,
         },
         baseline_map={
-            "particulate_cod": baseline_feed.particulate_cod,
-            "soluble_cod": baseline_feed.soluble_cod,
-            "acetate": baseline_feed.acetate,
-            "propionate": baseline_feed.propionate,
-            "hydrogen": baseline_feed.hydrogen,
-            "inorganic_nitrogen": _kg_n_to_kmol_n(baseline_feed.inorganic_nitrogen),
             "alkalinity": baseline_feed.alkalinity,
         },
         groups=FEED_GROUPS,
@@ -408,6 +403,7 @@ def _build_influent_frame(
     row["Q"] = float(feed.flow_rate_m3_day or (operating_conditions.volume_m3 / operating_conditions.hrt_days))
     row["T (C)"] = float(operating_conditions.temperature_c)
     row["S_H_ion"] = 10 ** (-feed.ph)
+    _apply_template_speciation(row, template_row=template_row)
     return pd.DataFrame(
         [{**row, "time": float(time_value)} for time_value in time_grid],
         columns=INFLUENT_COLUMNS,
@@ -422,7 +418,7 @@ def _build_initial_frame(*, initial_state: InitialState, feed: FeedDefinition) -
         template_row=template_row,
         value_map={
             "particulate_cod": initial_state.particulate_cod,
-            "soluble_cod": initial_state.soluble_cod,
+            "soluble_cod": _soluble_remainder(initial_state),
             "acetate": initial_state.acetate,
             "propionate": initial_state.propionate,
             "hydrogen": initial_state.hydrogen,
@@ -434,16 +430,6 @@ def _build_initial_frame(*, initial_state: InitialState, feed: FeedDefinition) -
             "alkalinity": initial_state.alkalinity,
         },
         baseline_map={
-            "particulate_cod": baseline_initial.particulate_cod,
-            "soluble_cod": baseline_initial.soluble_cod,
-            "acetate": baseline_initial.acetate,
-            "propionate": baseline_initial.propionate,
-            "hydrogen": baseline_initial.hydrogen,
-            "acidogens": baseline_initial.acidogens,
-            "propionate_biomass": baseline_initial.propionate_biomass,
-            "acetoclastic_biomass": baseline_initial.acetoclastic_biomass,
-            "hydrogenotrophic_biomass": baseline_initial.hydrogenotrophic_biomass,
-            "inorganic_nitrogen": _kg_n_to_kmol_n(baseline_initial.inorganic_nitrogen),
             "alkalinity": baseline_initial.alkalinity,
         },
         groups=INITIAL_GROUPS,
@@ -454,9 +440,26 @@ def _build_initial_frame(*, initial_state: InitialState, feed: FeedDefinition) -
         sic_kmol_m3=initial_state.sic_kmol_m3,
     )
     row["S_H_ion"] = 10 ** (-feed.ph)
-    row["S_nh4_ion"] = max(row["S_IN"] - row["S_nh3"], 1e-9)
+    _apply_template_speciation(row, template_row=template_row)
     row["S_co2"] = max(row["S_IC"] - row["S_hco3_ion"], 1e-9)
     return pd.DataFrame([row], columns=INITIAL_COLUMNS)
+
+
+def _soluble_remainder(state: FeedDefinition | InitialState) -> float:
+    remainder = state.soluble_cod - state.acetate - state.propionate
+    if remainder < -1e-6:
+        raise ValueError("soluble_cod must include acetate and propionate")
+    return max(remainder, 0.0)
+
+
+def _apply_template_speciation(row: dict[str, float], *, template_row: dict[str, Any]) -> None:
+    # Ionic species partition their parent totals; retain the template fractions.
+    species_pairs = (("S_IN", "S_nh3"), ("S_va", "S_va_ion"), ("S_bu", "S_bu_ion"), ("S_pro", "S_pro_ion"), ("S_ac", "S_ac_ion"))
+    for total, species in species_pairs:
+        template_total = float(template_row.get(total, 0.0) or 0.0)
+        fraction = float(template_row.get(species, 0.0) or 0.0) / template_total if template_total > 0.0 else 0.0
+        row[species] = row[total] * min(max(fraction, 0.0), 1.0)
+    row["S_nh4_ion"] = row["S_IN"] - row["S_nh3"]
 
 
 def _scaled_row(
@@ -469,10 +472,11 @@ def _scaled_row(
     row = {key: float(template_row.get(key, 0.0) or 0.0) for key in template_row}
     for group_name, (columns, fallback_weights) in groups.items():
         target_value = float(value_map[group_name])
-        baseline_value = float(baseline_map[group_name])
         template_total = float(sum(max(row.get(column, 0.0), 0.0) for column in columns))
-        if template_total > 0.0 and baseline_value > 0.0:
-            scale = target_value / baseline_value
+        # Alkalinity remains a legacy proxy; only explicit S_IC is absolute.
+        denominator = float(baseline_map[group_name]) if group_name == "alkalinity" else template_total
+        if template_total > 0.0 and denominator > 0.0:
+            scale = target_value / denominator
             for column in columns:
                 row[column] = max(row.get(column, 0.0), 0.0) * scale
             continue
@@ -489,6 +493,7 @@ def _apply_explicit_sic(
     template_row: dict[str, Any],
     sic_kmol_m3: float | None,
 ) -> None:
+    """Override legacy alkalinity scaling with absolute S_IC and template carbonate fractions."""
     if sic_kmol_m3 is None:
         return
     target_sic = float(sic_kmol_m3)

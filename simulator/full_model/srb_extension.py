@@ -38,14 +38,14 @@ Reactions:
       Per kgCOD butyrate: acetate yield = 2×64/160 = 0.8 kgCOD/kgCOD
 
 H2S gas-liquid transfer (Henry's law):
-    rho_transfer = k_La_H2S * (S_H2S - K_H_H2S * p_gas_H2S)
-    where p_gas_H2S = S_gas_H2S * R * T / p_atm (similar to CH4/CO2/H2 in core).
+    rho_transfer = k_La_H2S * (H2S_free - K_H_H2S * p_gas_H2S)
+    where p_gas_H2S = S_gas_H2S * R * T (similar to CH4/CO2/H2 in core).
 
 H2S inhibition on methanogenesis:
     H2S inhibits acetoclastic methanogenesis (rho_11), hydrogenotrophic
     methanogenesis (rho_12), propionate degradation (rho_9), and butyrate
     degradation (rho_8) via first-order linear inhibition (Fedorovich 2003, Eq. 11):
-        I_H2S = max(0.0, 1.0 - S_H2S / K_I_H2S)
+        I_H2S = max(0.0, 1.0 - H2S_free / K_I_H2S)
     This is implemented via the InhibitionHookType mechanism in kinetics.py.
 
 Reference:
@@ -63,6 +63,7 @@ from typing import Mapping
 
 import numpy as np
 
+from simulator.full_model.acid_base import speciate_sulfide
 from simulator.full_model.assembly import FullModelAssembly
 from simulator.full_model.catalog_types import ParameterDefinition, ProcessDefinition, StateDefinition
 from simulator.full_model.extensions import FullModelExtensionContribution
@@ -260,7 +261,7 @@ class _SRBExtension:
                 parameters=("k_La_H2S", "K_H_H2S"),
                 inhibitions=(),
                 source=_SRC,
-                notes="Gas-liquid H2S transfer: rho = k_La_H2S * (S_H2S - K_H_H2S * p_H2S).",
+                notes="Barrera et al. (2015), Tables 2–3: rho = k_La_H2S * (H2S_free - K_H_H2S * p_H2S).",
             ),
         )
 
@@ -404,96 +405,104 @@ class _SRBExtension:
             # Propionate SRB parameters
             ParameterDefinition(
                 name="k_m_SRB_pro",
-                value=9.5,
+                value=12.6,
                 unit=DAY_INV,
                 group="biochemical",
                 classification="calibrated",
                 description="Taxa máxima de consumo de propionato por X_SRB_pro.",
                 source=_SRC,
-                notes="Fedorovich 2003: µ_max for propionate-oxidizing SRB.",
+                notes="Fedorovich et al. (2003), Table 2: literature value.",
             ),
             ParameterDefinition(
                 name="K_S_SRB_pro",
-                value=0.20,
+                value=0.11,
                 unit=KG_COD_M3,
                 group="biochemical",
                 classification="calibrated",
                 description="Meia-saturação para propionato (X_SRB_pro).",
                 source=_SRC,
+                notes="Fedorovich et al. (2003), Table 2: literature value.",
             ),
             ParameterDefinition(
                 name="K_S_SO4_pro",
-                value=1.0e-4,
+                value=2.0e-4,
                 unit=_KMOL_M3,
                 group="biochemical",
                 classification="calibrated",
                 description="Meia-saturação para sulfato na oxidação de propionato.",
                 source=_SRC,
+                notes="Fedorovich et al. (2003), Table 2: literature value.",
             ),
             ParameterDefinition(
                 name="Y_SRB_pro",
-                value=0.028,
+                value=0.0329,
                 unit=DIMENSIONLESS,
                 group="stoichiometric",
                 classification="calibrated",
                 description="Rendimento de biomassa de SRB_pro.",
                 source=_SRC,
+                notes="Fedorovich et al. (2003), Table 2: literature value.",
             ),
             ParameterDefinition(
                 name="k_dec_X_SRB_pro",
-                value=0.015,
+                value=0.01,
                 unit=DAY_INV,
                 group="biochemical",
                 classification="calibrated",
                 description="Taxa de decaimento de X_SRB_pro.",
                 source=_SRC,
+                notes="Fedorovich et al. (2003), Table 2: literature value.",
             ),
             # Butyrate SRB parameters
             ParameterDefinition(
                 name="k_m_SRB_bu",
-                value=9.0,
+                value=13.7,
                 unit=DAY_INV,
                 group="biochemical",
                 classification="calibrated",
                 description="Taxa máxima de consumo de butirato por X_SRB_bu.",
                 source=_SRC,
-                notes="Fedorovich 2003: µ_max for butyrate-oxidizing SRB.",
+                notes="Fedorovich et al. (2003), Table 2: literature value.",
             ),
             ParameterDefinition(
                 name="K_S_SRB_bu",
-                value=0.25,
+                value=0.10,
                 unit=KG_COD_M3,
                 group="biochemical",
                 classification="calibrated",
                 description="Meia-saturação para butirato (X_SRB_bu).",
                 source=_SRC,
+                notes="Fedorovich et al. (2003), Table 2: literature value.",
             ),
             ParameterDefinition(
                 name="K_S_SO4_bu",
-                value=1.0e-4,
+                value=2.1e-4,
                 unit=_KMOL_M3,
                 group="biochemical",
                 classification="calibrated",
                 description="Meia-saturação para sulfato na oxidação de butirato.",
                 source=_SRC,
+                notes="Fedorovich et al. (2003), Table 2: literature value.",
             ),
             ParameterDefinition(
                 name="Y_SRB_bu",
-                value=0.021,
+                value=0.0329,
                 unit=DIMENSIONLESS,
                 group="stoichiometric",
                 classification="calibrated",
                 description="Rendimento de biomassa de SRB_bu.",
                 source=_SRC,
+                notes="Fedorovich et al. (2003), Table 2: literature value.",
             ),
             ParameterDefinition(
                 name="k_dec_X_SRB_bu",
-                value=0.015,
+                value=0.01,
                 unit=DAY_INV,
                 group="biochemical",
                 classification="calibrated",
                 description="Taxa de decaimento de X_SRB_bu.",
                 source=_SRC,
+                notes="Fedorovich et al. (2003), Table 2: literature value.",
             ),
         )
 
@@ -612,6 +621,7 @@ class _SRBExtension:
         x_srb_pro = max(float(state.get("X_SRB_pro", 0.0)), 0.0)
         x_srb_bu = max(float(state.get("X_SRB_bu", 0.0)), 0.0)
         s_h_ion = max(float(state.get("S_H_ion", 1e-7)), 1e-14)
+        s_h2s_free, _ = speciate_sulfide(s_h2s, s_h_ion)
         s_in = max(float(state.get("S_IN", 1e-4)), 1e-12)
 
         # pH inhibitions
@@ -630,9 +640,9 @@ class _SRBExtension:
         i_so4_pro = s_so4 / (k_so4_pro + s_so4)
         i_so4_bu = s_so4 / (k_so4_bu + s_so4)
 
-        # H2S inhibition on SRB themselves (feedback) — linear form: Fedorovich 2003 Eq. 11
+        # Free H2S: Barrera et al. (2015), §2.1; linear law: Fedorovich (2003), Eq. 11.
         k_i_h2s = float(params.get("K_I_H2S", 6.72e-3))
-        i_h2s = max(0.0, 1.0 - s_h2s / k_i_h2s)
+        i_h2s = max(0.0, 1.0 - s_h2s_free / k_i_h2s)
 
         rho_srb_ac = (
             float(params["k_m_SRB_ac"])
@@ -681,7 +691,7 @@ class _SRBExtension:
         t_op = float(params.get("T_op", 308.15))
         p_gas_h2s = s_gas_h2s * r_gas * t_op
         k_h_h2s = float(params.get("K_H_H2S", 0.099))
-        rho_transfer = float(params["k_La_H2S"]) * (s_h2s - k_h_h2s * p_gas_h2s)
+        rho_transfer = float(params["k_La_H2S"]) * (s_h2s_free - k_h_h2s * p_gas_h2s)
 
         return {
             "rho_E4_SRB_uptake_ac": rho_srb_ac,
@@ -699,14 +709,17 @@ class _SRBExtension:
         """H2S first-order linear inhibition on methanogenesis and VFA degradation.
 
         Fedorovich 2003 (ABB 109:33-45) Eq. 11 — first-order inhibition kinetics:
-            I_H2S = max(0.0, 1.0 - S_H2S / K_I_H2S)
-        When S_H2S >= K_I_H2S, complete inhibition (I_H2S = 0).
+            I_H2S = max(0.0, 1.0 - H2S_free / K_I_H2S)
+        Free H2S follows Barrera et al. (2015), Tables 2–3.
+        When H2S_free >= K_I_H2S, complete inhibition (I_H2S = 0).
         Applied to rho_11 (acetate → CH4), rho_12 (H2 → CH4),
         rho_8/rho_9 (valerate/butyrate) and rho_10 (propionate) degradation.
         """
         s_h2s = max(float(state.get("S_H2S", 0.0)), 0.0)
+        s_h_ion = max(float(state.get("S_H_ion", 1e-7)), 1e-14)
+        s_h2s_free, _ = speciate_sulfide(s_h2s, s_h_ion)
         k_i_h2s = float(params.get("K_I_H2S", 6.72e-3))
-        i_h2s = max(0.0, 1.0 - s_h2s / k_i_h2s)
+        i_h2s = max(0.0, 1.0 - s_h2s_free / k_i_h2s)
         return {
             "rho_11_uptake_acetate": i_h2s,
             "rho_12_uptake_hydrogen": i_h2s,

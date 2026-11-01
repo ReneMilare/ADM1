@@ -96,15 +96,18 @@ def test_trace_elements_small_ksp():
     c = TRACE_ELEMENTS_EXTENSION.contribute()
     params = {p.name: p.value for p in c.parameters}
     params.update({'Ksp_NiS': 1e-36})
-    state = {'S_Ni': 1e-9, 'S_H2S': 1e-9}
+    state = {'S_Ni': 1e-9, 'S_H2S': 1e-9, 'S_H_ion': 1e-7}
     names = ['S_Ni', 'S_Co', 'S_Fe2_te', 'X_NiS', 'X_CoS', 'X_FeS_te', 'X_FeCO3', 'S_H2S', 'S_IC', 'S_H_ion']
     assembly = SimpleNamespace(full_state_index={name: i for i, name in enumerate(names)})
     matrix = np.array([[state.get(name, 0) for name in names]])
     diagnostics = c.diagnostics_hook(matrix, assembly, params)
-    expected = 1e-18 / (1 + params['K_c_Ni'] * params['S_DOM_TE']) / 1e-36
+    from simulator.full_model.acid_base import sulfide_ion_concentration
+
+    free = 1e-9 / (1 + params['K_c_Ni'] * params['S_DOM_TE'])
+    # Ksp_NiS is defined on S2-, not on total sulfide (Maharaj et al. 2018).
+    expected = free * sulfide_ion_concentration(1e-9, 1e-7) / 1e-36
     assert diagnostics['IP_NiS'][0] == pytest.approx(expected)
     rate = c.rate_function(state, params)['rho_E9_NiS_precip']
-    free = 1e-9 / (1 + params['K_c_Ni'] * params['S_DOM_TE'])
     assert rate == pytest.approx(params['k_precip_NiS'] * (expected - 1) * free)
 
 
@@ -140,7 +143,7 @@ def test_srb_inhibition_hook_targets_existing_c4_and_propionate_processes():
     from simulator.full_model.srb_extension import SRB_EXTENSION
 
     assembly = resolve_full_model_assembly(["srb"])
-    factors = SRB_EXTENSION.contribute().inhibition_hook({"S_H2S": 0.00336}, {"K_I_H2S": 6.72e-3})
+    factors = SRB_EXTENSION.contribute().inhibition_hook({"S_H2S": 0.00672, "S_H_ion": 1e-7}, {"K_I_H2S": 6.72e-3})
     assert set(factors) <= set(assembly.biochemical_process_names)
     for name in ("rho_8_uptake_valerate", "rho_9_uptake_butyrate", "rho_10_uptake_propionate"):
         assert factors[name] == pytest.approx(0.5)
