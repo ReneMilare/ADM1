@@ -316,7 +316,7 @@ class _SyngasExtension:
             ),
             ParameterDefinition(
                 name="K_I_CO",
-                value=1.4e-3,
+                value=1.03e-3,
                 unit=KG_COD_M3,
                 group="biochemical",
                 classification="calibrated",
@@ -324,9 +324,11 @@ class _SyngasExtension:
                 source=_SRC,
                 notes=(
                     "Sun et al. (2021) Eq. 14: Icoac = 1 / (1 + S_CO / K_I,COac). "
-                    "Sun et al. do not publish the calibrated value: supplementary Table A1 lists K_I,COac as "
-                    "'M-ND' (new parameter, no default) and Table 4 omits it. This default is a placeholder "
-                    "that keeps K_I_CO < K_I_CO_h2."
+                    "Sun et al. do not publish the value (supplementary Table A1: 'M-ND'). Value from "
+                    "Postacchini et al. (2024) Bioresour. Technol. 407:131076, doi:10.1016/j.biortech.2024.131076, "
+                    "Table 1: K_I,CO,AM = 1.8e-3 g CO/L, noncompetitive (Eq. 4), mesophilic mixed culture. "
+                    "1.8e-3 / 28 g/mol x 16 gCOD/mol = 1.03e-3 kgCOD/m3. Fitted in batch with carboxydotrophs "
+                    "suppressed; adapted cultures can tolerate more CO."
                 ),
             ),
             ParameterDefinition(
@@ -339,8 +341,10 @@ class _SyngasExtension:
                 source=_SRC,
                 notes=(
                     "Sun et al. (2021) Eq. 15: IcoH2 = 1 / (1 + S_CO / K_I,COH2), applied to H2, butyrate "
-                    "and propionate uptake (Table 3). Sun et al. do not publish the value (supplementary "
-                    "Table A1: 'M-ND'; absent from Table 4). This default is a placeholder."
+                    "and propionate uptake (Table 3). No published value: Sun et al. list it as 'M-ND', and "
+                    "Grimalt-Alemany et al. (2020) Appl. Energy 262:114502 (doi:10.1016/j.apenergy.2020.114502, "
+                    "§3.5) found no CO inhibition of hydrogenotrophic methanogens in mixed cultures. This "
+                    "placeholder keeps them less sensitive than acetoclastic methanogens."
                 ),
             ),
             ParameterDefinition(
@@ -480,7 +484,7 @@ class _SyngasExtension:
         Hydrogenotrophic methanogens are somewhat more CO-tolerant than acetoclastic ones.
         """
         s_co = max(float(state.get("S_CO", 0.0)), 0.0)
-        k_i_co_ac = float(params.get("K_I_CO", 1.4e-3))
+        k_i_co_ac = float(params.get("K_I_CO", 1.03e-3))
         k_i_co_h2 = float(params.get("K_I_CO_h2", 5.0e-3))
         i_co_ac = k_i_co_ac / (k_i_co_ac + s_co)
         i_co_h2 = k_i_co_h2 / (k_i_co_h2 + s_co)
