@@ -51,6 +51,7 @@ render_workflow_links(
         {"path": "pages/03_Design_de_Reator.py", "label": "Design de Reator", "caption": "Escolher o reator mais adequado ao objetivo."},
         {"path": "pages/04_Validacao.py", "label": "Validacao", "caption": "Checar benchmark interno e literatura."},
         {"path": "pages/06_Configuracoes.py", "label": "Configuracoes", "caption": "Gerenciar preferencias, presets e historico."},
+        {"path": "pages/07_Gemeo_Digital.py", "label": "Gêmeo Digital", "caption": "Comparar planta sintética, medições e gêmeo."},
     ],
 )
 

@@ -14,6 +14,7 @@ _PAGE_LINKS = [
     {"path": "pages/03_Design_de_Reator.py", "label": "Design de Reator"},
     {"path": "pages/04_Validacao.py", "label": "Validacao"},
     {"path": "pages/06_Configuracoes.py", "label": "Configuracoes"},
+    {"path": "pages/07_Gemeo_Digital.py", "label": "Gêmeo Digital"},
 ]
 
 
