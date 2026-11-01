@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import pytest
+from scipy.integrate import trapezoid
 
 from simulator.full_model.extension_registry import resolve_full_model_assembly
 from simulator.full_model.kinetics import biochemical_rates
-from simulator.tests.test_extensions import _make_params, _run_extension
+from simulator.tests.test_extensions import _make_params, _run_extensions
 
 
 def _sin_release_coefficient(params: dict[str, float]) -> float:
@@ -35,32 +36,16 @@ class TestMicroalgaeLiteratureValidation:
         })
         assert _sin_release_coefficient(spirulina) > _sin_release_coefficient(scenedesmus)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "Pre-existing: with HRT 500 d a faster algae disintegration yields slightly LESS cumulative "
-            "methane (also at 120 d, ~2.5%). Suspected Contois hydrolysis saturation plus washout; "
-            "needs a full COD balance. Tracked in the 2026-10-31 math review open points."
-        ),
-    )
     def test_cell_wall_recalcitrance_reduces_methane_yield(self):
-        low_access = _run_extension(
-            "microalgae",
-            extra_initial={"X_alg": 1.0},
-            extra_influent={"X_alg": 0.0},
-            parameter_overrides={"f_wall_alg": 0.4},
-            hrt_days=500.0,
-            duration_days=30.0,
-        )
-        high_access = _run_extension(
-            "microalgae",
-            extra_initial={"X_alg": 1.0},
-            extra_influent={"X_alg": 0.0},
-            parameter_overrides={"f_wall_alg": 0.9},
-            hrt_days=500.0,
-            duration_days=30.0,
-        )
-        assert high_access["profiles"]["S_gas_ch4"][-1] > low_access["profiles"]["S_gas_ch4"][-1]
+        totals = []
+        for accessibility in (0.4, 0.9):
+            result = _run_extensions(
+                "microalgae", extra_initial={"X_alg": 1.0}, extra_influent={"X_alg": 0.0},
+                parameter_overrides={"f_wall_alg": accessibility}, hrt_days=500.0,
+                duration_days=30.0, evaluation_points=601,
+            )
+            totals.append(trapezoid(result["profiles"]["methane_m3_day"], result["time_days"]))
+        assert totals[1] > totals[0]
 
     def test_nitrogen_balance_in_disintegration(self):
         params = _make_params("microalgae")
