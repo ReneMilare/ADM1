@@ -110,11 +110,31 @@ class TwinEngine:
         new_state = TwinState(time_days=window.t_end_days, volume_m3=state.volume_m3,
                               dynamic_state={name: profiles[name][-1] for name in names},
                               parameter_overrides=dict(state.parameter_overrides), active_extensions=list(state.active_extensions))
-        outputs = {target: profiles[source] for target, source in {
-            "biogas_m3_d": "biogas_m3_day", "ch4_fraction": "ch4_fraction", "ph": "ph",
-            "vfa_kg_cod_m3": "vfa_total", "alkalinity_kmol_m3": "alkalinity",
-            "nh4_kg_n_m3": "inorganic_nitrogen",
-        }.items()}
+        params = inputs.parameter_values
+        dry_pressure = np.maximum(np.asarray(profiles["Pgas_bar"]) - params["p_gas_h2o"], 0.0)
+        methane_pressure = np.asarray(profiles["S_gas_ch4"]) * params["R"] * params["T_op"] / 64.0
+        # Rosén & Jeppsson 2006, §3.2.4: the reported biogas flow already has
+        # an atmospheric-pressure correction. Start from headspace volume to
+        # conserve dry molar flow: Q_N = Q_head*(Pgas-Pwater)/P_N*T_N/Tgas.
+        normal_dry_flow = np.asarray(profiles["q_gas_headspace_m3_day"]) * dry_pressure / 1.01325 * 273.15 / params["T_op"]
+        dry_methane_fraction = np.divide(methane_pressure, dry_pressure,
+                                         out=np.zeros_like(dry_pressure), where=dry_pressure > 0.0)
+        # ADM1 species-sum alkalinity [kmol charge/m3]; see contracts.py for
+        # the pH-4.3 reporting convention and its finite-endpoint limitation.
+        alkalinity = np.asarray(profiles["S_hco3_ion"]) + np.asarray(profiles["S_nh3"])
+        for ion, cod_per_kmol in (("S_ac_ion", 64.0), ("S_pro_ion", 112.0),
+                                  ("S_bu_ion", 160.0), ("S_va_ion", 208.0)):
+            alkalinity = alkalinity + np.asarray(profiles[ion]) / cod_per_kmol
+        # Full-model N species are kmolN/m3 (Rosén & Jeppsson 2006, §4.2.1).
+        ammonium_n = 14.0 * (np.asarray(profiles["S_IN"]) - np.asarray(profiles["S_nh3"]))
+        outputs = {
+            "biogas_m3_d": normal_dry_flow.tolist(),
+            "ch4_fraction": dry_methane_fraction.tolist(),
+            "ph": profiles["ph"],
+            "vfa_kg_cod_m3": profiles["vfa_total"],
+            "alkalinity_kmol_m3": alkalinity.tolist(),
+            "nh4_kg_n_m3": ammonium_n.tolist(),
+        }
         return WindowResult(state=new_state, time_days=result["time_days"], outputs=outputs)
 
     def run(self, state: TwinState, windows: Sequence[InfluentWindow]) -> list[WindowResult]:

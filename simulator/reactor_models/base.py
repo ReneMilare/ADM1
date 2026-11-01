@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from abc import ABC
 
@@ -62,6 +62,9 @@ class ReactorBase(ABC):
     def segment_volume(self, segment_index: int, operating_conditions: OperatingConditions) -> float:
         del segment_index
         return operating_conditions.volume_m3 / self.segment_count
+
+    def segment_volumes(self, feed: FeedDefinition, operating_conditions: OperatingConditions) -> list[float]:
+        return [self.segment_volume(i, operating_conditions) for i in range(self.segment_count)]
 
     def influent_vector(self, feed: FeedDefinition) -> np.ndarray:
         return np.asarray(feed.to_state_vector(), dtype=float)
@@ -144,6 +147,8 @@ class ReactorBase(ABC):
             profiles[f"{label}_hydrolysis_rate"] = []
             profiles[f"{label}_methane_rate_m3_day"] = []
 
+        segment_volumes = self.segment_volumes(feed, operating_conditions)
+        total_volume = sum(segment_volumes)
         for row in clipped:
             methane_total = 0.0
             co2_total = 0.0
@@ -162,7 +167,7 @@ class ReactorBase(ABC):
                 start = segment_index * base_state_count
                 end = start + base_state_count
                 segment_state = row[start:end]
-                segment_volume = self.segment_volume(segment_index, operating_conditions)
+                segment_volume = segment_volumes[segment_index]
                 _, diagnostics = reaction_vector(
                     segment_state,
                     influent_ph=self.segment_influent_ph(segment_index, feed),
@@ -176,13 +181,13 @@ class ReactorBase(ABC):
                 co2_total += diagnostics["co2_rate_m3_m3_day"] * segment_volume
                 h2_total += diagnostics["h2_rate_m3_m3_day"] * segment_volume
                 biogas_total += diagnostics["biogas_rate_m3_m3_day"] * segment_volume
-                ph_weighted += diagnostics["ph"] * segment_volume / operating_conditions.volume_m3
-                vfa_weighted += diagnostics["vfa_total"] * segment_volume / operating_conditions.volume_m3
-                fan_weighted += diagnostics["free_ammonia_kgN_m3"] * segment_volume / operating_conditions.volume_m3
-                inh_acid_weighted += diagnostics["inh_nh3_acidogens"] * segment_volume / operating_conditions.volume_m3
-                inh_pro_weighted += diagnostics["inh_nh3_propionate"] * segment_volume / operating_conditions.volume_m3
-                inh_ac_weighted += diagnostics["inh_nh3_acetoclastic"] * segment_volume / operating_conditions.volume_m3
-                inh_hg_weighted += diagnostics["inh_nh3_hydrogenotrophic"] * segment_volume / operating_conditions.volume_m3
+                ph_weighted += diagnostics["ph"] * segment_volume / total_volume
+                vfa_weighted += diagnostics["vfa_total"] * segment_volume / total_volume
+                fan_weighted += diagnostics["free_ammonia_kgN_m3"] * segment_volume / total_volume
+                inh_acid_weighted += diagnostics["inh_nh3_acidogens"] * segment_volume / total_volume
+                inh_pro_weighted += diagnostics["inh_nh3_propionate"] * segment_volume / total_volume
+                inh_ac_weighted += diagnostics["inh_nh3_acetoclastic"] * segment_volume / total_volume
+                inh_hg_weighted += diagnostics["inh_nh3_hydrogenotrophic"] * segment_volume / total_volume
                 if segment_index < len(self.profile_segment_labels):
                     stage_snapshots.append((self.profile_segment_labels[segment_index], diagnostics, segment_volume))
 
@@ -226,6 +231,6 @@ class ReactorBase(ABC):
                 profiles[f"{label}_ph"].append(float(diagnostics["ph"]))
                 profiles[f"{label}_hydrolysis_rate"].append(float(diagnostics["hydrolysis_rate"]))
                 profiles[f"{label}_methane_rate_m3_day"].append(
-                    float(diagnostics["methane_rate_m3_m3_day"] * self.segment_volume(self.profile_segment_labels.index(label), operating_conditions))
+                    float(diagnostics["methane_rate_m3_m3_day"] * segment_volumes[self.profile_segment_labels.index(label)])
                 )
         return profiles

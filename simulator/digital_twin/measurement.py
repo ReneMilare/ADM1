@@ -1,4 +1,8 @@
-"""Sensor model: turns true model outputs into noisy, sparse plant measurements."""
+"""Sensor model: adds noise in the physical units/bases defined by contracts.py.
+
+Gas noise applies to dry Nm3/d and dry CH4 fraction; laboratory noise applies
+to species-sum total alkalinity and NH4+-N, after full-model speciation.
+"""
 
 from __future__ import annotations
 

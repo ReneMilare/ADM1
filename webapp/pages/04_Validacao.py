@@ -168,6 +168,7 @@ if literature_bundle and literature_bundle.get("report"):
         st.markdown("**pyadm1 vs referência**")
         render_frame(literature_comparison_frame(literature_report, backend="pyadm1"))
     with lit_col2:
+        st.caption("Modelo reduzido: exploratório, use para tendências, não para dimensionamento.")
         st.markdown("**reduced vs referência**")
         render_frame(literature_comparison_frame(literature_report, backend="reduced"))
 

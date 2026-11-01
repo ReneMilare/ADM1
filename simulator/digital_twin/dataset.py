@@ -1,4 +1,8 @@
-"""CSV I/O and daily regularisation of plant measurement tables."""
+"""CSV I/O and daily regularisation of physical plant measurement tables.
+
+Column units and dry-gas/laboratory bases follow contracts.py. CSV I/O does
+not convert historical proxy datasets; regenerate those with the demo.
+"""
 
 from __future__ import annotations
 

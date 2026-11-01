@@ -143,6 +143,15 @@ class ADM1SimulationService:
         result_metadata.update(execution_metadata)
         result_metadata["backend_requested"] = backend.requested
         result_metadata["backend_used"] = backend.used
+        result_metadata["model_fidelity"] = "exploratory" if backend.used == "reduced" else "reference"
+        if backend.used == "reduced":
+            result_metadata["known_limitations"] = [
+                "Biomass growth does not consume inorganic nitrogen.",
+                "pH inhibition uses a Gaussian approximation.",
+                "Stoichiometry is simplified.",
+            ]
+        else:
+            result_metadata.pop("known_limitations", None)
         if backend.fallback_reason is not None:
             result_metadata["backend_fallback_reason"] = backend.fallback_reason
 
@@ -661,11 +670,19 @@ class ADM1SimulationService:
             operating_conditions=operating_conditions,
             parameters=parameters,
         )
-        return time_grid, profiles, {
+        extra: dict[str, object] = {
             "segment_count": reactor_model.segment_count,
             "solver_status": solution.message,
             "final_internal_state": [float(item) for item in state_matrix[-1].tolist()],
         }
+        if reactor.reactor_type == "tpad" and reactor.tpad is not None:
+            # Phase HRTs are absolute; report what the model actually used.
+            effective_hrt = reactor.tpad.thermo_hrt_days + reactor.tpad.meso_hrt_days
+            extra["effective_hrt_days"] = float(effective_hrt)
+            extra["reduced_liquid_volume_m3"] = float(sum(reactor_model.segment_volumes(feed, operating_conditions)))
+            if not np.isclose(effective_hrt, operating_conditions.hrt_days, rtol=1e-9, atol=1e-9):
+                extra["hrt_warning"] = "A soma dos HRTs das fases difere do HRT total; foram usados os HRTs das fases."
+        return time_grid, profiles, extra
 
     def _build_summary(
         self,

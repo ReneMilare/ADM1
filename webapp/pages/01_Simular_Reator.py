@@ -240,6 +240,7 @@ tab1, tab2, tab3 = st.tabs(["📋 Definir Caso", "⚙️ Operação", "🔬 Avan
 
 with tab1:
     render_case_definition()
+    st.caption("Modelo reduzido: exploratório, use para tendências, não para dimensionamento.")
     st.divider()
     render_substrate_config()
 
@@ -284,6 +285,8 @@ latest_simulation = st.session_state.get("latest_simulation")
 if latest_simulation:
     st.divider()
     st.subheader("Resultado da simulação")
+    if latest_simulation.metadata.get("backend_used", latest_simulation.simulation.backend) == "reduced":
+        st.info("Modelo reduzido: exploratório, use para tendências, não para dimensionamento.")
     render_result_area(
         latest_simulation,
         show_advanced=(st.session_state.get("sim_ui_mode") == "especialista"),

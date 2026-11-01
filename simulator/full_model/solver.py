@@ -228,6 +228,15 @@ def simulate_with_full_inputs(
         "full_model_solver_njev": int(getattr(solution, "njev", 0) or 0),
         "full_model_solver_nlu": int(getattr(solution, "nlu", 0) or 0),
     }
+    if reactor_type == "tpad" and reactor_config is not None and reactor_config.tpad is not None:
+        effective_hrt = reactor_config.tpad.thermo_hrt_days + reactor_config.tpad.meso_hrt_days
+        q_ad = inputs.parameter_values["q_ad"]
+        requested_hrt = inputs.parameter_values["V_liq"] / q_ad if q_ad > 0.0 else effective_hrt
+        metadata["effective_hrt_days"] = float(effective_hrt)
+        metadata["full_model_liquid_volume_m3"] = float(system._params1["V_liq"] + system._params2["V_liq"])
+        metadata["full_model_gas_volume_m3"] = float(system._params1["V_gas"] + system._params2["V_gas"])
+        if not np.isclose(effective_hrt, requested_hrt, rtol=1e-9, atol=1e-9):
+            metadata["hrt_warning"] = "A soma dos HRTs das fases difere do HRT total; foram usados os HRTs das fases."
     return {
         "time_days": [float(v) for v in time_grid.tolist()],
         "profiles": profiles,

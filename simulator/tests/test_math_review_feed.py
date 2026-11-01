@@ -138,7 +138,8 @@ def test_legacy_alkalinity_and_explicit_sic_are_preserved(initial: bool, sic: fl
     template = _load_template_row("digester_initial.csv" if initial else "digester_influent.csv")
     default = make_default_initial_state() if initial else make_default_feed()
     requested = state if initial else feed
-    expected = template["S_IC"] * requested.alkalinity / default.alkalinity if sic is None else sic
+    # Legacy alkalinity is absolute: 17 mol HCO3- per unit (reduced-model scale).
+    expected = requested.alkalinity * 17.0 / 1000.0 if sic is None else sic
     assert row["S_IC"] == pytest.approx(expected)
     if sic is not None:
         assert row["S_hco3_ion"] == pytest.approx(template["S_hco3_ion"] * sic / template["S_IC"])

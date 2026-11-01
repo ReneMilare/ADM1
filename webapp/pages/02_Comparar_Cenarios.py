@@ -119,6 +119,9 @@ if len(selected_ids) < 2:
 selected = selected_results(filtered, selected_ids)
 selected_labels = scenario_option_labels(selected)
 
+if any(result.metadata.get("backend_used", result.simulation.backend) == "reduced" for result in selected):
+    st.info("Modelo reduzido: exploratório, use para tendências, não para dimensionamento.")
+
 if reduced_is_exploratory_for_results(selected):
     st.warning("Comparacoes com `reduced` ao lado de `pyadm1` ou `full` devem ser lidas apenas de forma operacional e exploratoria; nao servem como validacao matematica do backend `full`.")
 
