@@ -37,13 +37,15 @@ def test_phenol_and_tvfa_inhibit_only_acetate():
     assert factors == {'rho_11_uptake_acetate': pytest.approx((1 / 1.5) * (1 / 2))}
 
 
-def test_phenol_self_inhibition_is_linear():
+def test_phenol_uptake_is_haldane_from_fezzani_table2():
+    # rho_7a = k_m * S / (K_S + S + S^2/K_I) * X, with no ADM1 inhibition factor.
     params = _make_params('phenolics')
-    state = {'S_phen': 25, 'X_phen': 1, 'S_IN': 0.01, 'S_H_ion': 1e-7}
+    state = {'S_phen': 25, 'X_phen': 1, 'S_IN': 0.01, 'S_H_ion': 1e-7, 'S_h2': 1e-4}
     rate = PHENOLICS_EXTENSION._rates(state, params)['rho_E11_uptake_phenolics']
-    params_double = dict(params, K_I_phen=100)
-    rate_double = PHENOLICS_EXTENSION._rates(state, params_double)['rho_E11_uptake_phenolics']
-    assert rate / rate_double == pytest.approx(1.25 / 1.5)
+    expected = params['k_m_phen'] * 25 / (params['K_S_phen'] + 25 + 25**2 / params['K_I_phen'])
+    assert rate == pytest.approx(expected)
+    acid = PHENOLICS_EXTENSION._rates(dict(state, S_H_ion=1e-5, S_h2=1e-2), params)['rho_E11_uptake_phenolics']
+    assert acid == pytest.approx(rate)
 
 
 def test_lactate_uses_c4_hydrogen_inhibition():
