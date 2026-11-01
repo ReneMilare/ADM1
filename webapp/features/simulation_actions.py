@@ -193,7 +193,7 @@ def _build_extension_params(draft: SimulationDraft) -> dict[str, float]:
         overrides["f_wall_alg"] = float(ep.get("alg_param_f_wall_alg", 0.7))
         overrides["f_hyd_alg"]  = float(ep.get("alg_param_f_hyd_alg", 1.0))
     if "syngas" in active:
-        overrides["K_I_CO"]     = float(ep.get("syngas_param_k_i_co",    1.4e-3))
+        overrides["K_I_CO"]     = float(ep.get("syngas_param_k_i_co",    1.03e-3))
         overrides["K_I_CO_h2"]  = float(ep.get("syngas_param_k_i_co_h2", 5.0e-3))
         overrides["f_co_to_h2"] = float(ep.get("syngas_param_f_co_to_h2", 0.65))
 

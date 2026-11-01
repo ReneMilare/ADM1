@@ -42,7 +42,7 @@ _EXT_PARAM_DEFAULTS: dict[str, float] = {
     "iron_param_s_fe3_feed": 0.001,
     "alg_param_f_wall_alg": 0.70,
     "alg_param_f_hyd_alg": 1.0,
-    "syngas_param_k_i_co": 1.4e-3,
+    "syngas_param_k_i_co": 1.03e-3,
     "syngas_param_k_i_co_h2": 5.0e-3,
     "syngas_param_f_co_to_h2": 0.65,
     "te_param_s_fe2_feed": 1e-5,

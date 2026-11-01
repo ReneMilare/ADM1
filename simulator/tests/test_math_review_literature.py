@@ -67,7 +67,7 @@ def test_multi_population_disables_all_replaced_core_rates():
 
 @pytest.mark.parametrize('extension,state,ac,h2', [
     ('phenolics', {'S_phen': 50, 'S_va': 0, 'S_bu': 0, 'S_pro': 0, 'S_ac': 0}, 0.5, 1.0),
-    ('syngas', {'S_CO': 0.0014}, 0.5, 0.005 / 0.0064),
+    ('syngas', {'S_CO': 0.00103}, 0.5, 0.005 / 0.00603),
     # pH 7 = pKa1: only half of the total sulfide is free H2S.
     ('srb', {'S_H2S': 0.00672}, 0.5, 0.5),
 ])
@@ -124,14 +124,14 @@ def test_combined_extension_hooks_multiply_on_e12_rates():
     params = _make_params(extensions)
     state = _base_state()
     state.update({'S_H_ion': 1e-7, 'S_nh3': 0, 'X_ac_1': 1, 'X_h2_1': 1,
-                  'S_phen': 50, 'S_CO': 0.0014, 'S_H2S': 0.00672})
+                  'S_phen': 50, 'S_CO': 0.00103, 'S_H2S': 0.00672})
     rates, _ = biochemical_rates(state, params, assembly=assembly)
     uninhibited = MULTI_POPULATION_EXTENSION._rates(state, params)
     tvfa = sum(state[name] for name in ('S_va', 'S_bu', 'S_pro', 'S_ac'))
     assert rates['rho_E12_uptake_ac_1'] == pytest.approx(
         uninhibited['rho_E12_uptake_ac_1'] * 0.5 / (1 + tvfa / 47.5) * 0.5 * 0.5)
     assert rates['rho_E12_uptake_h2_1'] == pytest.approx(
-        uninhibited['rho_E12_uptake_h2_1'] * (0.005 / 0.0064) * 0.5)
+        uninhibited['rho_E12_uptake_h2_1'] * (0.005 / 0.00603) * 0.5)
 
 
 def test_multi_population_seeds_sub_populations_from_core_biomass():
