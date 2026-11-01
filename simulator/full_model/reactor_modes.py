@@ -23,7 +23,7 @@ from typing import Mapping
 
 import numpy as np
 
-from simulator.full_model.model import FullModelInputs, dynamic_state_dict
+from simulator.full_model.model import FullModelInputs, dynamic_state_dict, scale_siegrist_kinetics
 from simulator.full_model.rhs import FullCSTRRhs, FullStateEvaluation, apply_extension_gas_derivatives
 
 # Arrhenius activation energy / R for temperature correction (Batstone 2002 App B, Table B.2)
@@ -40,7 +40,7 @@ def _arrhenius_factor(t_k: float, ea_r: float) -> float:
     return math.exp(ea_r * (1.0 / _T_REF_K - 1.0 / max(t_k, 273.15)))
 
 
-def _scale_params_for_temperature(params: dict[str, float], t_celsius: float) -> dict[str, float]:
+def _scale_params_for_temperature(params: dict[str, float], t_celsius: float, mode: str = "off") -> dict[str, float]:
     """Return a copy of params with kinetic and equilibrium constants updated for t_celsius.
 
     Arrhenius scaling (Batstone 2002, App. B, Table B.2):
@@ -67,8 +67,8 @@ def _scale_params_for_temperature(params: dict[str, float], t_celsius: float) ->
     scaled["T_op"] = t_k
     scaled["T_ad"] = t_k
 
-    # Kinetic rate constants — Arrhenius scaling
-    for name, value in params.items():
+    # Kinetic rate constants — preserve the existing TPAD behavior when off.
+    for name, value in (params.items() if mode == "off" else ()):
         if name in _HYDROLYSIS_PARAMS:
             scaled[name] = value * f_hyd
         elif (
@@ -80,6 +80,9 @@ def _scale_params_for_temperature(params: dict[str, float], t_celsius: float) ->
             or name.startswith("k_des")
         ):
             scaled[name] = value * f_bio
+
+    if mode == "siegrist2002":
+        scaled = scale_siegrist_kinetics(scaled, t_celsius, params["T_op"] - 273.15)
 
     # Equilibrium constants — recomputed via van't Hoff at the new temperature
     r = float(params.get("R", 0.083145))
@@ -478,11 +481,11 @@ class FullTPADRhs(FullTwoPhaseRhs):
             phase1_volume_fraction=phase1_volume_fraction,
         )
         # Override phase 1 parameters with thermophilic temperature-scaled kinetics
-        scaled_params1 = _scale_params_for_temperature(self._params1, thermo_temperature_c)
+        scaled_params1 = _scale_params_for_temperature(self._params1, thermo_temperature_c, inputs.temperature_kinetics)
         self._params1 = scaled_params1
         self._rhs1 = FullCSTRRhs(inputs=_inputs_with_params(inputs, scaled_params1))
         # Override phase 2 parameters with mesophilic temperature-scaled kinetics
-        scaled_params2 = _scale_params_for_temperature(self._params2, meso_temperature_c)
+        scaled_params2 = _scale_params_for_temperature(self._params2, meso_temperature_c, inputs.temperature_kinetics)
         self._params2 = scaled_params2
         self._rhs2 = FullCSTRRhs(inputs=_inputs_with_params(inputs, scaled_params2))
         self.biochemical_matrix = self._rhs1.biochemical_matrix
@@ -531,6 +534,7 @@ def _inputs_with_params(inputs: FullModelInputs, new_params: dict[str, float]) -
         dynamic_initial=inputs.dynamic_initial,
         parameter_values=new_params,
         assembly=inputs.assembly,
+        temperature_kinetics=inputs.temperature_kinetics,
     )
 
 

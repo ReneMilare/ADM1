@@ -297,6 +297,9 @@ class KineticParameters(StrictModel):
     gas_stripping_h2: float = Field(default=0.06, gt=0.0)
     ph_optimum: float = Field(default=7.05, ge=5.0, le=8.5)
     ph_tolerance: float = Field(default=0.55, gt=0.05)
+    temperature_kinetics: Literal["off", "siegrist2002"] = Field(
+        default="off", description="Correção cinética de Siegrist et al. (2002), aplicada ao modelo full."
+    )
     ammonia_inhibition_mode: Literal["simple", "fan"] = Field(
         default="simple",
         description="'simple' usa TAN com threshold; 'fan' usa amônia livre com equilíbrio pH/temperatura.",

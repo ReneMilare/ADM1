@@ -75,6 +75,7 @@ class SimulationDraft:
     persist: bool = True
 
     # Opções de inibição e variante de reator
+    temperature_kinetics: str = "off"
     ammonia_inhibition_mode: str = "simple"  # "simple" | "fan"
     variant_config: dict[str, Any] | None = None  # configuração de two_phase/tpad/batch
 

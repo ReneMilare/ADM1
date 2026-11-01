@@ -157,6 +157,13 @@ def render_operating_config() -> None:
             expanded=(st.session_state.get("ammonia_inhibition_mode") == "fan"),
         ):
             st.selectbox(
+                "Correção cinética pela temperatura (modelo full)",
+                options=["off", "siegrist2002"],
+                format_func=lambda v: {"off": "Desligada", "siegrist2002": "Siegrist et al. (2002)"}[v],
+                key="temperature_kinetics",
+                help="Não aplicada por PyADM1 ou pelo modelo reduzido. Mudanças bruscas mesófila–termófila não são previstas pelo modelo.",
+            )
+            st.selectbox(
                 "Modo de Inibição por Amônia",
                 options=["simple", "fan"],
                 format_func=lambda v: {
