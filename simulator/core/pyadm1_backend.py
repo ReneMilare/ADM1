@@ -1,5 +1,6 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
+import inspect
 import math
 import os
 import re
@@ -14,6 +15,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from simulator.core.algebraic import bracketed_newton
 from simulator.core.defaults import make_default_feed, make_default_initial_state, make_default_kinetics
 from simulator.core.kinetics import _ALK_TO_MOL
 from simulator.core.models import FeedDefinition, InitialState, KineticParameters, OperatingConditions, SimulationConfig
@@ -661,31 +663,45 @@ def _patch_continuous_algebraic_solution(source: str) -> str:
         replacement=f"def _solve_algebraic(state):\n  {state_names} = state",
         label="local algebraic state",
     )
-    algebraic = _replace_literal(
-        algebraic,
-        old="    S_H_ion = S_H_ion - shdelta / shgradeq\n    if S_H_ion <= 0:\n        S_H_ion = tol",
-        new=(
-            "    if abs(shdelta) <= tol:\n"
-            "        break\n"
-            "    next_h = S_H_ion - shdelta / shgradeq\n"
-            "    S_H_ion = next_h if next_h > 0 else S_H_ion * 0.5"
-        ),
-        label="positive charge-balance Newton steps",
-    )
-    algebraic = _replace_literal(
-        algebraic,
-        old="  # pH calculation\n  pH = - np.log10(S_H_ion)",
-        new=(
-            "  if not np.isfinite(shdelta) or abs(shdelta) > tol:\n"
-            "    raise RuntimeError('PyADM1 charge balance did not converge')\n"
-            "  prevS_H_ion = S_H_ion\n"
-            "  pH = -np.log10(S_H_ion)"
-        ),
-        label="charge convergence and current pH for hydrogen",
-    )
-    algebraic += (
-        "  if not np.isfinite(S_h2delta) or abs(S_h2delta) > tol:\n"
-        "    raise RuntimeError('PyADM1 hydrogen balance did not converge')\n"
+    charge_start = algebraic.index("    S_va_ion =", algebraic.index("  while"))
+    charge_end = algebraic.index("    S_H_ion = S_H_ion -", charge_start)
+    charge_balance = algebraic[charge_start:charge_end]
+    hydrogen_start = algebraic.index("    I_pH_aa =", charge_end)
+    hydrogen_end = algebraic.index("    S_h2 = S_h2 -", hydrogen_start)
+    hydrogen_balance = algebraic[hydrogen_start:hydrogen_end]
+    hydrogen_balance = hydrogen_balance.replace("prevS_H_ion", "S_H_ion")
+    hydrogen_balance = hydrogen_balance.replace("S_bu + S_va + eps", "S_bu + S_va + 1e-6")
+    hydrogen_balance = hydrogen_balance.replace("1 / (1 + (K_S_IN / S_IN))", "S_IN / (K_S_IN + S_IN)")
+    hydrogen_balance = hydrogen_balance.replace("1 / (1 + K_S_IN / S_IN)", "S_IN / (K_S_IN + S_IN)")
+    hydrogen_balance = hydrogen_balance.replace("/ (1 + K_S_IN / S_IN)", "* S_IN / (K_S_IN + S_IN)")
+    algebraic = (
+        "import math\nfrom typing import Callable\n_EPS = 2.220446049250313e-16\n" + inspect.getsource(bracketed_newton) + "\n"
+        "def _solve_algebraic(state):\n"
+        "  if not np.all(np.isfinite(state)):\n"
+        "    return np.full(len(state), np.nan)\n"
+        f"  {state_names} = state\n"
+        "  def charge_balance(S_H_ion):\n"
+        + charge_balance
+        + "    return shdelta, shgradeq\n"
+        "  S_H_ion, _, converged = bracketed_newton(\n"
+        "      charge_balance, 1e-14, 1.0, 1e-7, tolerance=1e-15, max_iterations=1000)\n"
+        "  if not converged:\n"
+        "    raise RuntimeError('PyADM1 charge balance has no converged physical root')\n"
+        + charge_balance.replace("    ", "  ")
+        + "  def hydrogen_balance(S_h2):\n"
+        + hydrogen_balance
+        + "    return S_h2delta, S_h2gradeq\n"
+        "  production = hydrogen_balance(0.0)[0]\n"
+        "  if not math.isfinite(production):\n"
+        "    return np.full(len(state), np.nan)\n"
+        "  if production <= 0.0:\n"
+        "    S_h2 = 0.0\n"  # net sink even at zero H2: the physical root is the S_h2 >= 0 boundary
+        "  else:\n"
+        "    upper_h2 = max(1e-6, production / (q_ad / V_liq + k_L_a))\n"
+        "    S_h2, _, converged = bracketed_newton(\n"
+        "        hydrogen_balance, 0.0, upper_h2, 2.5e-7, tolerance=1e-17, max_iterations=1000)\n"
+        "    if not converged:\n"
+        "      raise RuntimeError('PyADM1 hydrogen balance has no converged physical root')\n"
         "  S_nh4_ion = S_IN - S_nh3\n"
         "  S_co2 = S_IC - S_hco3_ion\n"
         f"  return [{state_names}]\n\n"
@@ -694,7 +710,12 @@ def _patch_continuous_algebraic_solution(source: str) -> str:
     source = _replace_literal(
         source,
         old="def ADM1_ODE(t, state_zero):",
-        new="def ADM1_ODE(t, state_zero):\n  state_zero = _solve_algebraic(state_zero)",
+        new=(
+            "def ADM1_ODE(t, state_zero):\n"
+            "  if not np.all(np.isfinite(state_zero)):\n"
+            "    return np.full(len(state_zero), np.nan)\n"
+            "  state_zero = _solve_algebraic(state_zero)"
+        ),
         label="algebraic solution at each RHS evaluation",
     )
     source = _replace_literal(
