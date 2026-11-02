@@ -357,21 +357,25 @@ Essas duas correções de relatório têm testes que falharam antes e passam dep
 
 ## Falhas, limites e pendências
 
-1. **PyADM1/BDF, 400 dias e 201 pontos:** a integração adicional, com rtol=1e-10
-   e atol=1e-12, falhou com `PyADM1 hydrogen balance did not converge`. O log mostra
-   primeiro overflow no ajuste da perturbação do Jacobiano numérico do SciPy e,
-   depois, valores não finitos no Newton de H₂. A hipótese é uma interação entre
-   as colunas algébricas sem dinâmica e o Jacobiano por diferenças finitas perto
-   do equilíbrio. Isso ainda requer uma reprodução reduzida para confirmar a
-   causa. Não é evidência de discrepância estacionária contra a publicação.
-   Uma tentativa de 400 dias/401 pontos BDF foi interrompida por demora; Radau
-   com 401 pontos excedeu um limite diagnóstico de 60 s. Não há resultado PyADM1
-   válido de 400 dias nesta auditoria, nem tolerância aumentada para encobri-lo.
-   Para reproduzir a execução de 201 pontos, use o primeiro cenário de
-   `build_full_parity_scenarios()`, `dataclasses.replace(duration_days=400.0,
-   evaluation_points=201)`, e `_run_pyadm1_scenario` com
-   `build_reference_simulation_config(backend="pyadm1")` atualizado para o mesmo
-   horizonte e malha. São os mesmos vetores usados na execução aprovada de 200 dias.
+1. **PyADM1/BDF, 400 dias e 201 pontos (corrigido):** a execução com rtol=1e-10 e
+   atol=1e-12 falhava com `PyADM1 hydrogen balance did not converge`. Reproduzida
+   com o código anterior (falha após ~110 s). Causa: o Jacobiano numérico do SciPy
+   (`_ivp/common.py`, perturbação do passo) estourou (`overflow`), o estado virou
+   `inf`/`NaN` e os Newton do patch de runtime (H⁺ e S_h2) compararam `NaN` com a
+   tolerância, sem convergir; o patch então levantava o erro e abortava a integração
+   em vez de deixar o integrador rejeitar o passo. Correção: `simulator/core/algebraic.py`
+   (`bracketed_newton`: Newton com intervalo de troca de sinal e bisecção) usado para
+   H⁺ em [1e-14, 1] e S_h2 em [0, S_h2 máximo físico]; estado não finito devolve
+   derivadas `NaN` (o integrador reduz o passo); não convergência em estado finito
+   continua levantando erro. O mesmo Newton do modelo completo
+   (`full_model/acid_base.py`) ganhou o intervalo e a bisecção como fallback, sem
+   alterar o resultado quando o Newton simples converge. Resultado: 400 dias/201
+   pontos e 400 dias/401 pontos (BDF, tolerâncias acima) concluem em poucos
+   segundos, com erro máximo de 1,04e-6 % contra o estado estacionário BSM2
+   publicado (limite 0,1 %) e igual ao modelo completo. Em 200 dias, a diferença
+   contra o código anterior é de até 3,4e-9 em valor relativo (ruído do integrador
+   BDF; as funções algébricas coincidem a 7e-15). Testes:
+   `simulator/tests/test_pyadm1_algebraic_robustness.py`.
 2. **ODE completa:** a versão puramente diferencial ácido-base do relatório não
    é um backend atual. Esta auditoria valida as formulações DAE1/DAE2 existentes.
 3. **Validação reduced BSM2:** o comando existente retorna erro relativo máximo

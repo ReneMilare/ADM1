@@ -1,7 +1,12 @@
 ﻿from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Mapping
+
+from simulator.core.algebraic import bracketed_newton
+
+_CHARGE_INPUTS = ("S_cation", "S_anion", "S_IN", "S_IC", "S_ac", "S_pro", "S_bu", "S_va", "S_IP")
 
 
 # Barrera et al. (2015), §2.1/Table 2: H2S/HS- equilibrium; S2- is
@@ -135,6 +140,45 @@ class AcidBaseState:
 
 
 
+def _charge_residual(
+    total_state: Mapping[str, float], params: Mapping[str, float], s_h_ion: float,
+) -> tuple[float, float]:
+    values = _species(total_state, params, s_h_ion)
+    residual = (
+        float(total_state["S_cation"])
+        + (float(total_state["S_IN"]) - values["S_nh3"])
+        + s_h_ion
+        - values["S_hco3_ion"]
+        - values["S_ac_ion"] / 64.0
+        - values["S_pro_ion"] / 112.0
+        - values["S_bu_ion"] / 160.0
+        - values["S_va_ion"] / 208.0
+        - params["K_w"] / s_h_ion
+        - float(total_state["S_anion"])
+    )
+    gradient = (
+        1.0
+        + params["K_a_IN"] * max(float(total_state["S_IN"]), 0.0) / ((params["K_a_IN"] + s_h_ion) ** 2)
+        + params["K_a_co2"] * max(float(total_state["S_IC"]), 0.0) / ((params["K_a_co2"] + s_h_ion) ** 2)
+        + (params["K_a_ac"] * max(float(total_state["S_ac"]), 0.0) / ((params["K_a_ac"] + s_h_ion) ** 2)) / 64.0
+        + (params["K_a_pro"] * max(float(total_state["S_pro"]), 0.0) / ((params["K_a_pro"] + s_h_ion) ** 2)) / 112.0
+        + (params["K_a_bu"] * max(float(total_state["S_bu"]), 0.0) / ((params["K_a_bu"] + s_h_ion) ** 2)) / 160.0
+        + (params["K_a_va"] * max(float(total_state["S_va"]), 0.0) / ((params["K_a_va"] + s_h_ion) ** 2)) / 208.0
+        + params["K_w"] / (s_h_ion * s_h_ion)
+    )
+    # Phosphate contribution (active when E7 phosphorus extension is enabled).
+    # S_IP is a dynamic liquid state added by E7; when absent, get() returns 0.0.
+    s_ip = float(total_state.get("S_IP", 0.0))
+    if s_ip > 0.0:
+        dr_p, dg_p = _phosphate_charge_contribution(s_ip, params, s_h_ion)
+        residual += dr_p
+        gradient += dg_p
+    dr_ext, dg_ext = _extension_charge_contribution(total_state, params, s_h_ion)
+    residual += dr_ext
+    gradient += dg_ext
+    return residual, gradient
+
+
 def solve_acid_base(
     total_state: Mapping[str, float],
     params: Mapping[str, float],
@@ -146,41 +190,12 @@ def solve_acid_base(
     s_h_ion = max(float(initial_guess or 1e-7), 1e-14)
     converged = False
     iterations = 0
+    finite = all(math.isfinite(float(total_state[name])) for name in _CHARGE_INPUTS if name in total_state)
 
-    for iterations in range(1, max_iterations + 1):
-        values = _species(total_state, params, s_h_ion)
-        residual = (
-            float(total_state["S_cation"])
-            + (float(total_state["S_IN"]) - values["S_nh3"])
-            + s_h_ion
-            - values["S_hco3_ion"]
-            - values["S_ac_ion"] / 64.0
-            - values["S_pro_ion"] / 112.0
-            - values["S_bu_ion"] / 160.0
-            - values["S_va_ion"] / 208.0
-            - params["K_w"] / s_h_ion
-            - float(total_state["S_anion"])
-        )
-        gradient = (
-            1.0
-            + params["K_a_IN"] * max(float(total_state["S_IN"]), 0.0) / ((params["K_a_IN"] + s_h_ion) ** 2)
-            + params["K_a_co2"] * max(float(total_state["S_IC"]), 0.0) / ((params["K_a_co2"] + s_h_ion) ** 2)
-            + (params["K_a_ac"] * max(float(total_state["S_ac"]), 0.0) / ((params["K_a_ac"] + s_h_ion) ** 2)) / 64.0
-            + (params["K_a_pro"] * max(float(total_state["S_pro"]), 0.0) / ((params["K_a_pro"] + s_h_ion) ** 2)) / 112.0
-            + (params["K_a_bu"] * max(float(total_state["S_bu"]), 0.0) / ((params["K_a_bu"] + s_h_ion) ** 2)) / 160.0
-            + (params["K_a_va"] * max(float(total_state["S_va"]), 0.0) / ((params["K_a_va"] + s_h_ion) ** 2)) / 208.0
-            + params["K_w"] / (s_h_ion * s_h_ion)
-        )
-        # Phosphate contribution (active when E7 phosphorus extension is enabled).
-        # S_IP is a dynamic liquid state added by E7; when absent, get() returns 0.0.
-        s_ip = float(total_state.get("S_IP", 0.0))
-        if s_ip > 0.0:
-            dr_p, dg_p = _phosphate_charge_contribution(s_ip, params, s_h_ion)
-            residual += dr_p
-            gradient += dg_p
-        dr_ext, dg_ext = _extension_charge_contribution(total_state, params, s_h_ion)
-        residual += dr_ext
-        gradient += dg_ext
+    for iterations in range(1, max_iterations + 1 if finite else 1):
+        residual, gradient = _charge_residual(total_state, params, s_h_ion)
+        if not (math.isfinite(residual) and math.isfinite(gradient)):
+            break
         if abs(residual) < tol:
             converged = True
             break
@@ -192,8 +207,17 @@ def solve_acid_base(
         # BSM2 (Rosén & Jeppsson 2006, §4.2.1): convergence requires charge balance,
         # even when a Newton step is tiny in absolute [H+] units.
         s_h_ion = max(next_value, 1e-14)
-    else:
-        values = _species(total_state, params, s_h_ion)
+
+    if not converged and finite:
+        # Plain Newton failed on a finite state: bracket the physical root
+        # [1e-14, 1] mol/L and bisect (deterministic, monotone residual).
+        root, extra, ok = bracketed_newton(
+            lambda h: _charge_residual(total_state, params, h),
+            1e-14, 1.0, s_h_ion, tolerance=tol, max_iterations=max_iterations,
+        )
+        if ok:
+            s_h_ion, converged, iterations = root, True, iterations + extra
+    values = _species(total_state, params, s_h_ion)
 
     return AcidBaseState(
         s_h_ion=float(s_h_ion),
