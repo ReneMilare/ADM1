@@ -8,7 +8,7 @@ from typing import Literal
 if __package__ is None or __package__ == "":
     sys.path.append(str(Path(__file__).resolve().parent.parent))
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from simulator.core.models import (
@@ -31,7 +31,7 @@ from simulator.service import ADM1SimulationService
 from simulator.paths import _safe_project_path
 from simulator.validation import run_phase3_validation as run_phase3_validation_report
 
-mcp = FastMCP("adm1_simulator_mcp")
+mcp = MCPServer("adm1_simulator_mcp")
 _service: ADM1SimulationService | None = None
 _pipeline: ADM1DesignPipeline | None = None
 
